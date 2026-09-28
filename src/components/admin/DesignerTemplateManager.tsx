@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveAdminTenant } from "@/lib/adminTenant";
@@ -209,7 +210,7 @@ export function DesignerTemplateManager() {
 
             const [{ data: templateRows, error: templateError }, { data: userData }, { data: savedRows, error: savedError }] = await Promise.all([
                 supabase
-                    .from("designer_templates" as any)
+                    .from("designer_templates")
                     .select("*")
                     .eq("tenant_id", resolution.tenantId)
                     .order("sort_order", { ascending: true })
@@ -217,7 +218,7 @@ export function DesignerTemplateManager() {
                     .order("name", { ascending: true }),
                 supabase.auth.getUser(),
                 supabase
-                    .from("designer_saved_designs" as any)
+                    .from("designer_saved_designs")
                     .select("id, name, width_mm, height_mm, bleed_mm, dpi, color_profile, editor_json, preview_thumbnail_url")
                     .order("updated_at", { ascending: false }),
             ]);
@@ -259,7 +260,7 @@ export function DesignerTemplateManager() {
         if (!confirm("Vil du slette denne template?")) return;
 
         const { error } = await supabase
-            .from("designer_templates" as any)
+            .from("designer_templates")
             .delete()
             .eq("id", id);
 
@@ -365,14 +366,14 @@ export function DesignerTemplateManager() {
 
             if (form.id) {
                 const { error } = await supabase
-                    .from("designer_templates" as any)
+                    .from("designer_templates")
                     .update(payload)
                     .eq("id", form.id);
                 if (error) throw error;
                 toast.success("Template opdateret");
             } else {
                 const { error } = await supabase
-                    .from("designer_templates" as any)
+                    .from("designer_templates")
                     .insert(payload);
                 if (error) throw error;
                 toast.success("Template oprettet");
@@ -405,7 +406,7 @@ export function DesignerTemplateManager() {
                     <div className="space-y-2">
                         <div className="flex items-center gap-2">
                             <LayoutGrid className="h-5 w-5 text-primary" />
-                            <CardTitle>Templatebibliotek</CardTitle>
+                            <h1 className="text-2xl font-semibold">Templatebibliotek</h1>
                         </div>
                         <CardDescription>
                             {isMasterScope
@@ -446,7 +447,7 @@ export function DesignerTemplateManager() {
                 </CardHeader>
             </Card>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <WorkspaceCollection label="Templates og formater" className="workspace-format-templates" items={filteredTemplates.map(template => ({ id: template.id, title: template.name, image: template.preview_image_url, subtitle: `${template.width_mm} × ${template.height_mm} mm` }))}>
                 {filteredTemplates.map((template) => (
                     <Card key={template.id} className="overflow-hidden">
                         <div className="aspect-[4/3] border-b bg-muted/30">
@@ -523,7 +524,7 @@ export function DesignerTemplateManager() {
                         </CardContent>
                     </Card>
                 ))}
-            </div>
+            </WorkspaceCollection>
 
             {filteredTemplates.length === 0 ? (
                 <Card>

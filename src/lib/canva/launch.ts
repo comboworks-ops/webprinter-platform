@@ -33,7 +33,8 @@ export type ResolvedCanvaOffer = {
 const DEFAULT_BUTTON_LABEL = "Design i Canva";
 
 function replacePlaceholder(template: string, key: string, value: string | number | null | undefined): string {
-  return template.replaceAll(`{${key}}`, value === null || value === undefined ? "" : String(value));
+  const placeholder = `{${key}}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return template.replace(new RegExp(placeholder, "g"), value === null || value === undefined ? "" : String(value));
 }
 
 export function buildCanvaLaunchUrl(

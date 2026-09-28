@@ -1,3 +1,4 @@
+import type { HeaderSettings } from "@/hooks/useBrandingDraft";
 /**
  * Glassmorphism Theme - Header Component
  *
@@ -17,7 +18,7 @@ export function GlassHeader({ branding, tenantName }: ThemeComponentProps) {
     const [isScrolled, setIsScrolled] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-    const headerSettings = branding?.header || {};
+    const headerSettings: Partial<HeaderSettings> = branding?.header || {};
     const logoText = headerSettings.logoText || tenantName;
     const logoUrl = headerSettings.logoImageUrl;
     const logoType = headerSettings.logoType || 'text';

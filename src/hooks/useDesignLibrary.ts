@@ -35,7 +35,6 @@ export type DesignLibraryItem = {
     library_kind?: string | null;
     source_kind?: string | null;
     external_launch_url?: string | null;
-    tags?: string[];
     category_label?: string;
 };
 
@@ -61,7 +60,7 @@ export function useDesignLibrary(options: {
 
             if (!tenantId) {
                 const { data: tenant } = await supabase
-                    .from('tenants' as any)
+                    .from('tenants')
                     .select('id')
                     .eq('owner_id', user.id)
                     .maybeSingle();
@@ -72,7 +71,7 @@ export function useDesignLibrary(options: {
 
             if (options.tab === 'mine') {
                 let query = supabase
-                    .from('designer_saved_designs' as any)
+                    .from('designer_saved_designs')
                     .select('*')
                     .eq('user_id', user.id)
                     .order('updated_at', { ascending: false });
@@ -98,7 +97,7 @@ export function useDesignLibrary(options: {
             // Templates from designer_templates table
             if (options.tab === 'skabeloner') {
                 const { data, error } = await supabase
-                    .from('designer_templates' as any)
+                    .from('designer_templates')
                     .select('*')
                     .eq('is_active', true)
                     .order('sort_order', { ascending: true })
@@ -164,7 +163,7 @@ export function useDesignLibrary(options: {
 
             // Ressourcer from design_library_items (public resources)
             let query = supabase
-                .from('design_library_items' as any)
+                .from('design_library_items')
                 .select('*')
                 .eq('visibility', 'public');
 

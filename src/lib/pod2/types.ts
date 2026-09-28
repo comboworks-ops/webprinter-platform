@@ -96,6 +96,7 @@ export interface PodFulfillmentJob {
     product_name?: string;
     variant_signature: string;
     qty: number;
+    /** Webprinter product price owed by the tenant before its own markup. */
     tenant_cost: number;
     currency: string;
     status: 'awaiting_approval' | 'payment_pending' | 'paid' | 'submitted' | 'processing' | 'failed' | 'completed';
@@ -135,9 +136,17 @@ export interface PodFulfillmentJob {
     printcom_design_id?: string | null;
     printcom_order_id?: string | null;
     printcom_order_raw?: Record<string, unknown> | null;
-    printcom_submission_step?: 'contact' | 'logo' | 'cart' | 'sender' | 'files' | 'finalize' | 'submit' | null;
+    printcom_submission_step?: 'contact' | 'logo' | 'cart' | 'sender' | 'files' | 'finalize' | 'submitting' | 'submit' | null;
     printcom_last_error?: string | null;
     printcom_last_attempt_at?: string | null;
+    printcom_validation_fingerprint?: string | null;
+    printcom_validation_payment_method?: 'invoice' | 'psp' | null;
+    printcom_validated_at?: string | null;
+    printcom_validated_by_user_id?: string | null;
+    printcom_submission_lock_token?: string | null;
+    printcom_submission_locked_at?: string | null;
+    printcom_payment_verification?: 'stripe' | 'auto_forward' | null;
+    printcom_payment_verified_at?: string | null;
     created_at: string;
     updated_at: string;
 }

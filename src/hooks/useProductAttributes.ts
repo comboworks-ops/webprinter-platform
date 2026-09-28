@@ -44,7 +44,7 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
                 setLoading(true);
             }
             const { data, error } = await supabase
-                .from('product_attribute_groups' as any)
+                .from('product_attribute_groups')
                 .select('*, values:product_attribute_values(*)')
                 .eq('product_id', productId)
                 .order('sort_order');
@@ -70,7 +70,7 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
         try {
             // 1. Create product group (snapshot)
             const { data: newGroup, error: groupError } = await supabase
-                .from('product_attribute_groups' as any)
+                .from('product_attribute_groups')
                 .insert({
                     tenant_id: tenantId,
                     product_id: productId,
@@ -104,7 +104,7 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
                 }));
 
                 const { error: valuesError } = await supabase
-                    .from('product_attribute_values' as any)
+                    .from('product_attribute_values')
                     .insert(valueInserts);
 
                 if (valuesError) throw valuesError;
@@ -123,7 +123,7 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
 
         try {
             const { data: newGroup, error } = await supabase
-                .from('product_attribute_groups' as any)
+                .from('product_attribute_groups')
                 .insert({
                     tenant_id: tenantId,
                     product_id: productId,
@@ -150,7 +150,7 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
     const updateGroup = async (id: string, data: Partial<ProductAttributeGroup>) => {
         try {
             const { error } = await supabase
-                .from('product_attribute_groups' as any)
+                .from('product_attribute_groups')
                 .update({
                     name: data.name,
                     kind: data.kind,
@@ -172,7 +172,7 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
         try {
             // Values cascade delete via FK
             const { error } = await supabase
-                .from('product_attribute_groups' as any)
+                .from('product_attribute_groups')
                 .delete()
                 .eq('id', id);
 
@@ -195,11 +195,11 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
             // Swap sort_order values
             await Promise.all([
                 supabase
-                    .from('product_attribute_groups' as any)
+                    .from('product_attribute_groups')
                     .update({ sort_order: prevGroup.sort_order, updated_at: new Date().toISOString() })
                     .eq('id', currentGroup.id),
                 supabase
-                    .from('product_attribute_groups' as any)
+                    .from('product_attribute_groups')
                     .update({ sort_order: currentGroup.sort_order, updated_at: new Date().toISOString() })
                     .eq('id', prevGroup.id)
             ]);
@@ -221,11 +221,11 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
             // Swap sort_order values
             await Promise.all([
                 supabase
-                    .from('product_attribute_groups' as any)
+                    .from('product_attribute_groups')
                     .update({ sort_order: nextGroup.sort_order, updated_at: new Date().toISOString() })
                     .eq('id', currentGroup.id),
                 supabase
-                    .from('product_attribute_groups' as any)
+                    .from('product_attribute_groups')
                     .update({ sort_order: currentGroup.sort_order, updated_at: new Date().toISOString() })
                     .eq('id', nextGroup.id)
             ]);
@@ -245,7 +245,7 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
         try {
             // 1. Create new group with copied data
             const { data: newGroup, error: groupError } = await supabase
-                .from('product_attribute_groups' as any)
+                .from('product_attribute_groups')
                 .insert({
                     tenant_id: tenantId,
                     product_id: productId,
@@ -279,7 +279,7 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
                 }));
 
                 const { error: valuesError } = await supabase
-                    .from('product_attribute_values' as any)
+                    .from('product_attribute_values')
                     .insert(valueInserts);
 
                 if (valuesError) throw valuesError;
@@ -297,7 +297,7 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
             // Update sort_order for all groups based on new order
             const updates = newOrderIds.map((id, index) =>
                 supabase
-                    .from('product_attribute_groups' as any)
+                    .from('product_attribute_groups')
                     .update({ sort_order: index, updated_at: new Date().toISOString() })
                     .eq('id', id)
             );
@@ -314,7 +314,7 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
 
         try {
             const { data: newVal, error } = await supabase
-                .from('product_attribute_values' as any)
+                .from('product_attribute_values')
                 .insert({
                     tenant_id: tenantId,
                     product_id: productId,
@@ -342,7 +342,7 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
     const updateValue = async (id: string, data: Partial<ProductAttributeValue>) => {
         try {
             const { error } = await supabase
-                .from('product_attribute_values' as any)
+                .from('product_attribute_values')
                 .update({
                     ...data,
                     updated_at: new Date().toISOString()
@@ -359,7 +359,7 @@ export function useProductAttributes(productId: string | undefined, tenantId: st
     const deleteValue = async (id: string) => {
         try {
             const { error } = await supabase
-                .from('product_attribute_values' as any)
+                .from('product_attribute_values')
                 .delete()
                 .eq('id', id);
 

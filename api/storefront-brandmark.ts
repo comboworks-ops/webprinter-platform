@@ -18,7 +18,20 @@ function getInitials(shopName: string): string {
     return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
   }
 
-  return shopName.replace(/[^a-z0-9æøå]/gi, "").slice(0, 2).toUpperCase() || "WP";
+  const compactName = shopName
+    .replace(/\.[a-z]{2,}$/i, "")
+    .replace(/[^a-z0-9æøå]/gi, "");
+  const compoundPrefixes = ["online", "salgs", "web", "print", "tryk"];
+  const compoundPrefix = compoundPrefixes.find((prefix) => (
+    compactName.toLowerCase().startsWith(prefix)
+    && compactName.length > prefix.length
+  ));
+
+  if (compoundPrefix) {
+    return `${compactName[0] || ""}${compactName[compoundPrefix.length] || ""}`.toUpperCase();
+  }
+
+  return compactName.slice(0, 2).toUpperCase() || "WP";
 }
 
 function buildIconSvg(input: {

@@ -73,3 +73,25 @@ Rollback note:
   - `supabase/migrations/20260316090000_storformat_storefront_public_support.sql`
   - `supabase/migrations/20260316093000_storformat_public_items.sql`
 - revert row visibility changes from `public` back to prior values only if storefront public access should be removed intentionally
+
+## 2026-09-08 — published Selvklæbende Print visibility restored
+
+The homepage repair reproduced an empty public calculator for
+`pixart-flat-surface-adhesive` (`ede9872f-a8f8-4475-94bc-d7cb257d224e`).
+Read-only inspection found 7 existing materials, 4 finishes and 2 delivery
+choices marked `tenant`; the existing public-read policies require `public`.
+The 56 material price tiers already existed.
+
+After the user explicitly approved “Apply this visibility repair”, a guarded
+transaction changed only those 13 exact rows to `public` in project
+`ziattmsmiirfweiuunfo`. No pricing values, pricing calculations, tenant IDs,
+policies, product publish flags, or unpublished drafts changed. Post-query
+counts are 7/7, 4/4 and 2/2 public. The unauthenticated local browser now shows
+the material matrix and calculates 179 kr for the default one-item selection,
+and 357 kr for two items (100 × 100 cm, before delivery).
+
+Exact apply and guarded rollback scripts:
+`output/design-exploration/homepage-repair-2026-09-08/adhesive-visibility-apply.sql`
+and `adhesive-visibility-rollback.sql` in the same directory. Rollback has not
+been executed. See `docs/HOMEPAGE_REPAIR_QA_2026-09-08.md` for the local UI checks
+and the distinction between route verification and complete order validation.

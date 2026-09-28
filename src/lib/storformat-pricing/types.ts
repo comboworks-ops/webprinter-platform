@@ -250,10 +250,11 @@ export function calculateProductPriceV2(
       return closest ? closest.price : (sorted[0]?.price || 0);
     }
 
-    case 'm2':
+    case 'm2': {
       // Use m2-based pricing with interpolation
       const prices = productM2Prices.filter(p => p.storformat_product_id === product.id);
       return calculateM2PriceGeneric(areaM2, quantity, prices);
+    }
 
     default:
       return 0;

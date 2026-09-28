@@ -1,12 +1,13 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { withAdminWorkspaceContext } from "@/lib/admin/workspaceNavigation";
 import {
     Paintbrush,
     Calculator,
-    Printer,
     Building2,
     Palette,
     Share2,
@@ -86,23 +87,23 @@ const SHOP_MODULES: ShopModule[] = [
     },
     {
         id: 'icon-studio',
-        name: 'Icon Studio',
-        description: 'Kontrolleret ikonstudio til trykprodukter',
-        longDescription: 'Generer og godkend konsistente print-produktikoner via låste kataloger, faste styles, referencebibliotek og deterministisk brand-overlay. Bygget som et premium backend-modul uden fri prompttekst i V1.',
+        name: 'Produktbilleder',
+        description: 'Ensartede billeder til shopprodukter',
+        longDescription: 'Opret og godkend konsistente produktbilleder med faste visuelle stile, valgfrie referencer og præcis placering af shoplogo. Godkendte billeder kan bruges direkte på et produkt.',
         icon: <Sparkles className="h-8 w-8" />,
         status: 'active',
         tier: 'premium',
         route: '/admin/icon-studio',
         features: [
-            'Låst print-produkt katalog',
-            '5 faste ikonstile',
-            'Reference asset matching',
-            'Programmatisk logo-placering',
-            'Draft review og approve flow'
+            'Faste typer af trykprodukter',
+            '5 visuelle stile',
+            'Stilreferencer',
+            'Præcis placering af logo',
+            'Godkendelse og direkte produkttilknytning'
         ],
         color: 'from-fuchsia-500 to-rose-500',
         previewImage: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&h=450&fit=crop',
-        price: 'Fra 199 kr/md',
+        price: 'Pilot',
     },
     {
         id: 'machine-pricing',
@@ -123,26 +124,6 @@ const SHOP_MODULES: ShopModule[] = [
         color: 'from-blue-500 to-cyan-500',
         previewImage: 'https://images.unsplash.com/photo-1504868584819-f8e8b4b6d7e3?w=800&h=450&fit=crop',
         price: 'Fra 299 kr/md',
-    },
-    {
-        id: 'print-on-demand',
-        name: 'Print on Demand',
-        description: 'Dropshipping af tryksager',
-        longDescription: 'Sælg produkter uden at have dem på lager. Når en kunde bestiller, sendes ordren automatisk til produktion hos en partner, der printer og sender direkte til kunden.',
-        icon: <Printer className="h-8 w-8" />,
-        status: 'active',
-        tier: 'premium',
-        route: '/admin/pod-katalog',
-        features: [
-            'POD produktkatalog',
-            'Automatisk ordrebehandling',
-            'Direkte levering til kunde',
-            'Integration med produktion',
-            'Øget avance'
-        ],
-        color: 'from-green-500 to-emerald-500',
-        previewImage: 'https://images.unsplash.com/photo-1586075010923-2dd4570fb338?w=800&h=450&fit=crop',
-        price: 'Fra 499 kr/md',
     },
     {
         id: 'company-hub',
@@ -187,6 +168,7 @@ const SHOP_MODULES: ShopModule[] = [
 
 export function ShopModules() {
     const navigate = useNavigate();
+    const location = useLocation();
     const [previewModule, setPreviewModule] = useState<ShopModule | null>(null);
 
     const getStatusBadge = (status: ShopModule['status']) => {
@@ -248,46 +230,18 @@ export function ShopModules() {
                 </div>
             </div>
 
-            {/* Free Modules Section */}
-            <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                    <Gift className="h-5 w-5 text-green-600" />
-                    <h2 className="text-xl font-semibold">Inkluderet i dit abonnement</h2>
-                </div>
-                <div className="grid gap-6 md:grid-cols-2">
-                    {SHOP_MODULES.filter(m => m.tier === 'free').map((module) => (
-                        <ModuleCard
-                            key={module.id}
-                            module={module}
-                            onPreview={() => setPreviewModule(module)}
-                            onNavigate={() => module.route && navigate(module.route)}
-                            getStatusBadge={getStatusBadge}
-                            getTierBadge={getTierBadge}
-                        />
-                    ))}
-                </div>
-            </div>
-
-            {/* Premium Modules Section */}
-            <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                    <Crown className="h-5 w-5 text-amber-600" />
-                    <h2 className="text-xl font-semibold">Premium Moduler</h2>
-                    <span className="text-sm text-muted-foreground">(Tilkøb)</span>
-                </div>
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-2">
-                    {SHOP_MODULES.filter(m => m.tier === 'premium').map((module) => (
-                        <ModuleCard
-                            key={module.id}
-                            module={module}
-                            onPreview={() => setPreviewModule(module)}
-                            onNavigate={() => module.route && navigate(module.route)}
-                            getStatusBadge={getStatusBadge}
-                            getTierBadge={getTierBadge}
-                        />
-                    ))}
-                </div>
-            </div>
+            <WorkspaceCollection
+                label="Shop moduler"
+                className="workspace-modules"
+                items={SHOP_MODULES.map(module => ({ id: module.id, title: module.name, subtitle: module.description, icon: module.icon, group: module.tier === 'free' ? 'Inkluderet i dit abonnement' : 'Premium moduler' }))}
+            >
+                {SHOP_MODULES.map(module => (
+                    <ModuleCard key={module.id} module={module}
+                        onPreview={() => setPreviewModule(module)}
+                        onNavigate={() => module.route && navigate(withAdminWorkspaceContext(module.route, location.search))}
+                        getStatusBadge={getStatusBadge} getTierBadge={getTierBadge} />
+                ))}
+            </WorkspaceCollection>
 
             {/* Info Banner */}
             <Card className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border-primary/20">
@@ -377,7 +331,7 @@ export function ShopModules() {
                                     </Button>
                                     {previewModule.route && previewModule.status !== 'coming_soon' && (
                                         <Button onClick={() => {
-                                            navigate(previewModule.route!);
+                                            navigate(withAdminWorkspaceContext(previewModule.route!, location.search));
                                             setPreviewModule(null);
                                         }}>
                                             {previewModule.tier === 'premium' ? 'Prøv nu' : 'Åbn modul'}

@@ -29,9 +29,9 @@ export function CustomDimensionsCalculator({
   const areaM2 = width > 0 && height > 0 ? (width / 100) * (height / 100) : 0;
 
   return (
-    <div className="bg-muted/50 border rounded-lg p-6 mb-6">
+    <div className="custom-dimensions-calculator bg-muted/50 border rounded-lg p-6 mb-6">
       <h3 className="font-semibold mb-4">Din størrelse</h3>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+      <div className="custom-dimensions-fields">
         <div className="space-y-2">
           <Label htmlFor="width">Bredde (cm)</Label>
           <Input
@@ -56,7 +56,7 @@ export function CustomDimensionsCalculator({
             className="bg-background"
           />
         </div>
-        <div className="space-y-2">
+        <div className="custom-dimensions-area space-y-2">
           <Label>Beregnet areal</Label>
           <div className="h-10 flex items-center px-3 bg-primary/10 rounded-md border border-primary/20">
             <span className="font-semibold text-primary">{areaM2.toFixed(2)} m²</span>

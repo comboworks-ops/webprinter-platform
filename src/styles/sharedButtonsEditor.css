@@ -1,0 +1,59 @@
+.sb-editor,.sb-local-lock { min-width: 0; }
+.sd-quick-controls.sb-editor { gap: var(--ui-space-3,12px); }
+.sb-editor .sd-control-note,.sb-local-lock .sd-control-note { padding: 0; background: transparent; }
+.sb-role-tabs { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; gap: 4px; border-radius: 12px; background: #eef2f6; }
+.sb-role-tabs button { min-height: 44px; padding: 8px; border-radius: 8px; font-weight: 600; font-size: 13px; }
+.sb-role-tabs button[aria-pressed="true"] { background: #fff; color: #075985; box-shadow: 0 1px 4px #0f172a15; }
+.sb-panel-tabs,.sb-state-tabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
+.sb-panel-tabs { border-bottom: 1px solid #e2e8f0; }
+.sb-panel-tabs button,.sb-state-tabs button { min-width: 0; min-height: 40px; padding: 6px 3px; font-size: 12px; font-weight: 500; color: #64748b; }
+.sb-panel-tabs button { border-bottom: 2px solid transparent; }
+.sb-panel-tabs button[aria-pressed="true"] { border-color: #0284c7; color: #075985; }
+.sb-panel-tabs small { margin-left: 4px; font-size: 10px; }
+.sb-state-tabs { padding: 3px; border-radius: 8px; background: #f1f5f9; }
+.sb-state-tabs button { min-height: 32px; border-radius: 5px; }
+.sb-state-tabs button[aria-pressed="true"] { background: white; color: #0f172a; box-shadow: 0 1px 3px #0f172a12; }
+.sb-panel-content { display: grid; gap: var(--ui-space-3,12px); min-width: 0; }
+.sb-panel-content .sd-control-field { gap: 4px; font-size: 12px; }
+.sb-panel-content .sd-control-field input[type="range"] { height: 24px; }
+.sb-color-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px 8px; }
+.sb-color-control { display: flex; flex-direction: column; min-width: 0; gap: 5px; font-size: 11px; color: #475569; }
+.sb-color-control>span:last-child { display: flex; align-items: center; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; overflow: hidden; }
+.sb-color-control input[type="color"] { width: 36px; height: 38px; padding: 3px; flex-shrink: 0; cursor: pointer; border: 0; }
+.sb-color-control input:not([type="color"]) { min-width: 0; width: 100%; font-size: 11px; border: 0; padding: 4px; font-family: ui-monospace,monospace; }
+.sb-secondary { min-height: 40px; padding: 8px 12px; font-size: 12px; font-weight: 600; border: 1px solid #cbd5e1; border-radius: 8px; background: white; }
+.sb-secondary:hover { background: #f1f5f9; }
+.sb-secondary:disabled { opacity: .45; cursor: not-allowed; }
+.sb-effects { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+.sb-effect-card { display: flex; align-items: center; justify-content: center; padding: 5px; min-width: 0; min-height: 48px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; text-align: center; }
+.sb-effect-card[aria-pressed="true"] { border-color: #0284c7; box-shadow: 0 0 0 1px #0284c7; background: #f0f9ff; }
+body .sb-effect-card .sb-effect-sample[data-shared-button][data-shared-button][data-shared-button] { display: inline-flex; align-items: center; justify-content: center; padding: 6px 3px !important; font-size: 11px !important; min-height: 34px; width: 100%; max-width: 100%; overflow-wrap: anywhere; }
+.sb-effect-description { margin: 0; font-size: 12px; line-height: 1.5; color: #64748b; }
+/* Hovering the whole card demonstrates its effect, without nested interactive buttons. */
+.sb-effect-card:is(:hover,:focus-visible) .sb-effect-sample { --sb-surface: var(--sb-hover); --sb-ink: var(--sb-hover-text); }
+.sb-effect-card:is(:hover,:focus-visible) [data-button-effect="water"]::before,.sb-effect-card:is(:hover,:focus-visible) [data-button-effect="sweep"]::before { transform: translate(0); border-radius: 0; }
+.sb-effect-card:is(:hover,:focus-visible) [data-button-effect="jelly"] { animation: sb-jelly .75s both; }
+.sb-effect-card:is(:hover,:focus-visible) [data-button-effect="sheen"]::after { animation: sb-sheen 1.5s ease infinite; }
+.sb-effect-card:is(:hover,:focus-visible) [data-button-effect="ripple"]::after { animation: sb-ripple 1.8s ease-out infinite; }
+.sb-effect-card:is(:hover,:focus-visible) [data-button-effect="aurora"]::before { opacity: .65; animation: sb-aurora 8s ease-in-out infinite alternate; }
+.sb-effect-card:is(:hover,:focus-visible) [data-button-effect="orbit"]::after { opacity: 1; animation: sb-orbit 3s linear infinite; }
+.sb-effect-card:is(:hover,:focus-visible) [data-button-effect="breathe"] { animation: sb-breathe 3.5s ease-in-out infinite; }
+.sb-effect-card:is(:hover,:focus-visible) [data-button-effect="lift"] { transform: translateY(-3px); box-shadow: 0 8px 16px #0f172a33; }
+.sb-effect-card:is(:hover,:focus-visible) [data-button-effect="glow"] { box-shadow: 0 0 20px var(--sb-hover); }
+.sb-bank { display: grid; gap: 10px; }
+.sb-bank h3 { display: flex; justify-content: space-between; }
+.sb-bank small { color: #64748b; font-size: 11px; font-weight: 400; }
+.sb-bank>input { min-width: 0; width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
+.sb-bank>label { font-size: 12px; font-weight: 500; }
+.sb-reset { margin-top: 4px; }
+.sb-panel-content .sd-control-note { margin: 0; color: #64748b; font-size: 12px; line-height: 1.5; }
+.sb-bank-entry { display: grid; grid-template-columns: auto minmax(0,1fr) auto auto; align-items: center; gap: 8px; }
+.sb-bank-entry strong { font-size: 12px; overflow-wrap: anywhere; }
+body .sb-bank-entry>[data-shared-button] { padding: 8px !important; font-size: 12px !important; }
+.sb-remove { width: 28px; height: 40px; color: #64748b; font-size: 20px; }
+.sd-quick-controls.sb-local-lock { gap: 8px; margin: 12px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; background: #f8fafc; }
+.sb-local-lock summary { cursor: pointer; font-size: 12px; font-weight: 600; }
+.sb-local-fields { display: grid; gap: 16px; padding-top: 14px; }
+.sb-editor button:focus-visible,.sb-local-lock button:focus-visible { outline: 2px solid #0284c7; outline-offset: 3px; }
+@media (max-width: 480px) { .sb-color-control input:not([type="color"]) { font-size: 16px; } }
+@media (prefers-reduced-motion: reduce) { .sb-effect-card [data-shared-button],.sb-effect-card [data-shared-button]::before,.sb-effect-card [data-shared-button]::after { animation: none !important; transform: none !important; transition: none !important; } }

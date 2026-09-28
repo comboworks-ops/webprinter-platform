@@ -1,6 +1,6 @@
 /**
  * Ordre Workflow Feature Page
- * 
+ *
  * Platform marketing page describing the order management workflow feature.
  */
 
@@ -28,7 +28,7 @@ const PlatformOrderFlow = () => {
     ];
 
     return (
-        <div className="min-h-screen flex flex-col font-sans">
+        <div className="platform-page min-h-screen flex flex-col font-sans">
             <SEO
                 title="Ordre Workflow | Webprinter Platform"
                 description="Strømlinet ordrehåndtering fra bestilling til levering. Automatiser dit trykkeri."

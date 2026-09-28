@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { fetchSameOriginAsset } from "../src/lib/storefront/fetchSameOriginAsset.js";
 import {
   DEFAULT_ROOT_DOMAIN,
   getDomainVariants,
@@ -14,6 +15,7 @@ import {
   type StorefrontTenantRow,
 } from "../src/lib/storefront/seo.js";
 import { computePlatformSeo } from "../src/lib/platform-seo/metadata.js";
+import { readSupabaseKey } from "../supabase/functions/_shared/supabaseKeys.js";
 
 export const config = {
   runtime: "edge",
@@ -27,13 +29,10 @@ const SUPABASE_ANON_KEY =
   || process.env.SUPABASE_ANON_KEY
   || "";
 const SUPABASE_SERVICE_ROLE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-  || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY
-  || "";
+  readSupabaseKey((name) => process.env[name], "secret") || "";
 
 async function fetchSpaShell(request: Request): Promise<Response> {
-  const shellUrl = new URL("/index.html", request.url);
-  return fetch(shellUrl.toString(), {
+  return fetchSameOriginAsset(request, "/index.html", {
     headers: {
       "x-tenant-shell": "1",
     },
@@ -186,7 +185,7 @@ function toHtmlMeta(input: {
     canonicalUrl: input.canonicalUrl,
     ogUrl: input.ogUrl,
     imageUrl: input.ogImageUrl || `${new URL(input.canonicalUrl).origin}/platform-og-image.png`,
-    iconUrl: `${new URL(input.canonicalUrl).origin}/platform-favicon.svg`,
+    iconUrl: `${new URL(input.canonicalUrl).origin}/favicon.ico`,
     siteName: input.siteName,
     author: input.author,
     structuredData: JSON.stringify(input.jsonLd[0] || {

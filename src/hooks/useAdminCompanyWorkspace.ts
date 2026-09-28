@@ -1,0 +1,718 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { supabase } from "@/integrations/supabase/client";
+import {
+  archiveCompanyAddress,
+  archiveCompanyAsset,
+  archiveCompanyCatalogItem,
+  archiveCompanyOffice,
+  buildCompanyAuthUrl,
+  createCompanyAddress,
+  createCompanyAssetSignedUrl,
+  createCompanyCatalogCategory,
+  createCompanyCatalogItem,
+  createCompanyOffice,
+  createCompanyTemplateBinding,
+  listCompanyAddresses,
+  listCompanyAssets,
+  listCompanyLogos,
+  listCompanyConsultantRequests,
+  listCompanyCategories,
+  listCompanyCatalogItems,
+  listEligibleCompanyProducts,
+  listCompanyTemplateBindings,
+  listCompanyTemplateCandidates,
+  listCompanyOffices,
+  listCompanyOrderRequests,
+  normalizeCompanyRole,
+  decideCompanyOrderRequest,
+  replaceCompanyCatalogItemOffices,
+  updateCompanyAddress,
+  updateCompanyCatalogItem,
+  updateCompanyOffice,
+  updateCompanyConsultantRequestStatus,
+  uploadCompanyAsset,
+  uploadCompanyLogo,
+  type CompanyAccount,
+  type CompanyAddress,
+  type CompanyAsset,
+  type CompanyAssetUploadInput,
+  type CompanyConsultantRequest,
+  type CompanyMember,
+  type CompanyOffice,
+  type CompanyProductCandidate,
+  type CompanyRole,
+  type CompanyWorkspaceScope,
+  type CreateCompanyAddressInput,
+  type CreateCompanyCatalogItemInput,
+  type CreateCompanyCategoryInput,
+  type CreateCompanyOfficeInput,
+  type CreateCompanyTemplateBindingInput,
+  type HubItem,
+  type UpdateCompanyAddressInput,
+  type UpdateCompanyCatalogItemInput,
+  type UpdateCompanyOfficeInput,
+} from "@/lib/company-hub";
+
+const database = supabase as any;
+
+export interface AdminCompanyMember extends CompanyMember {
+  user_name: string;
+  user_email?: string;
+  office_ids: string[];
+}
+
+export interface CompanySetupMetrics {
+  templateCount: number;
+  orderRequestCount: number;
+}
+
+export interface CompanyIdentityInput {
+  name: string;
+  slug?: string | null;
+  industryKey?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  billingEmail?: string | null;
+  logoUrl?: string | null;
+  status?: CompanyAccount["status"];
+}
+
+export interface SaveCompanyMemberInput {
+  userId: string;
+  role: CompanyRole;
+  isAllOffices: boolean;
+  officeIds: string[];
+}
+
+export interface InviteCompanyMemberInput {
+  email: string;
+  role: CompanyRole;
+  isAllOffices: boolean;
+  officeIds: string[];
+}
+
+export interface InviteCompanyMemberResult {
+  email: string;
+  userId: string;
+  invitationSent: boolean;
+  existingUser: boolean;
+}
+
+const adminCompanyKeys = {
+  root: (tenantId: string) => ["admin-company-hub-v2", tenantId] as const,
+  companies: (tenantId: string) => [...adminCompanyKeys.root(tenantId), "companies"] as const,
+  offices: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "offices", companyId,
+  ] as const,
+  addresses: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "addresses", companyId,
+  ] as const,
+  members: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "members", companyId,
+  ] as const,
+  catalog: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "catalog", companyId,
+  ] as const,
+  categories: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "categories", companyId,
+  ] as const,
+  itemOffices: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "item-offices", companyId,
+  ] as const,
+  productCandidates: (tenantId: string) => [
+    ...adminCompanyKeys.root(tenantId), "product-candidates",
+  ] as const,
+  templateBindings: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "template-bindings", companyId,
+  ] as const,
+  templateCandidates: (tenantId: string) => [
+    ...adminCompanyKeys.root(tenantId), "template-candidates",
+  ] as const,
+  assets: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "assets", companyId,
+  ] as const,
+  requests: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "requests", companyId,
+  ] as const,
+  consultantRequests: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "consultant-requests", companyId,
+  ] as const,
+  metrics: (tenantId: string, companyId: string | null) => [
+    ...adminCompanyKeys.root(tenantId), "metrics", companyId,
+  ] as const,
+  tenantLogo: (tenantId: string) => [...adminCompanyKeys.root(tenantId), "tenant-logo"] as const,
+  companyLogos: (tenantId: string) => [...adminCompanyKeys.root(tenantId), "company-logos"] as const,
+};
+
+function required(value: string | null | undefined, label: string): string {
+  const normalized = String(value || "").trim();
+  if (!normalized) throw new Error(`${label} skal udfyldes.`);
+  return normalized;
+}
+
+function optional(value: string | null | undefined): string | null {
+  const normalized = String(value || "").trim();
+  return normalized || null;
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+export function resolveCompanyHubSystemLogo(settings: unknown): string | null {
+  const source = record(settings);
+  const brandingContainer = record(source.branding);
+  const branding = record(
+    brandingContainer.published
+      || brandingContainer.draft
+      || source.branding_published
+      || source.branding_template_published
+      || (Object.keys(brandingContainer).length ? brandingContainer : null),
+  );
+  const header = record(branding.header);
+  const logoUrl = typeof branding.logo_url === "string"
+    ? branding.logo_url
+    : typeof header.logoImageUrl === "string"
+      ? header.logoImageUrl
+      : null;
+  return optional(logoUrl);
+}
+
+function companyPayload(input: CompanyIdentityInput) {
+  return {
+    name: required(input.name, "Firmanavn"),
+    slug: optional(input.slug),
+    industry_key: optional(input.industryKey),
+    contact_email: optional(input.contactEmail),
+    contact_phone: optional(input.contactPhone),
+    billing_email: optional(input.billingEmail),
+    logo_url: optional(input.logoUrl),
+    status: input.status || "active",
+  };
+}
+
+async function loadMembers(tenantId: string, companyId: string): Promise<AdminCompanyMember[]> {
+  const [{ data: members, error: membersError }, { data: scopes, error: scopesError }] = await Promise.all([
+    database
+      .from("company_members")
+      .select(`
+        company_id,
+        tenant_id,
+        user_id,
+        role,
+        status,
+        is_all_offices,
+        created_at,
+        updated_at,
+        profile:profiles(first_name, last_name, email)
+      `)
+      .eq("tenant_id", tenantId)
+      .eq("company_id", companyId)
+      .order("created_at", { ascending: true }),
+    database
+      .from("company_member_offices")
+      .select("user_id, office_id")
+      .eq("tenant_id", tenantId)
+      .eq("company_id", companyId),
+  ]);
+
+  if (membersError) throw membersError;
+  if (scopesError) throw scopesError;
+
+  const officeIdsByUser = new Map<string, string[]>();
+  for (const row of scopes || []) {
+    const current = officeIdsByUser.get(row.user_id) || [];
+    current.push(row.office_id);
+    officeIdsByUser.set(row.user_id, current);
+  }
+
+  return (members || []).map((row: any) => {
+    const profile = Array.isArray(row.profile) ? row.profile[0] : row.profile;
+    const fullName = `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim();
+    return {
+      ...row,
+      role: normalizeCompanyRole(row.role),
+      status: row.status === "disabled" ? "disabled" : "active",
+      is_all_offices: row.is_all_offices !== false,
+      user_name: fullName || profile?.email || "Navn mangler",
+      user_email: profile?.email || undefined,
+      office_ids: officeIdsByUser.get(row.user_id) || [],
+    } as AdminCompanyMember;
+  });
+}
+
+export function useAdminCompanyWorkspace(tenantId: string, selectedCompanyId: string | null) {
+  const queryClient = useQueryClient();
+  const scope: CompanyWorkspaceScope | null = selectedCompanyId
+    ? { tenantId, companyId: selectedCompanyId }
+    : null;
+
+  const requireScope = (): CompanyWorkspaceScope => {
+    if (!scope) throw new Error("Vælg et firma først.");
+    return scope;
+  };
+
+  const companiesQuery = useQuery({
+    queryKey: adminCompanyKeys.companies(tenantId),
+    queryFn: async (): Promise<CompanyAccount[]> => {
+      const { data, error } = await database
+        .from("company_accounts")
+        .select("id, tenant_id, name, logo_url, slug, status, industry_key, contact_email, contact_phone, billing_email, settings, created_at, updated_at")
+        .eq("tenant_id", tenantId)
+        .neq("status", "archived")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: Boolean(tenantId),
+  });
+
+  const tenantLogoQuery = useQuery({
+    queryKey: adminCompanyKeys.tenantLogo(tenantId),
+    queryFn: async (): Promise<string | null> => {
+      const { data, error } = await database
+        .from("tenants")
+        .select("settings")
+        .eq("id", tenantId)
+        .maybeSingle();
+      if (error) throw error;
+      return resolveCompanyHubSystemLogo(data?.settings);
+    },
+    enabled: Boolean(tenantId),
+    staleTime: 5 * 60_000,
+  });
+
+  const companyLogosQuery = useQuery({
+    queryKey: adminCompanyKeys.companyLogos(tenantId),
+    queryFn: () => listCompanyLogos(supabase as any, tenantId),
+    enabled: Boolean(tenantId),
+    staleTime: 5 * 60_000,
+  });
+
+  const officesQuery = useQuery({
+    queryKey: adminCompanyKeys.offices(tenantId, selectedCompanyId),
+    queryFn: () => listCompanyOffices(database, selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const addressesQuery = useQuery({
+    queryKey: adminCompanyKeys.addresses(tenantId, selectedCompanyId),
+    queryFn: () => listCompanyAddresses(database, selectedCompanyId!, { includeAllOffices: true }),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const membersQuery = useQuery({
+    queryKey: adminCompanyKeys.members(tenantId, selectedCompanyId),
+    queryFn: () => loadMembers(tenantId, selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const catalogQuery = useQuery({
+    queryKey: adminCompanyKeys.catalog(tenantId, selectedCompanyId),
+    queryFn: () => listCompanyCatalogItems(database, selectedCompanyId!, { includeDrafts: true }),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const categoriesQuery = useQuery({
+    queryKey: adminCompanyKeys.categories(tenantId, selectedCompanyId),
+    queryFn: () => listCompanyCategories(database, selectedCompanyId!, { includeDrafts: true }),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const itemOfficesQuery = useQuery({
+    queryKey: adminCompanyKeys.itemOffices(tenantId, selectedCompanyId),
+    queryFn: async (): Promise<Record<string, string[]>> => {
+      const { data, error } = await database
+        .from("company_catalog_item_offices")
+        .select("item_id, office_id")
+        .eq("tenant_id", tenantId)
+        .eq("company_id", selectedCompanyId!);
+      if (error) throw error;
+      return (data || []).reduce((result: Record<string, string[]>, row: any) => {
+        result[row.item_id] = [...(result[row.item_id] || []), row.office_id];
+        return result;
+      }, {});
+    },
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const productCandidatesQuery = useQuery({
+    queryKey: adminCompanyKeys.productCandidates(tenantId),
+    queryFn: (): Promise<CompanyProductCandidate[]> => listEligibleCompanyProducts(database, tenantId),
+    enabled: Boolean(tenantId),
+  });
+
+  const templateBindingsQuery = useQuery({
+    queryKey: adminCompanyKeys.templateBindings(tenantId, selectedCompanyId),
+    queryFn: () => listCompanyTemplateBindings(database, selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const templateCandidatesQuery = useQuery({
+    queryKey: adminCompanyKeys.templateCandidates(tenantId),
+    queryFn: () => listCompanyTemplateCandidates(database, tenantId),
+    enabled: Boolean(tenantId),
+  });
+
+  const assetsQuery = useQuery({
+    queryKey: adminCompanyKeys.assets(tenantId, selectedCompanyId),
+    queryFn: () => listCompanyAssets(database, selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const orderRequestsQuery = useQuery({
+    queryKey: adminCompanyKeys.requests(tenantId, selectedCompanyId),
+    queryFn: () => listCompanyOrderRequests(database, selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const consultantRequestsQuery = useQuery({
+    queryKey: adminCompanyKeys.consultantRequests(tenantId, selectedCompanyId),
+    queryFn: () => listCompanyConsultantRequests(database, selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const metricsQuery = useQuery({
+    queryKey: adminCompanyKeys.metrics(tenantId, selectedCompanyId),
+    queryFn: async (): Promise<CompanySetupMetrics> => {
+      const [templates, orderRequests] = await Promise.all([
+        database
+          .from("company_template_bindings")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", tenantId)
+          .eq("company_id", selectedCompanyId!),
+        database
+          .from("company_order_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", tenantId)
+          .eq("company_id", selectedCompanyId!),
+      ]);
+      if (templates.error) throw templates.error;
+      if (orderRequests.error) throw orderRequests.error;
+      return {
+        templateCount: templates.count || 0,
+        orderRequestCount: orderRequests.count || 0,
+      };
+    },
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const invalidateCompany = async () => {
+    await queryClient.invalidateQueries({ queryKey: adminCompanyKeys.companies(tenantId) });
+  };
+
+  const invalidateLocations = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.offices(tenantId, selectedCompanyId) }),
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.addresses(tenantId, selectedCompanyId) }),
+    ]);
+  };
+
+  const createCompanyMutation = useMutation({
+    mutationFn: async (input: CompanyIdentityInput): Promise<CompanyAccount> => {
+      const { data, error } = await database
+        .from("company_accounts")
+        .insert({ tenant_id: tenantId, ...companyPayload(input) })
+        .select("*")
+        .single();
+      if (error || !data) throw error || new Error("Firmaet kunne ikke oprettes.");
+      return data;
+    },
+    onSuccess: invalidateCompany,
+  });
+
+  const updateCompanyMutation = useMutation({
+    mutationFn: async ({ companyId, input }: { companyId: string; input: CompanyIdentityInput }) => {
+      const { data, error } = await database
+        .from("company_accounts")
+        .update(companyPayload(input))
+        .eq("id", companyId)
+        .eq("tenant_id", tenantId)
+        .select("*")
+        .single();
+      if (error || !data) throw error || new Error("Firmaet kunne ikke gemmes.");
+      return data as CompanyAccount;
+    },
+    onSuccess: invalidateCompany,
+  });
+
+  const createOfficeMutation = useMutation({
+    mutationFn: (input: CreateCompanyOfficeInput) => createCompanyOffice(database, requireScope(), input),
+    onSuccess: invalidateLocations,
+  });
+  const updateOfficeMutation = useMutation({
+    mutationFn: ({ officeId, input }: { officeId: string; input: UpdateCompanyOfficeInput }) => (
+      updateCompanyOffice(database, requireScope(), officeId, input)
+    ),
+    onSuccess: invalidateLocations,
+  });
+  const archiveOfficeMutation = useMutation({
+    mutationFn: (officeId: string) => archiveCompanyOffice(database, requireScope(), officeId),
+    onSuccess: invalidateLocations,
+  });
+  const createAddressMutation = useMutation({
+    mutationFn: (input: CreateCompanyAddressInput) => createCompanyAddress(database, requireScope(), input),
+    onSuccess: invalidateLocations,
+  });
+  const updateAddressMutation = useMutation({
+    mutationFn: ({ addressId, input }: { addressId: string; input: UpdateCompanyAddressInput }) => (
+      updateCompanyAddress(database, requireScope(), addressId, input)
+    ),
+    onSuccess: invalidateLocations,
+  });
+  const archiveAddressMutation = useMutation({
+    mutationFn: (addressId: string) => archiveCompanyAddress(database, requireScope(), addressId),
+    onSuccess: invalidateLocations,
+  });
+
+  const saveMemberMutation = useMutation({
+    mutationFn: async (input: SaveCompanyMemberInput) => {
+      const currentScope = requireScope();
+      const officeIds = [...new Set(input.officeIds.filter(Boolean))];
+      if (!input.isAllOffices && officeIds.length === 0) {
+        throw new Error("Vælg mindst ét kontor til medlemmet.");
+      }
+
+      const { error: memberError } = await database
+        .from("company_members")
+        .upsert({
+          tenant_id: currentScope.tenantId,
+          company_id: currentScope.companyId,
+          user_id: input.userId,
+          role: input.role,
+          status: "active",
+          is_all_offices: input.isAllOffices,
+        }, { onConflict: "company_id,user_id" });
+      if (memberError) throw memberError;
+
+      const { error: clearError } = await database
+        .from("company_member_offices")
+        .delete()
+        .eq("tenant_id", currentScope.tenantId)
+        .eq("company_id", currentScope.companyId)
+        .eq("user_id", input.userId);
+      if (clearError) throw clearError;
+
+      if (!input.isAllOffices) {
+        const { error: scopeError } = await database
+          .from("company_member_offices")
+          .insert(officeIds.map((officeId) => ({
+            tenant_id: currentScope.tenantId,
+            company_id: currentScope.companyId,
+            user_id: input.userId,
+            office_id: officeId,
+          })));
+        if (scopeError) throw scopeError;
+      }
+    },
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.members(tenantId, selectedCompanyId),
+    }),
+  });
+
+  const inviteMemberMutation = useMutation({
+    mutationFn: async (input: InviteCompanyMemberInput): Promise<InviteCompanyMemberResult> => {
+      const currentScope = requireScope();
+      const email = required(input.email, "E-mail").toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw new Error("Indtast en gyldig e-mailadresse.");
+      }
+
+      const authUrl = new URL(buildCompanyAuthUrl(window.location.search), window.location.origin);
+
+      const { data, error } = await supabase.functions.invoke("company-hub-invite-member", {
+        body: {
+          tenantId: currentScope.tenantId,
+          companyId: currentScope.companyId,
+          email,
+          role: input.role,
+          isAllOffices: input.isAllOffices,
+          officeIds: input.officeIds,
+          redirectTo: authUrl.toString(),
+        },
+      });
+
+      if (error) {
+        let message = error.message || "Invitationen kunne ikke sendes.";
+        const context = (error as { context?: Response }).context;
+        if (context) {
+          try {
+            const payload = await context.clone().json() as { error?: string };
+            if (payload.error) message = payload.error;
+          } catch {
+            // Keep the client error when the function did not return JSON.
+          }
+        }
+        throw new Error(message);
+      }
+
+      if (!data?.success || !data?.userId) {
+        throw new Error(data?.error || "Invitationen kunne ikke sendes.");
+      }
+      return data as InviteCompanyMemberResult;
+    },
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.members(tenantId, selectedCompanyId),
+    }),
+  });
+
+  const disableMemberMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const currentScope = requireScope();
+      const { error } = await database
+        .from("company_members")
+        .update({ status: "disabled", is_all_offices: false })
+        .eq("tenant_id", currentScope.tenantId)
+        .eq("company_id", currentScope.companyId)
+        .eq("user_id", userId);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.members(tenantId, selectedCompanyId),
+    }),
+  });
+
+  const createCategoryMutation = useMutation({
+    mutationFn: (input: CreateCompanyCategoryInput) => (
+      createCompanyCatalogCategory(database, requireScope(), input)
+    ),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.categories(tenantId, selectedCompanyId),
+    }),
+  });
+
+  const saveCatalogItemMutation = useMutation({
+    mutationFn: async ({
+      itemId,
+      input,
+      officeIds,
+    }: {
+      itemId?: string;
+      input: CreateCompanyCatalogItemInput | UpdateCompanyCatalogItemInput;
+      officeIds: string[];
+    }) => {
+      const currentScope = requireScope();
+      const item = itemId
+        ? await updateCompanyCatalogItem(database, currentScope, itemId, input as UpdateCompanyCatalogItemInput)
+        : await createCompanyCatalogItem(database, currentScope, input as CreateCompanyCatalogItemInput);
+      await replaceCompanyCatalogItemOffices(
+        database,
+        currentScope,
+        item.id,
+        input.officeScope === "selected" ? officeIds : [],
+      );
+      return item;
+    },
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.catalog(tenantId, selectedCompanyId) }),
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.itemOffices(tenantId, selectedCompanyId) }),
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.metrics(tenantId, selectedCompanyId) }),
+    ]),
+  });
+
+  const archiveCatalogItemMutation = useMutation({
+    mutationFn: (itemId: string) => archiveCompanyCatalogItem(database, requireScope(), itemId),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.catalog(tenantId, selectedCompanyId),
+    }),
+  });
+
+  const createTemplateBindingMutation = useMutation({
+    mutationFn: async (input: CreateCompanyTemplateBindingInput) => {
+      const { data } = await supabase.auth.getUser();
+      return createCompanyTemplateBinding(database, requireScope(), {
+        ...input,
+        approvedBy: data.user?.id || null,
+      });
+    },
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.templateBindings(tenantId, selectedCompanyId) }),
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.catalog(tenantId, selectedCompanyId) }),
+      queryClient.invalidateQueries({ queryKey: adminCompanyKeys.metrics(tenantId, selectedCompanyId) }),
+    ]),
+  });
+
+  const uploadAssetMutation = useMutation({
+    mutationFn: (input: CompanyAssetUploadInput) => uploadCompanyAsset(supabase as any, requireScope(), input),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.assets(tenantId, selectedCompanyId),
+    }),
+  });
+
+  const uploadCompanyLogoMutation = useMutation({
+    mutationFn: (file: File) => uploadCompanyLogo(supabase as any, tenantId, file),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.companyLogos(tenantId),
+    }),
+  });
+
+  const archiveAssetMutation = useMutation({
+    mutationFn: (assetId: string) => archiveCompanyAsset(database, requireScope(), assetId),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.assets(tenantId, selectedCompanyId),
+    }),
+  });
+
+  const getAssetUrl = (asset: CompanyAsset) => createCompanyAssetSignedUrl(supabase as any, asset.storage_path);
+
+  const decideOrderRequestMutation = useMutation({
+    mutationFn: ({ requestId, approve }: { requestId: string; approve: boolean }) => (
+      decideCompanyOrderRequest(supabase as any, requestId, approve)
+    ),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.requests(tenantId, selectedCompanyId),
+    }),
+  });
+
+  const updateConsultantRequestMutation = useMutation({
+    mutationFn: ({ requestId, status }: { requestId: string; status: CompanyConsultantRequest["status"] }) => (
+      updateCompanyConsultantRequestStatus(database, requireScope(), requestId, status)
+    ),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: adminCompanyKeys.consultantRequests(tenantId, selectedCompanyId),
+    }),
+  });
+
+  return {
+    companiesQuery,
+    tenantLogoQuery,
+    companyLogosQuery,
+    officesQuery,
+    addressesQuery,
+    membersQuery,
+    catalogQuery,
+    categoriesQuery,
+    itemOfficesQuery,
+    productCandidatesQuery,
+    templateBindingsQuery,
+    templateCandidatesQuery,
+    assetsQuery,
+    orderRequestsQuery,
+    consultantRequestsQuery,
+    metricsQuery,
+    createCompanyMutation,
+    updateCompanyMutation,
+    createOfficeMutation,
+    updateOfficeMutation,
+    archiveOfficeMutation,
+    createAddressMutation,
+    updateAddressMutation,
+    archiveAddressMutation,
+    saveMemberMutation,
+    inviteMemberMutation,
+    disableMemberMutation,
+    createCategoryMutation,
+    saveCatalogItemMutation,
+    archiveCatalogItemMutation,
+    createTemplateBindingMutation,
+    uploadAssetMutation,
+    uploadCompanyLogoMutation,
+    archiveAssetMutation,
+    getAssetUrl,
+    decideOrderRequestMutation,
+    updateConsultantRequestMutation,
+  };
+}

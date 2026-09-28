@@ -5,8 +5,14 @@
  * Supports both preset icons (rendered as SVG) and custom uploaded images.
  */
 
-import { useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 import type { BrandingData } from '@/hooks/useBrandingDraft';
+
+const STABLE_FAVICON_HOSTS = new Set([
+    'webprinter.dk',
+    'salgsmapper.dk',
+    'onlinetryksager.dk',
+]);
 
 // Icon SVG paths for favicons (simplified versions for 32x32)
 const FAVICON_SVG_PATHS: Record<string, string> = {
@@ -57,14 +63,29 @@ function updateFavicon(href: string): void {
     document.head.appendChild(link);
 }
 
+function getStableOwnedFaviconUrl(): string | null {
+    if (typeof window === 'undefined') return null;
+
+    const hostname = window.location.hostname.toLowerCase().replace(/^www\./, '');
+    return STABLE_FAVICON_HOSTS.has(hostname)
+        ? `${window.location.origin}/favicon.ico`
+        : null;
+}
+
 /**
  * Hook to apply favicon from branding data
  */
 export function useFavicon(branding: BrandingData | null): void {
-    useEffect(() => {
-        if (!branding?.favicon) return;
+    const favicon = branding?.favicon;
 
-        const { favicon } = branding;
+    useEffect(() => {
+        const stableFaviconUrl = getStableOwnedFaviconUrl();
+        if (stableFaviconUrl) {
+            updateFavicon(stableFaviconUrl);
+            return;
+        }
+
+        if (!favicon) return;
 
         try {
             if (favicon.type === 'custom' && favicon.customUrl) {
@@ -78,13 +99,19 @@ export function useFavicon(branding: BrandingData | null): void {
         } catch (error) {
             console.error('Error applying favicon:', error);
         }
-    }, [branding?.favicon]);
+    }, [favicon]);
 }
 
 /**
  * Applies favicon immediately (for use outside React components)
  */
 export function applyFavicon(favicon: BrandingData['favicon']): void {
+    const stableFaviconUrl = getStableOwnedFaviconUrl();
+    if (stableFaviconUrl) {
+        updateFavicon(stableFaviconUrl);
+        return;
+    }
+
     if (!favicon) return;
 
     try {

@@ -1,3 +1,4 @@
+import { hasFeaturedProducts, hiddenFeaturedProductIds as getHiddenFeaturedProductIds } from '@/lib/branding/featuredProductPresentation';
 /**
  * Glassmorphism Theme - ProductsSection Component
  *
@@ -23,10 +24,8 @@ export function GlassProductsSection({
 
     if (!showProducts) return null;
 
-    const hasFeaturedProduct = featuredProductConfig?.enabled && featuredProductConfig?.productId;
-    const hiddenFeaturedProductIds = hasFeaturedProduct && featuredProductConfig?.showInProductList === false
-        ? [featuredProductConfig.productId as string]
-        : [];
+    const hasFeaturedProduct = hasFeaturedProducts(featuredProductConfig);
+    const hiddenFeaturedProductIds = getHiddenFeaturedProductIds(featuredProductConfig);
     const featuredAboveCategories = (featuredProductConfig?.position || 'above') === 'above';
     const categoryTabsConfig = branding?.forside?.productsSection?.categoryTabs;
 

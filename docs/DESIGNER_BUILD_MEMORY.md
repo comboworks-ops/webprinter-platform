@@ -323,6 +323,18 @@ CREATE TABLE designer_exports (
 | 2025-12-26 | Route: `/designer/:variantId` | Matches existing route pattern |
 | 2025-12-26 | Store editor state as JSON | Fabric.js native, efficient |
 | 2025-12-26 | Server-side PDF export | CMYK conversion requires Node libraries |
+| 2026-08-03 | Separate `backTo` from `returnTo` | Back returns to the same product configuration; Continue advances to checkout without a history loop |
+| 2026-08-03 | Match product templates by format and configuration | A dieline must never be silently reused for a different folder size or spine |
+| 2026-08-03 | Keep technical PDF overlays non-printing and non-dirty | Loading a locked dieline must not alter the production export or trigger an unsaved-design warning |
+
+### Folder template connection rule
+
+Each selectable folder combination needs an exact product-template manifest:
+PDF URL, format, configuration, linked designer-template ID, artboard size,
+bleed, and safe area. Admins create or verify the designer template first, then
+connect it under the product's `Produktskabeloner` section. The storefront only
+opens the designer for a matching manifest. Legacy manifests can recover the
+page size from the PDF itself, but new links should persist the copied metadata.
 
 ---
 
@@ -335,4 +347,3 @@ CREATE TABLE designer_exports (
 - [ ] Export CMYK PDF exists and matches spec
 - [ ] Sticker contour export includes CutContour spot path
 - [ ] Nothing else on homepage/pages changed except designer entry point
-

@@ -16,7 +16,7 @@ export function TenantTemplatesPage() {
             }
 
             const { data: tenant } = await supabase
-                .from("tenants" as any)
+                .from("tenants")
                 .select("id")
                 .eq("owner_id", user.id)
                 .maybeSingle();

@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
+import { useSharedButtonStyles } from '@/components/storefront/SharedButtonContext';
+import { dropdownBackground } from '@/lib/branding/siteDesignControls';
+import { useState, useEffect, useRef, useCallback, useMemo, useId, memo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Menu, X, Search, ChevronDown, LogOut, User, Shield, Package, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,7 +24,15 @@ import { WebprinterLogo } from "@/components/WebprinterLogo";
 import { getProductImage } from "@/utils/productImages";
 import { ProductCategoryIcon } from "@/components/ProductCategoryIcon";
 import { buildProductFilter } from "@/lib/branding/productAssets";
+import { cn } from "@/lib/utils";
+import { useHeaderFit } from "@/hooks/useHeaderFit";
+import "@/styles/responsiveHeader.css";
 import { appendStorefrontTenantContext } from "@/lib/storefrontTenantContext";
+import { SITE_DESIGN_PREVIEW_EXIT_LINK_PROPS } from "@/lib/preview/siteDesignPreviewNavigation";
+import { resolveShopComponentRecipe } from "@/lib/storefront/shopTemplates";
+import { getPrintCategoryImage } from "@/lib/storefront/printCategoryImages";
+import { isApprovedDropdownPreset, resolveDropdownPreset, type HeaderDropdownPreset } from "@/lib/branding/dropdownPresets";
+import { StorefrontProductMenu, StorefrontProductMenuContent, type MenuCategory, type MenuProduct } from "@/components/storefront/StorefrontProductMenu";
 import {
   buildVisibleProductCategories,
   normalizeProductCategoryKey,
@@ -31,6 +41,9 @@ import {
   type ProductCategoryRecord,
   type ProductOverviewRecord,
 } from "@/utils/productCategories";
+
+let cachedHeaderAuthReady = false;
+let cachedHeaderUser: SupabaseUser | null = null;
 
 interface DbProduct {
   id: string;
@@ -105,7 +118,6 @@ type HeaderDesktopMenuSection = {
   groups: HeaderDesktopMenuGroup[];
 };
 
-type HeaderDropdownPreset = "classic" | "showcase-bar" | "split-preview" | "compact-columns" | "gallery-cards";
 type HeaderSplitPreviewSource = "featured-product" | "featured-side-panel";
 
 type HeaderSplitPreviewSidePanel = {
@@ -122,23 +134,25 @@ type HeaderSplitPreviewSidePanel = {
   ctaTextColor?: string;
 };
 
-const DROPDOWN_PRESET_PANEL_CLASS: Record<HeaderDropdownPreset, string> = {
-  "classic": "min-w-[760px] max-w-[1120px] rounded-2xl p-4",
-  "showcase-bar": "min-w-[min(1120px,calc(100vw-2rem))] max-w-[1120px] overflow-hidden rounded-2xl p-0",
-  "split-preview": "min-w-[900px] max-w-[1120px] overflow-hidden rounded-2xl p-0",
-  "compact-columns": "min-w-[680px] max-w-[960px] rounded-xl p-3",
-  "gallery-cards": "min-w-[920px] max-w-[1120px] rounded-2xl p-5",
+const DROPDOWN_PRESET_PANEL_CLASS: Partial<Record<HeaderDropdownPreset, string>> = {
+  "classic": "w-[min(760px,calc(100vw-2rem))] max-w-[1120px] rounded-2xl p-4",
+  "showcase-bar": "w-[min(1120px,calc(100vw-2rem))] max-w-[1120px] overflow-hidden rounded-2xl p-0",
+  "split-preview": "w-[min(1120px,calc(100vw-2rem))] max-w-[1120px] overflow-hidden rounded-2xl p-0",
+  "compact-columns": "w-[min(680px,calc(100vw-2rem))] max-w-[960px] rounded-xl p-3",
+  "gallery-cards": "w-[min(1120px,calc(100vw-2rem))] max-w-[1120px] rounded-2xl p-5",
 };
 
-const DROPDOWN_PRESET_FALLBACK_PANEL_CLASS: Record<HeaderDropdownPreset, string> = {
-  "classic": "min-w-[600px] max-w-4xl rounded-xl p-4",
-  "showcase-bar": "min-w-[760px] max-w-[960px] overflow-hidden rounded-2xl p-0",
-  "split-preview": "min-w-[760px] max-w-[960px] overflow-hidden rounded-2xl p-0",
-  "compact-columns": "min-w-[420px] rounded-xl p-3",
-  "gallery-cards": "min-w-[760px] max-w-[960px] rounded-2xl p-5",
+const DROPDOWN_PRESET_FALLBACK_PANEL_CLASS: Partial<Record<HeaderDropdownPreset, string>> = {
+  "classic": "w-[min(600px,calc(100vw-2rem))] max-w-4xl rounded-xl p-4",
+  "showcase-bar": "w-[min(960px,calc(100vw-2rem))] max-w-[960px] overflow-hidden rounded-2xl p-0",
+  "split-preview": "w-[min(960px,calc(100vw-2rem))] max-w-[960px] overflow-hidden rounded-2xl p-0",
+  "compact-columns": "w-[min(420px,calc(100vw-2rem))] rounded-xl p-3",
+  "gallery-cards": "w-[min(960px,calc(100vw-2rem))] max-w-[960px] rounded-2xl p-5",
 };
 
 type DesktopProductsDropdownProps = {
+  desktopEnabled: boolean;
+  onCompactFocus: () => void;
   itemId: string;
   itemLabel: string;
   itemImageUrl?: string | null;
@@ -149,6 +163,11 @@ type DesktopProductsDropdownProps = {
   usesRichDropdownMenu: boolean;
   desktopProductSections: HeaderDesktopMenuSection[];
   groupedProductSections: HeaderProductMenuSection[];
+  menuCategories: MenuCategory[];
+  menuProducts: MenuProduct[];
+  menuStyle: React.CSSProperties;
+  catalogLoading: boolean;
+  catalogError?: string;
   getDropdownStyles: () => React.CSSProperties;
   categoryColor: string;
   categoryFont: string;
@@ -159,9 +178,14 @@ type DesktopProductsDropdownProps = {
   dropdownCompactImageSizePx: number;
   splitPreviewProduct?: HeaderProductMenuProduct | null;
   splitPreviewSidePanel?: HeaderSplitPreviewSidePanel | null;
+  previewOpen?: boolean;
+  onPreviewOpenChange?: (open: boolean) => void;
 };
 
 type DesktopHeaderActionsProps = {
+  desktopEnabled: boolean;
+  onCompactFocus: () => void;
+  persistentSearch?: boolean;
   allProducts: DbProduct[];
   authReady: boolean;
   user: SupabaseUser | null;
@@ -180,6 +204,9 @@ type DesktopHeaderActionsProps = {
 };
 
 const DesktopHeaderActions = memo(({
+  desktopEnabled,
+  onCompactFocus,
+  persistentSearch = false,
   allProducts,
   authReady,
   user,
@@ -196,9 +223,17 @@ const DesktopHeaderActions = memo(({
   adminPanelLabel,
   logoutLabel,
 }: DesktopHeaderActionsProps) => {
+  const sharedCta = useSharedButtonStyles()('cta', 'header');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!desktopEnabled) { setLanguageMenuOpen(false); setUserMenuOpen(false); setSearchOpen(false); }
+  }, [desktopEnabled]);
   const [searchQuery, setSearchQuery] = useState("");
+  const searchFieldId = useId();
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchToggleRef = useRef<HTMLButtonElement>(null);
 
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return [];
@@ -242,39 +277,41 @@ const DesktopHeaderActions = memo(({
 
   return (
     <>
-      <div data-branding-id="header.actions" className="hidden md:flex items-center relative search-container">
+      <div data-branding-id="header.actions" className="flex items-center relative search-container">
         <div
-          className={`flex items-center overflow-hidden transition-all duration-300 ease-in-out ${searchOpen
-            ? "w-64 opacity-100 mr-2"
-            : "w-0 opacity-0"
-            }`}
+          id={searchFieldId}
+          data-header-search={persistentSearch ? "persistent" : "popover"}
+          data-search-open={searchOpen || undefined}
+          className={persistentSearch ? "storefront-persistent-search relative mr-2 w-64" : searchOpen ? "absolute right-0 top-full z-50 mt-2 w-64" : "hidden"}
         >
           <div className="relative w-full">
             <input
               ref={searchInputRef}
               type="text"
               placeholder="Søg produkter..."
+              aria-label="Søg produkter"
               value={searchQuery}
+              onFocus={() => setSearchOpen(true)}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Escape") handleSearchClose();
+                if (e.key === "Escape") { handleSearchClose(); searchToggleRef.current?.focus(); }
               }}
-              className="w-full h-9 px-3 pr-8 rounded-lg border border-border bg-background/80 backdrop-blur-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full h-11 px-3 pr-10 rounded-lg border border-border bg-background/80 backdrop-blur-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
               style={{ color: "#1F2937" }}
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground header-action-link"
+                aria-label="Ryd søgning"
+                className="absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center text-muted-foreground hover:text-foreground header-action-link"
               >
                 <X className="h-4 w-4" />
               </button>
             )}
           </div>
-        </div>
 
-        {searchOpen && searchQuery && (
-          <div className="absolute top-full right-0 mt-2 w-72 max-h-80 overflow-y-auto bg-card rounded-lg shadow-lg border border-border z-50">
+        {(searchOpen || persistentSearch) && searchQuery && (
+          <div className="absolute top-full right-0 mt-2 w-72 max-h-80 overflow-y-auto whitespace-normal break-words bg-card rounded-lg shadow-lg border border-border z-50">
             {filteredProducts.length > 0 ? (
               <div className="p-2">
                 <p className="text-xs text-muted-foreground px-2 py-1">
@@ -315,21 +352,26 @@ const DesktopHeaderActions = memo(({
             )}
           </div>
         )}
+        </div>
 
         <Button
+          ref={searchToggleRef}
           variant="ghost"
           size="icon"
           onClick={handleSearchToggle}
+          aria-label={searchOpen ? "Luk søgning" : "Søg produkter"}
+          aria-controls={searchFieldId}
+          aria-expanded={searchOpen}
           data-branding-id="header.actions"
-          className="header-action-link"
+          className="h-11 w-11 header-action-link"
         >
           {searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
         </Button>
       </div>
 
-      <DropdownMenu modal={false}>
+      <DropdownMenu modal={false} open={desktopEnabled && languageMenuOpen} onOpenChange={setLanguageMenuOpen}>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" data-branding-id="header.actions" className="hidden md:flex header-action-link">
+          <Button variant="ghost" size="icon" aria-label={language === "da" ? "Sprog: Dansk" : "Language: English"} data-branding-id="header.actions" className="flex h-11 w-11 header-action-link">
             {language === "da" ? (
               <svg className="h-5 w-5 rounded-sm" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <rect width="20" height="14" fill="#C8102E" />
@@ -347,7 +389,7 @@ const DesktopHeaderActions = memo(({
             )}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-36 bg-card z-50">
+        <DropdownMenuContent onCloseAutoFocus={event => { if (!desktopEnabled) { event.preventDefault(); onCompactFocus(); } }} align="end" className="w-36 bg-card z-50">
           <DropdownMenuItem
             onClick={() => setLanguage("da")}
             className={`flex items-center gap-2 ${language === "da" ? "bg-muted" : ""}`}
@@ -378,9 +420,10 @@ const DesktopHeaderActions = memo(({
       {ctaEnabled && (
         <Button
           asChild
-          data-branding-id="header.cta"
-          className="hidden md:flex header-cta-button"
-          style={{ color: ctaTextColor || "#FFFFFF" }}
+          {...sharedCta}
+                      data-branding-id="header.cta"
+          className="flex min-h-11 header-cta-button"
+          style={{ color: ctaTextColor || "#FFFFFF", ...sharedCta.style }}
         >
           <Link to={appendStorefrontTenantContext(ctaHref || "/kontakt")} className="no-link-color">
             {ctaLabel}
@@ -388,26 +431,28 @@ const DesktopHeaderActions = memo(({
         </Button>
       )}
 
-      <div className="relative z-[1220] hidden min-w-[220px] justify-end isolate [contain:paint] md:flex">
+      <div className="relative z-[1220] flex min-w-[88px] justify-end isolate [contain:paint]">
         {!authReady ? (
-          <div className="h-9 w-[220px]" aria-hidden="true" />
+          <div className="h-11 w-[88px]" aria-hidden="true" />
         ) : user ? (
-          <DropdownMenu modal={false}>
+          <DropdownMenu modal={false} open={desktopEnabled && userMenuOpen} onOpenChange={setUserMenuOpen}>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 size="sm"
                 data-branding-id="header.actions"
-                className="flex min-w-[220px] items-center justify-end gap-2 header-action-link [backface-visibility:hidden] [transform:translateZ(0)]"
+                aria-label={`Min konto: ${user.email || "Kunde"}`}
+                title={user.email || "Min konto"}
+                className="flex min-h-11 min-w-[88px] items-center justify-end gap-2 header-action-link [backface-visibility:hidden] [transform:translateZ(0)]"
                 style={{ willChange: "transform", WebkitFontSmoothing: "antialiased" }}
               >
                 <User className="h-4 w-4" />
-                <span className="block max-w-[180px] truncate text-right [backface-visibility:hidden] [transform:translateZ(0)]">
+                <span className="block max-w-[128px] truncate text-right [backface-visibility:hidden] [transform:translateZ(0)]">
                   {user.email}
                 </span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56 bg-card">
+            <DropdownMenuContent onCloseAutoFocus={event => { if (!desktopEnabled) { event.preventDefault(); onCompactFocus(); } }} align="end" className="w-56 bg-card">
               <DropdownMenuItem asChild>
                 <Link to={appendStorefrontTenantContext("/min-konto")} className="cursor-pointer">
                   <User className="h-4 w-4 mr-2" />
@@ -430,7 +475,11 @@ const DesktopHeaderActions = memo(({
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link to="/admin" className="cursor-pointer">
+                    <Link
+                      {...SITE_DESIGN_PREVIEW_EXIT_LINK_PROPS}
+                      to={appendStorefrontTenantContext("/admin")}
+                      className="cursor-pointer"
+                    >
                       <Shield className="h-4 w-4 mr-2" />
                       {adminPanelLabel}
                     </Link>
@@ -448,10 +497,17 @@ const DesktopHeaderActions = memo(({
           <Button
             asChild
             size="sm"
-            className="header-cta-button shadow-none min-w-[220px] justify-center"
-            style={{ color: ctaTextColor || "#FFFFFF" }}
+            {...sharedCta}
+            className="header-cta-button min-h-11 min-w-[88px] justify-center shadow-none"
+            style={{ color: ctaTextColor || "#FFFFFF", ...sharedCta.style }}
           >
-            <Link to={appendStorefrontTenantContext("/auth")} className="no-link-color">{loginLabel}</Link>
+            <Link
+              {...SITE_DESIGN_PREVIEW_EXIT_LINK_PROPS}
+              to={appendStorefrontTenantContext("/auth")}
+              className="no-link-color"
+            >
+              {loginLabel}
+            </Link>
           </Button>
         )}
       </div>
@@ -460,6 +516,8 @@ const DesktopHeaderActions = memo(({
 });
 
 const DesktopProductsDropdown = ({
+  desktopEnabled,
+  onCompactFocus,
   itemId,
   itemLabel,
   itemImageUrl,
@@ -470,6 +528,11 @@ const DesktopProductsDropdown = ({
   usesRichDropdownMenu,
   desktopProductSections,
   groupedProductSections,
+  menuCategories,
+  menuProducts,
+  menuStyle,
+  catalogLoading,
+  catalogError,
   getDropdownStyles,
   categoryColor,
   categoryFont,
@@ -480,11 +543,15 @@ const DesktopProductsDropdown = ({
   dropdownCompactImageSizePx,
   splitPreviewProduct,
   splitPreviewSidePanel,
+  previewOpen,
+  onPreviewOpenChange,
 }: DesktopProductsDropdownProps) => {
   const [activeDesktopDropdownGroupKey, setActiveDesktopDropdownGroupKey] = useState<string | null>(null);
   const [activeDesktopDropdownChildKey, setActiveDesktopDropdownChildKey] = useState<string | null>(null);
+  const [localOpen, setLocalOpen] = useState(false);
+  useEffect(() => { if (!desktopEnabled) setLocalOpen(false); }, [desktopEnabled]);
   const shouldReduceMotion = useReducedMotion();
-  const dropdownPreset = (headerSettings.dropdownPreset || "classic") as HeaderDropdownPreset;
+  const dropdownPreset = resolveDropdownPreset(headerSettings.dropdownPreset);
   const dropdownMotionStyle = String((headerSettings as any).dropdownMotionStyle || "");
   const richPanelClass = DROPDOWN_PRESET_PANEL_CLASS[dropdownPreset] || DROPDOWN_PRESET_PANEL_CLASS.classic;
   const fallbackPanelClass = DROPDOWN_PRESET_FALLBACK_PANEL_CLASS[dropdownPreset] || DROPDOWN_PRESET_FALLBACK_PANEL_CLASS.classic;
@@ -546,10 +613,44 @@ const DesktopProductsDropdown = ({
   const showImage = itemImageUrl && (displayMode === 'image_only' || displayMode === 'image_and_text');
   const showText = displayMode !== 'image_only';
 
+  if (isApprovedDropdownPreset(dropdownPreset)) {
+    return (
+      <StorefrontProductMenu
+        preset={dropdownPreset}
+        open={desktopEnabled && (previewOpen ?? localOpen)}
+        onOpenChange={(open) => { setLocalOpen(open); onPreviewOpenChange?.(open); }}
+        onCompactFocus={!desktopEnabled ? onCompactFocus : undefined}
+        label={itemLabel}
+        categories={menuCategories}
+        products={menuProducts}
+        allProductsHref={appendStorefrontTenantContext('/produkter')}
+        selectedIconPackId={selectedIconPackId}
+        style={menuStyle}
+        loading={catalogLoading}
+        error={catalogError}
+        trigger={(
+          <button
+            type="button"
+            data-branding-id="header.menu.item"
+            className={`header-nav-link inline-flex shrink-0 whitespace-nowrap min-h-11 items-center gap-1 text-sm font-medium ${displayMode === 'image_only' ? 'flex-col' : ''}`}
+            style={{ fontSize: `${Math.min(22, Math.max(12, Number(headerSettings.menuFontSizePx ?? 14)))}px`, color: isSelected ? headerSettings.activeTextColor : headerSettings.textColor }}
+            onClick={onSelect}
+          >
+            {showImage && <img data-branding-id="header.menu.item.image" src={itemImageUrl} alt={showText ? '' : itemLabel} className="object-contain" style={{ width: imageSize, height: imageSize, borderRadius: 2 }} />}
+            {showText && <><span data-branding-id="header.menu.text">{itemLabel}</span><ChevronDown aria-hidden="true" className="h-4 w-4" /></>}
+          </button>
+        )}
+      />
+    );
+  }
+
   return (
     <DropdownMenu
       modal={false}
+      open={desktopEnabled && (previewOpen ?? localOpen)}
       onOpenChange={(open) => {
+        setLocalOpen(open);
+        onPreviewOpenChange?.(open);
         if (!open) {
           setActiveDesktopDropdownGroupKey(null);
           setActiveDesktopDropdownChildKey(null);
@@ -559,7 +660,7 @@ const DesktopProductsDropdown = ({
       <DropdownMenuTrigger asChild>
         <button
           data-branding-id="header.menu.item"
-          className={`header-nav-link text-sm font-medium inline-flex items-center gap-1 ${displayMode === 'image_only' ? 'flex-col' : ''}`}
+          className={`header-nav-link inline-flex shrink-0 whitespace-nowrap min-h-11 items-center gap-1 text-sm font-medium ${displayMode === 'image_only' ? 'flex-col' : ''}`}
           style={{
             fontSize: `${Math.min(22, Math.max(12, Number(headerSettings.menuFontSizePx ?? 14)))}px`,
             color: isSelected
@@ -569,24 +670,25 @@ const DesktopProductsDropdown = ({
           onClick={onSelect}
         >
           {showImage && (
-            <img 
+            <img
               data-branding-id="header.menu.item.image"
-              src={itemImageUrl} 
+              src={itemImageUrl}
               alt={showText ? '' : itemLabel}
               className="object-contain"
-              style={{ 
-                width: `${imageSize}px`, 
+              style={{
+                width: `${imageSize}px`,
                 height: displayMode === 'image_only' ? 'auto' : `${imageSize}px`,
                 maxHeight: displayMode === 'image_only' ? `${imageSize}px` : undefined,
-                borderRadius: '2px' 
+                borderRadius: '2px'
               }}
             />
           )}
-          {showText && <span data-branding-id="header.menu.text">{itemLabel}</span>}
+          {showText && <span className="whitespace-nowrap" data-branding-id="header.menu.text">{itemLabel}</span>}
           {showText && <ChevronDown className="h-4 w-4" />}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
+        onCloseAutoFocus={event => { if (!desktopEnabled) { event.preventDefault(); onCompactFocus(); } }}
         data-branding-id="header.dropdown.panel"
         align="start"
         sideOffset={10}
@@ -607,7 +709,7 @@ const DesktopProductsDropdown = ({
         {/* Custom Dropdown Image */}
         {headerSettings.dropdownCustomImageUrl && (
           <div className="mb-4 rounded-lg overflow-hidden border border-black/10">
-            <img 
+            <img
               src={headerSettings.dropdownCustomImageUrl}
               alt=""
               className="w-full h-auto max-h-[200px] object-cover"
@@ -738,16 +840,16 @@ const DesktopProductsDropdown = ({
               const categoryImageUrl = categoryImages[sectionKey] || categoryImages[sectionKey.replace(/[^a-z]/g, '')];
               const showCategoryText = categoryDisplayMode !== 'image';
               const showCategoryImage = categoryImageUrl && (categoryDisplayMode === 'image' || categoryDisplayMode === 'both');
-              
+
               return (
               <div key={section.key} className={dropdownPreset === "compact-columns" ? "space-y-2" : "space-y-3"}>
                 <div className="px-1">
                   {showCategoryImage ? (
-                    <div 
+                    <div
                       data-branding-id="header.dropdown.category"
                       className={showCategoryText ? 'flex items-center gap-2' : ''}
                     >
-                      <img 
+                      <img
                         src={categoryImageUrl}
                         alt={section.label}
                         className="object-contain"
@@ -898,13 +1000,13 @@ const DesktopProductsDropdown = ({
                                         to={product.href}
                                         data-branding-id="header.dropdown.product"
                                         className={`dropdown-product-link grid gap-3 rounded-md px-1 py-1.5 ${
-                                          dropdownTextPosition === 'side' 
-                                            ? 'grid-cols-[auto_1fr] items-start' 
+                                          dropdownTextPosition === 'side'
+                                            ? 'grid-cols-[auto_1fr] items-start'
                                             : 'grid-rows-[auto_auto] items-center text-center'
                                         }`}
                                       >
                                         {/* Image Container - Fixed size, isolated from text flow */}
-                                        <div 
+                                        <div
                                           className="flex items-center justify-center mx-auto"
                                           style={{
                                             width: `${dropdownCompactImageSizePx}px`,
@@ -997,13 +1099,13 @@ const DesktopProductsDropdown = ({
                                   to={product.href}
                                   data-branding-id="header.dropdown.product"
                                   className={`dropdown-product-link grid gap-3 rounded-md px-1 py-1.5 ${
-                                    dropdownTextPosition === 'side' 
-                                      ? 'grid-cols-[auto_1fr] items-start' 
+                                    dropdownTextPosition === 'side'
+                                      ? 'grid-cols-[auto_1fr] items-start'
                                       : 'grid-rows-[auto_auto] items-center text-center'
                                   }`}
                                 >
                                   {/* Image Container - Fixed size, isolated from text flow */}
-                                  <div 
+                                  <div
                                     className="flex items-center justify-center mx-auto"
                                     style={{
                                       width: `${dropdownCompactImageSizePx}px`,
@@ -1080,7 +1182,7 @@ const DesktopProductsDropdown = ({
             {/* Custom Dropdown Image for Tile View */}
             {headerSettings.dropdownCustomImageUrl && (
               <div className="mb-4 rounded-lg overflow-hidden border border-black/10">
-                <img 
+                <img
                   src={headerSettings.dropdownCustomImageUrl}
                   alt=""
                   className="w-full h-auto max-h-[200px] object-cover"
@@ -1097,15 +1199,15 @@ const DesktopProductsDropdown = ({
               const categoryImageUrl = categoryImages[sectionKey] || categoryImages[sectionKey.replace(/[^a-z]/g, '')];
               const showCategoryText = categoryDisplayMode !== 'image';
               const showCategoryImage = categoryImageUrl && (categoryDisplayMode === 'image' || categoryDisplayMode === 'both');
-              
+
               return (
           <div key={section.key} className={(headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT') ? 'mb-6' : 'mb-2'}>
             {showCategoryImage ? (
-              <div 
+              <div
                 data-branding-id="header.dropdown.category"
                 className={`mb-2 px-2 ${showCategoryText ? 'flex items-center gap-2' : ''}`}
               >
-                <img 
+                <img
                   src={categoryImageUrl}
                   alt={section.label}
                   className="object-contain"
@@ -1155,7 +1257,7 @@ const DesktopProductsDropdown = ({
                     <Link to={item.href} data-branding-id="header.dropdown.product" className="dropdown-product-link cursor-pointer grid grid-rows-[auto_1fr] gap-2 p-3 transition-all hover:scale-105 rounded-md">
                       {/* Image row - fixed height, isolated */}
                       {item.imageUrl && (
-                        <div 
+                        <div
                           className="flex items-center justify-center mx-auto"
                           style={{
                             width: `${dropdownImageSizePx}px`,
@@ -1259,11 +1361,17 @@ const isMissingCategoryHierarchyColumns = (error: unknown) => {
     || details.includes("navigation_mode");
 };
 
-const Header = () => {
+const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBrandingDraft').BrandingData } = {}) => {
+  const sharedCta = useSharedButtonStyles()('cta', 'header');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [user, setUser] = useState<SupabaseUser | null>(null);
-  const [authReady, setAuthReady] = useState(false);
+  const [compactSearch, setCompactSearch] = useState("");
+  const [mobileExpandedSectionKey, setMobileExpandedSectionKey] = useState<string | null>(null);
+  const [previewProductsMenuOpen, setPreviewProductsMenuOpen] = useState(false);
+  const [user, setUser] = useState<SupabaseUser | null>(cachedHeaderUser);
+  const [authReady, setAuthReady] = useState(cachedHeaderAuthReady);
   const [allProducts, setAllProducts] = useState<DbProduct[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | undefined>();
   const [productCategoryRows, setProductCategoryRows] = useState<ProductCategoryRecord[]>([]);
   const [productOverviews, setProductOverviews] = useState<ProductOverviewRecord[]>([]);
   const location = useLocation();
@@ -1271,6 +1379,7 @@ const Header = () => {
   const { toast } = useToast();
   const { isAdmin } = useUserRole();
   const { language, setLanguage, t } = useLanguage();
+  const shouldReduceMotion = useReducedMotion();
 
   // Scroll state for header behaviors
   const [scrollY, setScrollY] = useState(0);
@@ -1289,11 +1398,12 @@ const Header = () => {
   const tenantId = settings.data?.id || '00000000-0000-0000-0000-000000000000'; // Default to Master
 
   // Resolve current branding source for preview vs live storefront
-  const activeBranding = (isPreviewMode && previewBranding)
+  const activeBranding = brandingOverride || ((isPreviewMode && previewBranding)
     ? previewBranding
-    : settings.data?.branding;
+    : settings.data?.branding);
   const effectivePathname = isPreviewMode && previewPath ? previewPath : location.pathname;
   const selectedIconPackId = activeBranding?.selectedIconPackId || "classic";
+  const shopRecipe = resolveShopComponentRecipe(activeBranding?.forside?.layout);
 
   // Get header branding settings - prioritize preview branding if in preview mode
   const rawHeader = activeBranding?.header;
@@ -1318,7 +1428,6 @@ const Header = () => {
     actionHoverBgColor: 'rgba(0,0,0,0.05)',
 	    autoContrastText: true,
 	    dropdownMode: 'IMAGE_AND_TEXT' as const,
-	    dropdownPreset: 'classic' as HeaderDropdownPreset,
     dropdownSplitPreviewSource: 'featured-product' as HeaderSplitPreviewSource,
 	    dropdownImageSizePx: 56,
     dropdownCompactImageSizePx: 40,
@@ -1329,7 +1438,9 @@ const Header = () => {
     logoFont: 'Poppins',
     logoTextColor: '#1F2937',
     logoImageUrl: null as string | null,
+    logoHeightPx: 40,
     ...rawHeader,
+    dropdownPreset: resolveDropdownPreset(rawHeader?.dropdownPreset),
     scroll: {
       sticky: true,
       hideOnScroll: false,
@@ -1355,6 +1466,12 @@ const Header = () => {
       { id: 'contact', label: t("contact"), href: "/kontakt", isVisible: true, order: 3 },
       { id: 'about', label: t("about"), href: "/om-os", isVisible: true, order: 4 },
     ]
+  };
+  const logoImageHeightPx = Math.min(120, Math.max(24, Number(headerSettings.logoHeightPx) || 40));
+  const resolvedHeaderHeightPx = Math.max(headerSettings.scroll.heightPx, logoImageHeightPx + 16);
+  const logoImageStyle: React.CSSProperties = {
+    height: `${logoImageHeightPx}px`,
+    maxHeight: `${Math.max(24, resolvedHeaderHeightPx - 8)}px`,
   };
 
   // Apply product image filter variables from active branding so storefront
@@ -1425,9 +1542,6 @@ const Header = () => {
     const styles: React.CSSProperties = {};
     const { scroll, bgColor, bgOpacity } = headerSettings;
 
-    const r = parseInt(bgColor.slice(1, 3), 16) || 255;
-    const g = parseInt(bgColor.slice(3, 5), 16) || 255;
-    const b = parseInt(bgColor.slice(5, 7), 16) || 255;
 
     // Position logic based on transparentOverHero and sticky settings
     if (isHome && headerSettings.transparentOverHero) {
@@ -1478,8 +1592,8 @@ const Header = () => {
       }
     }
 
-    styles.backgroundColor = `rgba(${r}, ${g}, ${b}, ${opacity})`;
-    styles.height = `${scroll.heightPx}px`;
+    styles.backgroundColor = dropdownBackground(bgColor, opacity);
+    styles.height = `${resolvedHeaderHeightPx}px`;
 
     // Hide on scroll transform
     if (scroll.hideOnScroll && !isVisible) {
@@ -1489,19 +1603,16 @@ const Header = () => {
     }
 
     return styles;
-  }, [headerSettings, scrollY, isVisible, isHome, isAtTop]);
+  }, [headerSettings, scrollY, isVisible, isHome, isAtTop, resolvedHeaderHeightPx]);
 
   // Calculate dropdown background styles
   const getDropdownStyles = useCallback((): React.CSSProperties => {
     const bgColor = headerSettings.dropdownBgColor || '#FFFFFF';
     const opacity = headerSettings.dropdownBgOpacity ?? 0.95;
 
-    const r = parseInt(bgColor.slice(1, 3), 16) || 255;
-    const g = parseInt(bgColor.slice(3, 5), 16) || 255;
-    const b = parseInt(bgColor.slice(5, 7), 16) || 255;
 
     return {
-      backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity})`,
+      backgroundColor: dropdownBackground(bgColor, opacity),
       '--dropdown-hover-bg': headerSettings.dropdownHoverColor || '#F3F4F6',
       borderRadius: `${Math.min(40, Math.max(0, Number(headerSettings.dropdownBorderRadiusPx ?? 18)))}px`,
     } as React.CSSProperties;
@@ -1512,13 +1623,46 @@ const Header = () => {
   const categoryColor = headerSettings.dropdownCategoryColor || '#6B7280';
   const productFont = headerSettings.dropdownProductFontId || 'Inter';
   const productColor = headerSettings.dropdownProductColor || '#1F2937';
+  const productMenuStyle = {
+    '--menu-bg': getDropdownStyles().backgroundColor,
+    '--menu-text': productColor,
+    '--menu-dark-bg': activeBranding?.themeSettings?.dropdownColorsCustomized ? getDropdownStyles().backgroundColor : undefined,
+    '--menu-dark-text': activeBranding?.themeSettings?.dropdownColorsCustomized ? productColor : undefined,
+    '--menu-accent': activeBranding?.colors?.primary || '#087FC5',
+    '--menu-category-color': categoryColor,
+    '--menu-category-font': categoryFont,
+    '--menu-product-font': productFont,
+    '--menu-category-size': `${Math.min(24, Math.max(10, Number(headerSettings.dropdownCategoryFontSizePx ?? 13)))}px`,
+    '--menu-product-size': `${Math.min(24, Math.max(10, Number(headerSettings.dropdownProductFontSizePx ?? 14)))}px`,
+    '--menu-meta-size': `${Math.min(24, Math.max(10, Number(headerSettings.dropdownMetaFontSizePx ?? 11)))}px`,
+    '--menu-muted': headerSettings.dropdownMetaColor || '#6B7280',
+    '--menu-radius': getDropdownStyles().borderRadius,
+    '--menu-image-radius': `${Math.min(40, Math.max(0, Number(headerSettings.dropdownImageRadiusPx ?? 4)))}px`,
+    '--menu-hover-bg': headerSettings.dropdownHoverColor || '#EFF6FC',
+  } as React.CSSProperties;
   const menuFontSizePx = Math.min(22, Math.max(12, Number(headerSettings.menuFontSizePx ?? 14)));
+  const headerFit = useHeaderFit({ centered: headerSettings.alignment === "center", minimumDesktopWidth: 640, allowStackedDesktop: true });
+  const menuToggleRef = useRef<HTMLButtonElement>(null);
+  const focusCompactMenu = useCallback(() => menuToggleRef.current?.focus(), []);
+
+  useEffect(() => {
+    if (!headerFit.compact) setMobileMenuOpen(false);
+  }, [headerFit.compact]);
+
+  useEffect(() => {
+    if (!mobileMenuOpen || !headerFit.compact) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setMobileMenuOpen(false); menuToggleRef.current?.focus(); }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [mobileMenuOpen, headerFit.compact]);
   const dropdownImageSizePx = Math.min(120, Math.max(32, Number(headerSettings.dropdownImageSizePx ?? 56)));
   const dropdownCompactImageSizePx = Math.min(96, Math.max(24, Number(headerSettings.dropdownCompactImageSizePx ?? 40)));
   const dropdownTextPosition = headerSettings.dropdownTextPosition || 'below';
 
   // Build position class - Ensure it reacts to sticky changes
-  // When isHome is true, we use manual styles (fixed/absolute). 
+  // When isHome is true, we use manual styles (fixed/absolute).
   // When isHome is false, we try to use Tailwind classes, but we should make sure they update.
   const positionClass = isHome ? '' : (headerSettings.scroll.sticky ? 'sticky top-0' : 'relative');
   const getProductLabel = (product: DbProduct) => product.icon_text || product.name;
@@ -1812,11 +1956,52 @@ const Header = () => {
     visibleOverviews,
   ]);
 
-  const isLocalhostDemo = typeof window !== "undefined"
-    && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
-  const masterDemoPath = isLocalhostDemo
-    ? "/shop?tenantId=00000000-0000-0000-0000-000000000000"
-    : "/shop";
+  // These menus use the complete catalog. Legacy desktop sections deliberately
+  // cap preview rows at eight and must not be used as the search index.
+  const menuProducts = useMemo<MenuProduct[]>(() => allProducts.map(toDesktopMenuProduct), [allProducts, toDesktopMenuProduct]);
+  const menuCategories = useMemo<MenuCategory[]>(() => {
+    const imageOverrides = headerSettings.dropdownCategoryImages || {};
+    const categoryImage = (key: string, label: string, fallback: string | null) =>
+      imageOverrides[key] || imageOverrides[normalizeProductCategoryKey(label)] || imageOverrides[label.toLowerCase()]
+      || (label.toLocaleLowerCase('da') === 'tekstiltryk' ? imageOverrides.tekstil : null)
+      || fallback || getPrintCategoryImage(label);
+
+    if (desktopProductSections.length > 0) {
+      return desktopProductSections.flatMap(section => section.groups.map(group => {
+        const categoryId = group.key.replace(/^category:/, '');
+        const completeProducts = (branchProductsByCategoryId.get(categoryId) || []).map(toDesktopMenuProduct);
+        const firstProduct = completeProducts[0];
+        return {
+          key: group.key,
+          label: group.label,
+          href: group.href,
+          imageUrl: categoryImage(group.key, group.label, group.imageUrl),
+          productSlug: firstProduct?.productSlug || '',
+          category: firstProduct?.category || group.label,
+          products: completeProducts,
+          children: group.children.map(child => ({ key: child.key, label: child.label, href: child.href })),
+        };
+      }));
+    }
+
+    return groupedProductSections.map(section => {
+      const products = section.items.filter(item => item.kind === 'product');
+      const firstProduct = products[0];
+      return {
+        key: section.key,
+        label: section.label,
+        href: appendStorefrontTenantContext(productCategoryRows.some(row => normalizeProductCategoryKey(row.slug || row.name) === section.key)
+          ? `/produkter?category=${encodeURIComponent(section.key)}`
+          : '/produkter'),
+        imageUrl: categoryImage(section.key, section.label, firstProduct?.imageUrl || null),
+        productSlug: firstProduct?.productSlug || '',
+        category: firstProduct?.category || section.label,
+        products,
+        children: section.items.filter(item => item.kind === 'category').map(item => ({ key: item.key, label: item.label, href: item.href })),
+      };
+    });
+  }, [desktopProductSections, groupedProductSections, branchProductsByCategoryId, toDesktopMenuProduct, headerSettings.dropdownCategoryImages, productCategoryRows]);
+
   const usesRichDropdownMenu = desktopProductSections.length > 0;
   const featuredProductConfig = activeBranding?.forside?.productsSection?.featuredProductConfig;
   const campaignFeaturedProduct = useMemo<HeaderProductMenuProduct | null>(() => {
@@ -1885,20 +2070,67 @@ const Header = () => {
     featuredProductConfig?.sidePanel,
   ]);
 
-  const navItems = [
-    { label: t("home"), path: "/" },
-    // Show "Shop Demo" only if fallback/master? Or just hide it for tenants?
-    // For now keep it if not production tenant?
-    // Let's hide it for specific tenants
-    ...(settings.data?.id !== '00000000-0000-0000-0000-000000000000' && settings.data?.id ? [] : [{ label: "Shop Demo", path: masterDemoPath }]),
-    { label: t("contact"), path: "/kontakt" },
-    { label: t("about"), path: "/om-os" },
-  ];
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    setMobileExpandedSectionKey((current) => current || groupedProductSections[0]?.key || null);
+  }, [groupedProductSections, mobileMenuOpen]);
+
+  const handlePreviewProductsMenuOpenChange = useCallback((open: boolean) => {
+    setPreviewProductsMenuOpen(open);
+    setMobileMenuOpen(open);
+    if (!open) setMobileExpandedSectionKey(null);
+  }, []);
+
+  useEffect(() => {
+    if (!isPreviewMode) return;
+
+    const handlePreviewMenuMessage = (event: MessageEvent) => {
+      if (event.data?.type !== "SET_PREVIEW_PRODUCT_MENU") return;
+      handlePreviewProductsMenuOpenChange(Boolean(event.data.open));
+    };
+
+    window.addEventListener("message", handlePreviewMenuMessage);
+    return () => window.removeEventListener("message", handlePreviewMenuMessage);
+  }, [handlePreviewProductsMenuOpenChange, isPreviewMode]);
+
+  useEffect(() => {
+    if (!isPreviewMode || window.parent === window) return;
+    window.parent.postMessage(
+      {
+        type: "PREVIEW_PRODUCT_MENU_CHANGED",
+        open: mobileMenuOpen || previewProductsMenuOpen,
+      },
+      "*",
+    );
+  }, [isPreviewMode, mobileMenuOpen, previewProductsMenuOpen]);
+
+  useEffect(() => {
+    if (!mobileMenuOpen || !headerFit.compact) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileMenuOpen, headerFit.compact]);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
     // Prevent stale tenant products/categories from flashing in the header dropdown
     // while storefront tenant resolution is still using placeholder data.
+    if (settings.isError && !settings.data?.id) {
+      setCatalogLoading(false);
+      setCatalogError('Butikkens produkter kunne ikke hentes. Prøv igen om lidt.');
+      setAllProducts([]);
+      setProductCategoryRows([]);
+      setProductOverviews([]);
+      return;
+    }
     if (settings.isLoading || settings.isPlaceholderData || !settings.data?.id) {
+      setCatalogLoading(true);
+      setCatalogError(undefined);
       setAllProducts([]);
       setProductCategoryRows([]);
       setProductOverviews([]);
@@ -1906,6 +2138,11 @@ const Header = () => {
     }
 
     let cancelled = false;
+    setCatalogLoading(true);
+    setCatalogError(undefined);
+    setAllProducts([]);
+    setProductCategoryRows([]);
+    setProductOverviews([]);
 
     async function fetchProducts() {
       const [productsResponse, hierarchyCategoriesResponse, fallbackCategoriesResponse, overviewsResponse] = await Promise.all([
@@ -1917,17 +2154,17 @@ const Header = () => {
           .order('category', { ascending: true })
           .order('name'),
         (supabase
-          .from('product_categories' as any))
+          .from('product_categories'))
           .select('id, name, slug, sort_order, overview_id, parent_category_id, navigation_mode')
           .eq('tenant_id', tenantId)
           .order('sort_order', { ascending: true }),
         (supabase
-          .from('product_categories' as any))
+          .from('product_categories'))
           .select('id, name, slug, sort_order, overview_id')
           .eq('tenant_id', tenantId)
           .order('sort_order', { ascending: true }),
         (supabase
-          .from('product_overviews' as any))
+          .from('product_overviews'))
           .select('id, name, slug, sort_order')
           .eq('tenant_id', tenantId)
           .order('sort_order', { ascending: true }),
@@ -1974,23 +2211,36 @@ const Header = () => {
       } else {
         setAllProducts([]);
       }
+      setCatalogError(productsResponse.error ? 'Produkterne kunne ikke hentes. Prøv igen om lidt.' : undefined);
+      setCatalogLoading(false);
     }
 
-    fetchProducts();
+    fetchProducts().catch(() => {
+      if (cancelled) return;
+      setAllProducts([]);
+      setCatalogError('Produkterne kunne ikke hentes. Prøv igen om lidt.');
+      setCatalogLoading(false);
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [tenantId, settings.data?.id, settings.isLoading, settings.isPlaceholderData]); // Re-run when tenant context is fully resolved
+  }, [tenantId, settings.data?.id, settings.isLoading, settings.isPlaceholderData, settings.isError]); // Re-run when tenant context is fully resolved
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+      const nextUser = session?.user ?? null;
+      cachedHeaderUser = nextUser;
+      cachedHeaderAuthReady = true;
+      setUser(nextUser);
       setAuthReady(true);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      const nextUser = session?.user ?? null;
+      cachedHeaderUser = nextUser;
+      cachedHeaderAuthReady = true;
+      setUser(nextUser);
       setAuthReady(true);
     });
 
@@ -2039,10 +2289,17 @@ const Header = () => {
   return (
     <header
       ref={headerRef}
+      data-header-mode={headerFit.mode}
+      data-storefront-header
+      data-header-alignment={headerSettings.alignment}
       data-branding-id="header.background"
+      data-shop-header-variant={shopRecipe.header.variant}
+      data-shop-navigation-preset={headerSettings.dropdownPreset}
       className={`${positionClass} z-[1000] transition-all duration-300 ease-in-out`}
       style={{
         ...getHeaderStyles(),
+        height: headerFit.stacked ? 'auto' : `${resolvedHeaderHeightPx}px`,
+        '--storefront-header-main-height': `${resolvedHeaderHeightPx}px`,
         zIndex: 1000,
         fontFamily: `'${headerSettings.fontId}', sans-serif`,
         '--header-text-color': effectiveTextColor,
@@ -2078,12 +2335,11 @@ const Header = () => {
           background-color: var(--header-action-hover-bg) !important;
         }
         .dropdown-product-link {
-          transform: translateZ(0) scale(1);
+          transform: translateZ(0);
           transform-origin: center center;
           backface-visibility: hidden;
-          will-change: transform, opacity, background-color;
+          will-change: opacity, background-color;
           transition:
-            transform 260ms cubic-bezier(0.16, 1, 0.3, 1),
             background-color 220ms cubic-bezier(0.16, 1, 0.3, 1),
             color 180ms ease,
             box-shadow 260ms cubic-bezier(0.16, 1, 0.3, 1),
@@ -2095,7 +2351,6 @@ const Header = () => {
         .dropdown-product-link[data-highlighted] {
           background-color: var(--dropdown-hover-bg) !important;
           outline: none;
-          transform: translateZ(0) scale(1.018);
         }
         .header-cta-button {
           background-color: var(--header-cta-bg) !important;
@@ -2105,21 +2360,16 @@ const Header = () => {
         .header-cta-button:hover {
           background-color: var(--header-cta-hover) !important;
           border-color: var(--header-cta-hover) !important;
-          transform: translateY(-1px);
         }
       `}</style>
-      <div className="container mx-auto px-4 h-full">
+      <div className="container mx-auto responsive-header-container storefront-header-container h-full">
         {/* Flex layout based on alignment: left = logo-menu-actions | center = logo-menu(centered)-actions | right = logo-spacer-menu-actions */}
-        <div className={`flex items-center h-full relative ${headerSettings.alignment === 'center'
-          ? 'justify-between'
-          : headerSettings.alignment === 'right'
-            ? 'justify-between'
-            : 'justify-between'
-          }`}>
+        <div ref={headerFit.rowRef} className="responsive-header-row h-full">
           {/* Logo - with improved auto-fit/scale */}
           <Link
             to={appendStorefrontTenantContext("/")}
-            className="hover:opacity-90 transition-opacity flex items-center"
+            ref={headerFit.logoRef}
+            className="responsive-header-logo flex min-h-11 items-center hover:opacity-90 transition-opacity"
             data-branding-id="header.logo"
           >
             {/* Text Logo - when logoType is 'text' */}
@@ -2140,37 +2390,29 @@ const Header = () => {
               <img
                 src={previewBranding.logo_url}
                 alt={tenantName}
-                className="h-10 w-auto max-w-[180px] object-contain"
-                style={{
-                  maxHeight: `${headerSettings.scroll.heightPx - 16}px`,
-                }}
+                className="w-auto max-w-[220px] object-contain"
+                style={logoImageStyle}
               />
             ) : (isPreviewMode && headerSettings.logoImageUrl) ? (
               <img
                 src={headerSettings.logoImageUrl}
                 alt={tenantName}
-                className="h-10 w-auto max-w-[180px] object-contain"
-                style={{
-                  maxHeight: `${headerSettings.scroll.heightPx - 16}px`,
-                }}
+                className="w-auto max-w-[220px] object-contain"
+                style={logoImageStyle}
               />
             ) : settings.data?.branding?.logo_url ? (
               <img
                 src={settings.data.branding.logo_url}
                 alt={tenantName}
-                className="h-10 w-auto max-w-[180px] object-contain"
-                style={{
-                  maxHeight: `${headerSettings.scroll.heightPx - 16}px`,
-                }}
+                className="w-auto max-w-[220px] object-contain"
+                style={logoImageStyle}
               />
             ) : headerSettings.logoImageUrl ? (
               <img
                 src={headerSettings.logoImageUrl}
                 alt={tenantName}
-                className="h-10 w-auto max-w-[180px] object-contain"
-                style={{
-                  maxHeight: `${headerSettings.scroll.heightPx - 16}px`,
-                }}
+                className="w-auto max-w-[220px] object-contain"
+                style={logoImageStyle}
               />
             ) : (
               // Fallback to text when no image
@@ -2181,12 +2423,7 @@ const Header = () => {
           </Link>
 
           {/* Desktop Navigation - alignment based positioning */}
-          <nav className={`hidden lg:flex items-center gap-8 ${headerSettings.alignment === 'center'
-            ? 'absolute left-1/2 -translate-x-1/2'
-            : headerSettings.alignment === 'right'
-              ? 'ml-auto mr-8'
-              : 'ml-8'
-            }`}
+          <nav ref={headerFit.navigationRef} className="responsive-header-desktop responsive-header-navigation" aria-label="Hovednavigation" aria-hidden={headerFit.compact || undefined}
             data-branding-id="header.menu.layout"
           >
             {headerSettings.navItems
@@ -2198,6 +2435,8 @@ const Header = () => {
                 if (isProductLink) {
                   return (
                     <DesktopProductsDropdown
+                      desktopEnabled={!headerFit.compact}
+                      onCompactFocus={focusCompactMenu}
                       key={item.id}
                       itemId={item.id}
                       itemLabel={item.label}
@@ -2208,6 +2447,11 @@ const Header = () => {
                       usesRichDropdownMenu={usesRichDropdownMenu}
                       desktopProductSections={desktopProductSections}
                       groupedProductSections={groupedProductSections}
+                      menuCategories={menuCategories}
+                      menuProducts={menuProducts}
+                      menuStyle={productMenuStyle}
+                      catalogLoading={catalogLoading}
+                      catalogError={catalogError}
                       getDropdownStyles={getDropdownStyles}
                       categoryColor={categoryColor}
                       categoryFont={categoryFont}
@@ -2219,6 +2463,8 @@ const Header = () => {
                       dropdownTextPosition={dropdownTextPosition}
                       splitPreviewProduct={campaignFeaturedProduct}
                       splitPreviewSidePanel={campaignSidePanelPreview}
+                      previewOpen={isPreviewMode ? previewProductsMenuOpen : undefined}
+                      onPreviewOpenChange={isPreviewMode ? handlePreviewProductsMenuOpenChange : undefined}
                     />
                   );
                 }
@@ -2227,13 +2473,13 @@ const Header = () => {
                 const imageSize = item.imageSizePx || 40;
                 const showImage = item.imageUrl && (displayMode === 'image_only' || displayMode === 'image_and_text');
                 const showText = displayMode !== 'image_only';
-                
+
                 return (
                   <Link
                     key={item.id}
                     to={appendStorefrontTenantContext(item.href)}
                     data-branding-id="header.menu.item"
-                    className={`header-nav-link text-sm font-medium inline-flex items-center gap-2 ${displayMode === 'image_only' ? 'flex-col' : ''}`}
+                    className={`header-nav-link inline-flex shrink-0 whitespace-nowrap min-h-11 items-center gap-2 text-sm font-medium ${displayMode === 'image_only' ? 'flex-col' : ''}`}
                     style={{
                       fontSize: `${menuFontSizePx}px`,
                       color: selectedMenuId === item.id
@@ -2243,16 +2489,16 @@ const Header = () => {
                     onClick={handleNavClick(item.href, item.id)}
                   >
                     {showImage && (
-                      <img 
+                      <img
                         data-branding-id="header.menu.item.image"
-                        src={item.imageUrl} 
+                        src={item.imageUrl}
                         alt={showText ? '' : item.label}
                         className="object-contain"
-                        style={{ 
-                          width: `${imageSize}px`, 
+                        style={{
+                          width: `${imageSize}px`,
                           height: displayMode === 'image_only' ? 'auto' : `${imageSize}px`,
                           maxHeight: displayMode === 'image_only' ? `${imageSize}px` : undefined,
-                          borderRadius: '2px' 
+                          borderRadius: '2px'
                         }}
                       />
                     )}
@@ -2263,8 +2509,11 @@ const Header = () => {
           </nav>
 
           {/* Right Side Actions */}
-          <div className="relative z-[1210] flex items-center gap-3">
+          <div ref={headerFit.actionsRef} className="responsive-header-desktop responsive-header-actions relative z-[1210]" aria-hidden={headerFit.compact || undefined}>
             <DesktopHeaderActions
+              desktopEnabled={!headerFit.compact}
+              onCompactFocus={focusCompactMenu}
+              persistentSearch={activeBranding?.themeId === 'print-precise' || activeBranding?.themeId === 'print-familiar'}
               allProducts={allProducts}
               authReady={authReady}
               user={user}
@@ -2282,12 +2531,19 @@ const Header = () => {
               logoutLabel={t("logout")}
             />
 
-            {/* Mobile Menu Button */}
+          </div>
+          <div className="responsive-header-compact relative z-[1210]">
+            {/* Compact Menu Button */}
             <Button
               variant="ghost"
               size="icon"
               data-branding-id="header.actions"
-              className="lg:hidden header-action-link"
+              ref={menuToggleRef}
+              data-header-toggle
+              aria-controls="storefront-compact-navigation"
+              className="h-11 w-11 header-action-link"
+              aria-label={mobileMenuOpen ? "Luk menu" : "Åbn menu"}
+              aria-expanded={mobileMenuOpen}
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
               {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
@@ -2296,206 +2552,315 @@ const Header = () => {
         </div>
 
         {/* Mobile Navigation */}
-        {mobileMenuOpen && (
-          <nav data-branding-id="header.menu.layout" className="lg:hidden py-4 border-t border-border bg-background">
-            {navItems.map((item) => (
-              <Link
-                key={item.path}
-                to={appendStorefrontTenantContext(item.path)}
-                data-branding-id="header.menu.item"
+        <AnimatePresence>
+          {mobileMenuOpen && headerFit.compact && (
+            <>
+              <motion.button
+                type="button"
+                aria-label="Luk menu"
+                className="fixed inset-0 z-[1190] bg-black/20 backdrop-blur-[2px]"
+                initial={shouldReduceMotion ? { opacity: 1 } : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={shouldReduceMotion ? { opacity: 1 } : { opacity: 0 }}
+                transition={{ duration: shouldReduceMotion ? 0 : 0.18 }}
                 onClick={() => setMobileMenuOpen(false)}
-                className={`block py-3 text-base font-medium transition-colors hover:text-primary ${isActive(item.path) ? "text-primary" : "text-foreground"
-                  }`}
+              />
+              <motion.nav
+                id="storefront-compact-navigation"
+                aria-label="Hovednavigation"
+                data-branding-id="header.menu.layout"
+                className="fixed left-3 right-3 z-[1200] overflow-hidden rounded-2xl border border-black/10 shadow-2xl backdrop-blur-xl"
+                style={{
+                  ...getDropdownStyles(),
+                  top: `${resolvedHeaderHeightPx + 8}px`,
+                  maxHeight: `calc(100dvh - ${resolvedHeaderHeightPx + 20}px)`,
+                  color: headerSettings.textColor || "#1F2937",
+                }}
+                initial={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: -8, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: -8, scale: 0.98 }}
+                transition={{ duration: shouldReduceMotion ? 0 : 0.22, ease: [0.16, 1, 0.3, 1] }}
               >
-                <span data-branding-id="header.menu.text">{item.label}</span>
-              </Link>
-            ))}
+                <div className="max-h-[inherit] overflow-y-auto overscroll-contain p-3">
+                  {headerSettings.dropdownPreset !== 'search-and-discover' && <form role="search" className="mb-3 flex items-center gap-2 rounded-lg border border-border bg-background px-3" onSubmit={event => { event.preventDefault(); setMobileMenuOpen(false); navigate(appendStorefrontTenantContext(`/produkter?q=${encodeURIComponent(compactSearch.trim())}`)); }}>
+                    <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <input aria-label="Søg produkter" placeholder="Søg produkter…" className="min-h-11 min-w-0 flex-1 bg-transparent text-base outline-none" value={compactSearch} onChange={event => setCompactSearch(event.target.value)} />
+                    <button type="submit" className="min-h-11 px-2 text-sm font-medium">Søg</button>
+                  </form>}
+                  <div className="space-y-1 rounded-xl bg-black/[0.025] p-1">
+                    {headerSettings.navItems.filter(item => item.isVisible).sort((a, b) => a.order - b.order).map((item) => (
+                      <Link
+                        key={item.id}
+                        to={appendStorefrontTenantContext(item.href)}
+                        data-branding-id="header.menu.item"
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={cn(
+                          "flex min-h-12 items-center rounded-lg px-3 text-base font-medium transition-colors",
+                          isActive(item.href) ? "bg-black/5 text-primary" : "text-foreground hover:bg-black/5 hover:text-primary"
+                        )}
+                      >
+                        <span data-branding-id="header.menu.text">{item.label}</span>
+                      </Link>
+                    ))}
+                  </div>
 
-            {/* Mobile Products Section */}
-            <div className="py-3">
-              <p data-branding-id="header.dropdown.category" className="text-sm font-semibold text-muted-foreground mb-2">{t("products")}</p>
-              {groupedProductSections.map((section) => (
-                <div key={section.key} className="mb-3">
-                  <p data-branding-id="header.dropdown.category" className="px-4 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
-                    {section.label}
-                  </p>
-                  {section.items.map((item) => (
-                    <Link
-                      key={item.key}
-                      to={item.href}
-                      data-branding-id="header.dropdown.product"
-                      onClick={() => setMobileMenuOpen(false)}
-                      className="flex items-center gap-2 py-2 text-base transition-colors hover:text-primary"
-                      style={{ paddingLeft: item.depth > 0 ? "2.25rem" : "1rem" }}
+                  {isApprovedDropdownPreset(headerSettings.dropdownPreset) ? (
+                    <div className="mt-3">
+                      <StorefrontProductMenuContent
+                        preset={headerSettings.dropdownPreset}
+                        compact
+                        label={t('products')}
+                        categories={menuCategories}
+                        products={menuProducts}
+                        allProductsHref={appendStorefrontTenantContext('/produkter')}
+                        selectedIconPackId={selectedIconPackId}
+                        style={productMenuStyle}
+                        loading={catalogLoading}
+                        error={catalogError}
+                        onNavigate={() => setMobileMenuOpen(false)}
+                      />
+                    </div>
+                  ) : <div className="mt-3 rounded-xl bg-black/[0.025] p-2">
+                    <div className="mb-2 flex items-center justify-between gap-3 px-1">
+                      <p data-branding-id="header.dropdown.category" className="text-sm font-semibold text-muted-foreground">
+                        {t("products")}
+                      </p>
+                      <Link
+                        to={appendStorefrontTenantContext("/produkter")}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className="rounded-full px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10"
+                      >
+                        Se alle
+                      </Link>
+                    </div>
+
+                    {groupedProductSections.length > 0 ? (
+                      <div className="space-y-2">
+                        {groupedProductSections.map((section) => {
+                          const isExpanded = mobileExpandedSectionKey === section.key;
+                          const featuredItem = section.items.find((item) => item.imageUrl) || section.items[0];
+
+                          return (
+                            <div key={section.key} className="overflow-hidden rounded-xl border border-black/5 bg-white/55">
+                              <button
+                                type="button"
+                                data-branding-id="header.dropdown.category"
+                                className="flex min-h-14 w-full touch-manipulation items-center gap-3 px-3 py-2 text-left"
+                                onClick={() => setMobileExpandedSectionKey(isExpanded ? null : section.key)}
+                                aria-expanded={isExpanded}
+                              >
+                                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-black/[0.04]">
+                                  {featuredItem?.imageUrl ? (
+                                    <img
+                                      data-branding-id="header.dropdown.image"
+                                      src={getProductImage(featuredItem.productSlug, featuredItem.imageUrl)}
+                                      alt=""
+                                      className="h-8 w-8 object-contain"
+                                      style={{ filter: "var(--product-filter)" }}
+                                    />
+                                  ) : (
+                                    <ProductCategoryIcon
+                                      slug={featuredItem?.productSlug || section.key}
+                                      category={featuredItem?.category || section.label}
+                                      packId={selectedIconPackId}
+                                      className="h-5 w-5"
+                                    />
+                                  )}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm font-semibold">{section.label}</span>
+                                  <span className="block text-xs text-muted-foreground">{section.items.length} produkter</span>
+                                </span>
+                                <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform", isExpanded && "rotate-180")} />
+                              </button>
+
+                              <AnimatePresence initial={false}>
+                                {isExpanded && (
+                                  <motion.div
+                                    initial={shouldReduceMotion ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }}
+                                    animate={{ height: "auto", opacity: 1 }}
+                                    exit={shouldReduceMotion ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }}
+                                    transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: [0.16, 1, 0.3, 1] }}
+                                  >
+                                    <div className="border-t border-black/5 p-2">
+                                      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                                        {section.items.map((item) => (
+                                          <Link
+                                            key={item.key}
+                                            to={item.href}
+                                            data-branding-id="header.dropdown.product"
+                                            onClick={() => setMobileMenuOpen(false)}
+                                            className="flex min-h-12 touch-manipulation items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-black/5 hover:text-primary"
+                                          >
+                                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-black/[0.04]">
+                                              {item.imageUrl ? (
+                                                <img
+                                                  data-branding-id="header.dropdown.image"
+                                                  src={getProductImage(item.productSlug, item.imageUrl)}
+                                                  alt=""
+                                                  className="h-7 w-7 object-contain"
+                                                  style={{ filter: "var(--product-filter)" }}
+                                                />
+                                              ) : (
+                                                <ProductCategoryIcon
+                                                  slug={item.productSlug}
+                                                  category={item.category}
+                                                  packId={selectedIconPackId}
+                                                  className="h-4 w-4"
+                                                />
+                                              )}
+                                            </span>
+                                            <span className="min-w-0">
+                                              <span className="block truncate text-sm font-medium">{item.label}</span>
+                                              {item.depth > 0 && (
+                                                <span className="block text-xs text-muted-foreground">{section.label}</span>
+                                              )}
+                                            </span>
+                                          </Link>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <Link
+                        to={appendStorefrontTenantContext("/produkter")}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className="flex min-h-12 items-center rounded-lg px-3 text-sm font-medium hover:bg-black/5 hover:text-primary"
+                      >
+                        {t("products")}
+                      </Link>
+                    )}
+                  </div>}
+
+                  <div data-branding-id="header.actions" className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-black/[0.025] p-2">
+                    <Button
+                      variant={language === "da" ? "secondary" : "ghost"}
+                      data-branding-id="header.actions"
+                      className="min-h-11 justify-center gap-2"
+                      onClick={() => setLanguage("da")}
                     >
-                      {item.imageUrl ? (
-                        <img
-                          data-branding-id="header.dropdown.image"
-                          src={getProductImage(item.productSlug, item.imageUrl)}
-                          alt={item.label}
-                          className="w-5 h-5 object-contain"
-                          style={{ filter: 'var(--product-filter)' }}
-                        />
-                      ) : (
-                        <ProductCategoryIcon
-                          slug={item.productSlug}
-                          category={item.category}
-                          packId={selectedIconPackId}
-                        />
-                      )}
-                      <span data-branding-id="header.dropdown.product">{item.label}</span>
-                    </Link>
-                  ))}
+                      <svg className="h-4 w-4 rounded-sm shrink-0" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect width="20" height="14" fill="#C8102E" />
+                        <rect x="6" width="2" height="14" fill="white" />
+                        <rect y="6" width="20" height="2" fill="white" />
+                      </svg>
+                      Dansk
+                    </Button>
+                    <Button
+                      variant={language === "en" ? "secondary" : "ghost"}
+                      data-branding-id="header.actions"
+                      className="min-h-11 justify-center gap-2"
+                      onClick={() => setLanguage("en")}
+                    >
+                      <svg className="h-4 w-4 rounded-sm shrink-0" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect width="20" height="14" fill="#012169" />
+                        <path d="M0 0L20 14M20 0L0 14" stroke="white" strokeWidth="2.5" />
+                        <path d="M0 0L20 14M20 0L0 14" stroke="#C8102E" strokeWidth="1.5" />
+                        <path d="M10 0V14M0 7H20" stroke="white" strokeWidth="4" />
+                        <path d="M10 0V14M0 7H20" stroke="#C8102E" strokeWidth="2" />
+                      </svg>
+                      English
+                    </Button>
+                  </div>
+
+                  {headerSettings.cta?.enabled && (
+                    <Button
+                      asChild
+                      {...sharedCta}
+                      data-branding-id="header.cta"
+                      className="mt-3 min-h-12 w-full header-cta-button"
+                      style={{ color: headerSettings.cta.textColor || '#FFFFFF', ...sharedCta.style }}
+                    >
+                      <Link
+                        to={appendStorefrontTenantContext(headerSettings.cta.href || '/kontakt')}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className="no-link-color"
+                      >
+                        {headerSettings.cta.label || t("orderNow")}
+                      </Link>
+                    </Button>
+                  )}
+
+                  {user ? (
+                    <div data-branding-id="header.actions" className="mt-3 space-y-2 rounded-xl bg-black/[0.025] p-2">
+                      <p className="flex min-w-0 items-center gap-2 px-1 text-sm text-muted-foreground">
+                        <User className="h-4 w-4 shrink-0" />
+                        <span className="truncate">{user.email}</span>
+                      </p>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Button asChild variant="outline" data-branding-id="header.actions" className="min-h-11 w-full">
+                          <Link to={appendStorefrontTenantContext("/min-konto")} onClick={() => setMobileMenuOpen(false)}>
+                            <User className="h-4 w-4 mr-2" />
+                            Min Konto
+                          </Link>
+                        </Button>
+                        <Button asChild variant="outline" data-branding-id="header.actions" className="min-h-11 w-full">
+                          <Link to={appendStorefrontTenantContext("/min-konto/ordrer")} onClick={() => setMobileMenuOpen(false)}>
+                            <Package className="h-4 w-4 mr-2" />
+                            Mine Ordrer
+                          </Link>
+                        </Button>
+                        <Button asChild variant="outline" data-branding-id="header.actions" className="min-h-11 w-full">
+                          <Link to={appendStorefrontTenantContext("/min-konto/adresser")} onClick={() => setMobileMenuOpen(false)}>
+                            <MapPin className="h-4 w-4 mr-2" />
+                            Adresser
+                          </Link>
+                        </Button>
+                        {isAdmin && (
+                          <Button asChild variant="outline" data-branding-id="header.actions" className="min-h-11 w-full">
+                            <Link
+                              {...SITE_DESIGN_PREVIEW_EXIT_LINK_PROPS}
+                              to={appendStorefrontTenantContext("/admin")}
+                              onClick={() => setMobileMenuOpen(false)}
+                            >
+                              <Shield className="h-4 w-4 mr-2" />
+                              {t("adminPanel")}
+                            </Link>
+                          </Button>
+                        )}
+                      </div>
+                      <Button
+                        variant="outline"
+                        data-branding-id="header.actions"
+                        className="min-h-11 w-full"
+                        onClick={() => {
+                          handleLogout();
+                          setMobileMenuOpen(false);
+                        }}
+                      >
+                        <LogOut className="h-4 w-4 mr-2" />
+                        {t("logout")}
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      asChild
+                      data-branding-id="header.actions"
+                      {...sharedCta}
+                      className="mt-3 min-h-12 w-full header-cta-button shadow-none"
+                      style={{ color: headerSettings.cta.textColor || '#FFFFFF', ...sharedCta.style }}
+                    >
+                      <Link
+                        {...SITE_DESIGN_PREVIEW_EXIT_LINK_PROPS}
+                        to={appendStorefrontTenantContext("/auth")}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className="no-link-color"
+                      >
+                        {t("login")}
+                      </Link>
+                    </Button>
+                  )}
                 </div>
-              ))}
-            </div>
-
-            {/* Language Switcher Mobile */}
-            <div data-branding-id="header.actions" className="py-3 border-t border-border">
-              <p className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
-                <svg className="h-4 w-4 rounded-sm" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect width="20" height="14" fill="#C8102E" />
-                  <rect x="6" width="2" height="14" fill="white" />
-                  <rect y="6" width="20" height="2" fill="white" />
-                </svg>
-                Sprog / Language
-              </p>
-              <Button
-                variant={language === "da" ? "secondary" : "ghost"}
-                data-branding-id="header.actions"
-                className="w-full justify-start mb-2 gap-2"
-                onClick={() => setLanguage("da")}
-              >
-                <svg className="h-4 w-4 rounded-sm shrink-0" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect width="20" height="14" fill="#C8102E" />
-                  <rect x="6" width="2" height="14" fill="white" />
-                  <rect y="6" width="20" height="2" fill="white" />
-                </svg>
-                Dansk
-              </Button>
-              <Button
-                variant={language === "en" ? "secondary" : "ghost"}
-                data-branding-id="header.actions"
-                className="w-full justify-start gap-2"
-                onClick={() => setLanguage("en")}
-              >
-                <svg className="h-4 w-4 rounded-sm shrink-0" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect width="20" height="14" fill="#012169" />
-                  <path d="M0 0L20 14M20 0L0 14" stroke="white" strokeWidth="2.5" />
-                  <path d="M0 0L20 14M20 0L0 14" stroke="#C8102E" strokeWidth="1.5" />
-                  <path d="M10 0V14M0 7H20" stroke="white" strokeWidth="4" />
-                  <path d="M10 0V14M0 7H20" stroke="#C8102E" strokeWidth="2" />
-                </svg>
-                English
-              </Button>
-            </div>
-
-            {/* CTA Button - Mobile - only show when enabled */}
-            {headerSettings.cta?.enabled && (
-              <Button
-                asChild
-                data-branding-id="header.cta"
-                className="w-full mt-4 header-cta-button"
-                style={{
-                  color: headerSettings.cta.textColor || '#FFFFFF',
-                }}
-              >
-                <Link
-                  to={appendStorefrontTenantContext(headerSettings.cta.href || '/kontakt')}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="no-link-color"
-                >
-                  {headerSettings.cta.label || t("orderNow")}
-                </Link>
-              </Button>
-            )}
-
-            {/* Auth Buttons - Mobile */}
-            {user ? (
-              <div data-branding-id="header.actions" className="mt-4 pt-4 border-t border-border space-y-2">
-                <p className="text-sm text-muted-foreground mb-3 flex items-center gap-2">
-                  <User className="h-4 w-4" />
-                  {user.email}
-                </p>
-                <Button
-                  asChild
-                  variant="outline"
-                  data-branding-id="header.actions"
-                  className="w-full"
-                >
-                    <Link to={appendStorefrontTenantContext("/min-konto")} onClick={() => setMobileMenuOpen(false)}>
-                    <User className="h-4 w-4 mr-2" />
-                    Min Konto
-                  </Link>
-                </Button>
-                <Button
-                  asChild
-                  variant="outline"
-                  data-branding-id="header.actions"
-                  className="w-full"
-                >
-                    <Link to={appendStorefrontTenantContext("/min-konto/ordrer")} onClick={() => setMobileMenuOpen(false)}>
-                    <Package className="h-4 w-4 mr-2" />
-                    Mine Ordrer
-                  </Link>
-                </Button>
-                <Button
-                  asChild
-                  variant="outline"
-                  data-branding-id="header.actions"
-                  className="w-full"
-                >
-                    <Link to={appendStorefrontTenantContext("/min-konto/adresser")} onClick={() => setMobileMenuOpen(false)}>
-                    <MapPin className="h-4 w-4 mr-2" />
-                    Adresser
-                  </Link>
-                </Button>
-                {isAdmin && (
-                  <Button
-                    asChild
-                    variant="outline"
-                    data-branding-id="header.actions"
-                    className="w-full"
-                  >
-                    <Link to="/admin" onClick={() => setMobileMenuOpen(false)}>
-                      <Shield className="h-4 w-4 mr-2" />
-                      {t("adminPanel")}
-                    </Link>
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  data-branding-id="header.actions"
-                  className="w-full"
-                  onClick={() => {
-                    handleLogout();
-                    setMobileMenuOpen(false);
-                  }}
-                >
-                  <LogOut className="h-4 w-4 mr-2" />
-                  {t("logout")}
-                </Button>
-              </div>
-            ) : (
-              <Button
-                asChild
-                data-branding-id="header.actions"
-                className="mt-4 w-full header-cta-button shadow-none"
-                style={{
-                  color: headerSettings.cta.textColor || '#FFFFFF',
-                }}
-              >
-                <Link
-                  to={appendStorefrontTenantContext("/auth")}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="no-link-color"
-                >
-                  {t("login")}
-                </Link>
-              </Button>
-            )}
-          </nav>
-        )}
+              </motion.nav>
+            </>
+          )}
+        </AnimatePresence>
       </div>
     </header>
   );

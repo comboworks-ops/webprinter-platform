@@ -29,6 +29,7 @@ interface Banner2SectionProps {
     savedSwatches?: string[];
     onSaveSwatch?: (color: string) => void;
     onRemoveSwatch?: (color: string) => void;
+    focusTargetId?: string | null;
 }
 
 const ANIMATION_OPTIONS = [
@@ -50,6 +51,7 @@ export function Banner2Section({
     savedSwatches,
     onSaveSwatch,
     onRemoveSwatch,
+    focusTargetId,
 }: Banner2SectionProps) {
     const [uploading, setUploading] = useState<string | null>(null);
 
@@ -195,12 +197,14 @@ export function Banner2Section({
         <div className="space-y-4">
             <Card>
                 <CardHeader className="py-3">
-                    <CardTitle className="text-sm font-medium">Banner 2</CardTitle>
+                    <CardTitle className="text-sm font-medium">Ekstra banner / galleri</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                    <p className="text-xs leading-relaxed text-muted-foreground">En selvstændig sektion til billeder, logoer og korte budskaber. Brug Produktvisning til det fremhævede produkt og dets billedgalleri.</p>
                     <div className="flex items-center justify-between">
-                        <Label>Vis Banner 2</Label>
+                        <Label htmlFor="banner2-visible">Vis ekstra banner</Label>
                         <Switch
+                            id="banner2-visible"
                             checked={banner2.enabled}
                             onCheckedChange={(v) => updateBanner2({ enabled: v })}
                         />
@@ -208,10 +212,10 @@ export function Banner2Section({
 
                     {banner2.enabled && (
                         <>
-                            <div id="site-design-focus-showcase-layout" className="space-y-4">
+                            <div id="site-design-focus-showcase-layout" className={cn("space-y-4", focusTargetId === "site-design-focus-showcase-layout" && "rounded-lg ring-2 ring-primary/50 ring-offset-2")}>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div className="space-y-2">
-                                        <Label>Mode</Label>
+                                        <Label>Visning</Label>
                                         <Select
                                             value={banner2.mode}
                                             onValueChange={(v: Banner2Mode) => updateBanner2({ mode: v })}
@@ -221,12 +225,12 @@ export function Banner2Section({
                                             </SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="cards" className="text-xs">Kort / testimonials</SelectItem>
-                                                <SelectItem value="logo-showcase" className="text-xs">Logo showcase</SelectItem>
+                                                <SelectItem value="logo-showcase" className="text-xs">Galleri / logoer</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label>Auto slide</Label>
+                                        <Label>Skift automatisk</Label>
                                         <Switch
                                             checked={banner2.autoPlay}
                                             onCheckedChange={(v) => updateBanner2({ autoPlay: v })}
@@ -269,12 +273,14 @@ export function Banner2Section({
                             </div>
 
                             <div className="grid grid-cols-1 gap-3">
-                                <div id="site-design-focus-showcase-heading" className="space-y-2">
+                                <div id="site-design-focus-showcase-heading" className={cn("space-y-2", focusTargetId === "site-design-focus-showcase-heading" && "rounded-lg ring-2 ring-primary/50 ring-offset-2")}>
                                     <Label>Overskrift</Label>
                                     <Input
                                         value={banner2.heading}
                                         onChange={(e) => updateBanner2({ heading: e.target.value })}
                                     />
+                                    <details className="sd-banner-details">
+                                        <summary>Overskriftens udseende</summary>
                                     <FontSelector
                                         label="Overskrift font"
                                         inline
@@ -290,14 +296,17 @@ export function Banner2Section({
                                         onSaveSwatch={onSaveSwatch}
                                         onRemoveSwatch={onRemoveSwatch}
                                     />
+                                    </details>
                                 </div>
-                                <div id="site-design-focus-showcase-subtitle" className="space-y-2">
+                                <div id="site-design-focus-showcase-subtitle" className={cn("space-y-2", focusTargetId === "site-design-focus-showcase-subtitle" && "rounded-lg ring-2 ring-primary/50 ring-offset-2")}>
                                     <Label>Intro tekst</Label>
                                     <Textarea
                                         rows={2}
                                         value={banner2.subtitle}
                                         onChange={(e) => updateBanner2({ subtitle: e.target.value })}
                                     />
+                                    <details className="sd-banner-details">
+                                        <summary>Introtekstens udseende</summary>
                                     <FontSelector
                                         label="Intro font"
                                         inline
@@ -313,10 +322,13 @@ export function Banner2Section({
                                         onSaveSwatch={onSaveSwatch}
                                         onRemoveSwatch={onRemoveSwatch}
                                     />
+                                    </details>
                                 </div>
                             </div>
 
-                            <div id="site-design-focus-showcase-background" className="space-y-2">
+                            <details className="sd-banner-details" open={focusTargetId === "site-design-focus-showcase-background" || undefined}>
+                                <summary>Baggrund og effekter</summary>
+                            <div id="site-design-focus-showcase-background" className={cn("space-y-2", focusTargetId === "site-design-focus-showcase-background" && "rounded-lg ring-2 ring-primary/50 ring-offset-2")}>
                                 <Label>Baggrund</Label>
                                 <Select
                                     value={banner2.background.type}
@@ -437,6 +449,7 @@ export function Banner2Section({
                                     </div>
                                 )}
                             </div>
+                            </details>
                         </>
                     )}
                 </CardContent>
@@ -453,6 +466,7 @@ export function Banner2Section({
                                     </CardTitle>
                                     <div className="flex flex-wrap items-center justify-start sm:justify-end gap-1">
                                         <Switch
+                                            aria-label={`Vis sektion ${index + 1}`}
                                             checked={slide.enabled}
                                             onCheckedChange={(v) => updateSlide(slide.id, { enabled: v })}
                                         />
@@ -460,6 +474,7 @@ export function Banner2Section({
                                             variant="ghost"
                                             size="icon"
                                             className="h-7 w-7"
+                                            aria-label="Flyt sektion op"
                                             onClick={() => moveSlide(slide.id, "up")}
                                             disabled={index === 0}
                                         >
@@ -469,6 +484,7 @@ export function Banner2Section({
                                             variant="ghost"
                                             size="icon"
                                             className="h-7 w-7"
+                                            aria-label="Flyt sektion ned"
                                             onClick={() => moveSlide(slide.id, "down")}
                                             disabled={index === banner2.slides.length - 1}
                                         >
@@ -478,6 +494,7 @@ export function Banner2Section({
                                             variant="ghost"
                                             size="icon"
                                             className="h-7 w-7 text-destructive"
+                                            aria-label="Fjern sektion"
                                             onClick={() => removeSlide(slide.id)}
                                         >
                                             <Trash2 className="h-4 w-4" />
@@ -514,7 +531,7 @@ export function Banner2Section({
 
                                 <div className="space-y-3">
                                     {slide.items.map((item, itemIndex) => (
-                                        <Card key={item.id} id={`site-design-focus-showcase-item-${item.id}`} className="border border-dashed">
+                                        <Card key={item.id} id={`site-design-focus-showcase-item-${item.id}`} className={cn("border border-dashed", focusTargetId?.startsWith(`site-design-focus-showcase-item-${item.id}`) && "ring-2 ring-primary/50 ring-offset-2")}>
                                             <CardHeader className="py-2">
                                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                                     <CardTitle className="text-xs font-medium">
@@ -522,6 +539,7 @@ export function Banner2Section({
                                                     </CardTitle>
                                                     <div className="flex flex-wrap items-center justify-start sm:justify-end gap-1">
                                                         <Switch
+                                                            aria-label={`Vis kort ${itemIndex + 1}`}
                                                             checked={item.enabled}
                                                             onCheckedChange={(v) => updateItem(slide.id, item.id, { enabled: v })}
                                                             disabled={!slide.enabled}
@@ -530,6 +548,7 @@ export function Banner2Section({
                                                             variant="ghost"
                                                             size="icon"
                                                             className="h-6 w-6 text-destructive"
+                                                            aria-label="Fjern kort"
                                                             onClick={() => removeItem(slide.id, item.id)}
                                                         >
                                                             <Trash2 className="h-3 w-3" />
@@ -551,7 +570,7 @@ export function Banner2Section({
                                                             </SelectTrigger>
                                                             <SelectContent>
                                                                 <SelectItem value="icon" className="text-xs">Ikon</SelectItem>
-                                                                <SelectItem value="image" className="text-xs">PNG</SelectItem>
+                                                                <SelectItem value="image" className="text-xs">Billede</SelectItem>
                                                                 <SelectItem value="none" className="text-xs">Ingen</SelectItem>
                                                             </SelectContent>
                                                         </Select>
@@ -596,7 +615,7 @@ export function Banner2Section({
                                                                         ) : (
                                                                             <>
                                                                                 <Upload className="h-4 w-4 text-muted-foreground" />
-                                                                                Upload PNG
+                                                                                Upload billede
                                                                             </>
                                                                         )}
                                                                         <input
@@ -633,6 +652,8 @@ export function Banner2Section({
                                                     </div>
                                                 </div>
 
+                                                <details className="sd-banner-details">
+                                                    <summary>Typografi, farver og animation</summary>
                                                 <div className="grid grid-cols-1 gap-3">
                                                     <FontSelector
                                                         label="Titel font"
@@ -743,6 +764,7 @@ export function Banner2Section({
                                                         </Select>
                                                     </div>
                                                 </div>
+                                                </details>
                                             </CardContent>
                                         </Card>
                                     ))}

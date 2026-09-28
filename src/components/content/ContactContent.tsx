@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +30,7 @@ export const ContactContent = () => {
     const contactAddress = typeof company.address === "string" ? company.address.trim() : "";
     const contactCvr = typeof company.cvr === "string" ? company.cvr.trim() : "";
     const addressLines = [contactName, contactAddress].filter(Boolean);
+    const privacyHref = appendStorefrontTenantContext("/privatliv");
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -242,14 +244,13 @@ export const ContactContent = () => {
                                 />
                                 <Label htmlFor="consent" className="text-sm font-normal cursor-pointer leading-relaxed">
                                     Jeg accepterer at mine oplysninger bruges til at behandle min henvendelse i henhold til{" "}
-                                    <a
-                                        href={appendStorefrontTenantContext("/privatliv")}
-                                        data-branding-id="colors.linkText"
+                                    <Link
+                                        to={privacyHref}
                                         className="text-primary underline-offset-4 hover:underline"
                                         onClick={(event) => event.stopPropagation()}
                                     >
                                         privatlivspolitikken
-                                    </a>
+                                    </Link>
                                     .
                                 </Label>
                             </div>

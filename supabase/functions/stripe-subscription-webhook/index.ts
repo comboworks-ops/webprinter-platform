@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 // Stripe Billing webhook for tenant subscriptions
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -145,7 +146,7 @@ serve(async (req) => {
     const event = await stripe.webhooks.constructEventAsync(body, stripeSignature, webhookSecret);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const supabaseServiceKey = readSupabaseKey((name) => Deno.env.get(name), "secret") ?? "";
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     switch (event.type) {

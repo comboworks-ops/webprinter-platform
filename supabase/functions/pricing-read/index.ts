@@ -1,13 +1,18 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Max-Age": "86400",
 };
 
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 const ROOT_DOMAIN = Deno.env.get("ROOT_DOMAIN") || Deno.env.get("VITE_ROOT_DOMAIN") || "webprinter.dk";
+
+type SupabaseServiceClient = ReturnType<typeof createClient<any>>;
 
 type TenantRow = {
   id: string;
@@ -129,6 +134,28 @@ function normalizeIds(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => String(value).trim()).filter(Boolean))).sort();
 }
 
+function toIdList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => toIdList(entry));
+  }
+  if (value == null) return [];
+  if (typeof value === "object" && "id" in (value as Record<string, unknown>)) {
+    const nestedId = (value as Record<string, unknown>).id;
+    if (nestedId == null) return [];
+    return [String(nestedId)];
+  }
+  return [String(value)].filter(Boolean);
+}
+
+function firstId(value: unknown, preferred?: unknown[]): string | null {
+  const candidates = [value, ...(preferred || [])];
+  for (const candidate of candidates) {
+    const ids = normalizeIds(toIdList(candidate));
+    if (ids.length > 0) return ids[0];
+  }
+  return null;
+}
+
 function normalizeVariantKey(value?: string | null): string {
   return String(value || "")
     .split("|")
@@ -215,16 +242,14 @@ function preparePriceRow(row: Record<string, unknown>): PreparedPriceRow {
         .filter(Boolean)
         .map((value) => String(value))
     )),
-    selectionMapFormat: typeof selectionMap.format === "string"
-      ? selectionMap.format
-      : typeof extra.formatId === "string"
-        ? extra.formatId
-        : null,
-    selectionMapMaterial: typeof selectionMap.material === "string"
-      ? selectionMap.material
-      : typeof extra.materialId === "string"
-        ? extra.materialId
-        : null,
+    selectionMapFormat: firstId(
+      selectionMap.format,
+      [selectionMap.size, selectionMap.formatId, extra.formatId, extra.format_id]
+    ),
+    selectionMapMaterial: firstId(
+      selectionMap.material,
+      [selectionMap.verticalAxis, selectionMap.verticalAxisValueId, selectionMap.materialId, extra.materialId, extra.material_id]
+    ),
     selectionMapVariantValueIds: variantIds,
     selectionMapVariantSortedKey: variantIds.join("|"),
     variantNameLooseNorm: normalizeLooseVariantKey(typeof row.variant_name === "string" ? row.variant_name : null),
@@ -420,7 +445,7 @@ async function parseRequestBody(req: Request): Promise<RequestInput> {
   }
 }
 
-async function findTenantById(serviceClient: ReturnType<typeof createClient>, tenantId: string | null | undefined): Promise<TenantRow | null> {
+async function findTenantById(serviceClient: SupabaseServiceClient, tenantId: string | null | undefined): Promise<TenantRow | null> {
   const id = String(tenantId || "").trim();
   if (!id) return null;
   const { data } = await serviceClient
@@ -431,7 +456,7 @@ async function findTenantById(serviceClient: ReturnType<typeof createClient>, te
   return (data as TenantRow | null) ?? null;
 }
 
-async function findTenantByDomain(serviceClient: ReturnType<typeof createClient>, domain: string | null | undefined): Promise<TenantRow | null> {
+async function findTenantByDomain(serviceClient: SupabaseServiceClient, domain: string | null | undefined): Promise<TenantRow | null> {
   const variants = getDomainVariants(domain);
   if (!variants.length) return null;
   const { data } = await serviceClient
@@ -455,7 +480,7 @@ async function findTenantByDomain(serviceClient: ReturnType<typeof createClient>
   return null;
 }
 
-async function resolveTenant(serviceClient: ReturnType<typeof createClient>, input: Required<RequestInput>): Promise<{ tenant: TenantRow | null; source: string }> {
+async function resolveTenant(serviceClient: SupabaseServiceClient, input: Required<RequestInput>): Promise<{ tenant: TenantRow | null; source: string }> {
   const explicitTenantId = input.tenantId || input.tenant_id;
   if (explicitTenantId) {
     const tenant = await findTenantById(serviceClient, explicitTenantId);
@@ -477,7 +502,7 @@ async function resolveTenant(serviceClient: ReturnType<typeof createClient>, inp
 }
 
 async function fetchProduct(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseServiceClient,
   tenantId: string,
   identifier: { slug: string; productId: string },
 ): Promise<{ product: ProductRow | null; source: string }> {
@@ -490,6 +515,7 @@ async function fetchProduct(
     .select(productSelect)
     .eq(lookupBy.field, lookupBy.value)
     .eq("tenant_id", tenantId)
+    .eq("is_published", true)
     .limit(1);
   if (tenantError) throw tenantError;
   const tenantProduct = ((tenantRows as ProductRow[] | null) || [])[0] || null;
@@ -501,6 +527,7 @@ async function fetchProduct(
       .select(productSelect)
       .eq(lookupBy.field, lookupBy.value)
       .eq("tenant_id", MASTER_TENANT_ID)
+      .eq("is_published", true)
       .limit(1);
     if (masterError) throw masterError;
     const masterProduct = ((masterRows as ProductRow[] | null) || [])[0] || null;
@@ -527,7 +554,7 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const serviceKey = readSupabaseKey((name) => Deno.env.get(name), "secret") ?? "";
 
     if (!supabaseUrl || !serviceKey) {
       return jsonResponse(500, { success: false, error: "Missing Supabase environment configuration" });
@@ -537,8 +564,8 @@ serve(async (req) => {
     const body = await parseRequestBody(req);
     const input = pickRequestInput(req, url, body);
     const identifier = {
-      slug: input.slug,
-      productId: input.productId || input.product_id,
+      slug: String(input.slug || ""),
+      productId: String(input.productId || input.product_id || ""),
     };
 
     if (!identifier.slug && !isUuid(identifier.productId)) {
@@ -622,7 +649,8 @@ serve(async (req) => {
 
     const requestedVariantIds = normalizeIds((input.variantValueIds || []).map((value) => String(value)));
     const requestedDisplayKey = normalizeLooseVariantKey((input.variantDisplayLabels || []).join("|"));
-    const requestedQuantity = input.quantity > 0 ? input.quantity : null;
+    const requestedQuantityValue = Number(input.quantity || 0);
+    const requestedQuantity = requestedQuantityValue > 0 ? requestedQuantityValue : null;
     const requestedFormatId = input.formatId || null;
     const requestedMaterialId = input.materialId || null;
     const requestedVerticalValueId = input.verticalValueId || null;

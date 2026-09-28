@@ -47,8 +47,8 @@ export interface IconStudioProvider {
 }
 
 export const ICON_STUDIO_PROVIDER_OPTIONS = [
-  { key: "auto", label: "Auto" },
-  { key: "mock", label: "Mock / Deterministisk" },
+  { key: "auto", label: "Automatisk" },
+  { key: "mock", label: "Testmotor / deterministisk" },
   { key: "gemini", label: "Gemini Image" },
   { key: "openai", label: "OpenAI Image" },
 ] as const;
@@ -136,11 +136,11 @@ const ANCHOR_BOXES: Record<IconStudioPlacementPresetKey, { x: number; y: number;
 
 function escapeXml(input: string) {
   return input
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 function getProductFamily(productKey: IconStudioProductKey) {

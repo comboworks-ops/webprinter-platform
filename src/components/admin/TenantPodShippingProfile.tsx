@@ -111,7 +111,7 @@ export function TenantPodShippingProfile() {
             setLoading(true);
             try {
                 const { data, error } = await supabase
-                    .from("tenant_pod_shipping_profile" as any)
+                    .from("tenant_pod_shipping_profile")
                     .select("*")
                     .eq("tenant_id", tenantId)
                     .maybeSingle();
@@ -197,7 +197,7 @@ export function TenantPodShippingProfile() {
             };
 
             const { error } = await supabase
-                .from("tenant_pod_shipping_profile" as any)
+                .from("tenant_pod_shipping_profile")
                 .upsert(payload, { onConflict: "tenant_id" });
 
             if (error) throw error;

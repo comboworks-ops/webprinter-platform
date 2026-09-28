@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -131,7 +132,7 @@ export default function SitesAdmin() {
     }
 
     const { error } = await supabase
-      .from('tenants' as any)
+      .from('tenants')
       .update({ settings: nextSettings })
       .eq('id', tenant.id);
 
@@ -161,7 +162,7 @@ export default function SitesAdmin() {
       }
 
       const { data, error } = await supabase
-        .from('tenants' as any)
+        .from('tenants')
         .select('id, name, settings, domain')
         .eq('id', targetTenantId)
         .maybeSingle();
@@ -375,7 +376,7 @@ export default function SitesAdmin() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Sites</CardTitle>
+          <h1 className="text-2xl font-semibold">Sites</h1>
           <CardDescription>Der kunne ikke findes en aktiv shop-kontekst.</CardDescription>
         </CardHeader>
       </Card>
@@ -386,12 +387,12 @@ export default function SitesAdmin() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <h1 className="flex items-center gap-2 text-2xl font-semibold">
             <Store className="h-5 w-5" />
             Sites
-          </CardTitle>
+          </h1>
           <CardDescription>
-            Vaelg et facade-site, importer site-specifikke formater/efterbehandlinger til biblioteket,
+            Vælg et facade-site, importer site-specifikke formater/efterbehandlinger til biblioteket,
             og behold checkout i WebPrinter-systemet.
           </CardDescription>
           <p className="text-xs text-muted-foreground px-6 pb-2">
@@ -422,25 +423,25 @@ export default function SitesAdmin() {
             <Button asChild variant="outline" size="sm">
               <Link to="/admin/branding-v2">
                 <Palette className="h-4 w-4 mr-2" />
-                Gaa til Site Design
+                Gå til Site Design
               </Link>
             </Button>
             <Button asChild variant="outline" size="sm">
               <Link to="/admin/site-design-v2">
                 <Palette className="h-4 w-4 mr-2" />
-                Gaa til Site Design V2
+                Gå til Site Design V2
               </Link>
             </Button>
             <Button asChild variant="outline" size="sm">
               <Link to="/admin/tilvalgsbibliotek">
                 <Layers3 className="h-4 w-4 mr-2" />
-                Aabn tilvalgsbibliotek
+                Åbn tilvalgsbibliotek
               </Link>
             </Button>
             <Button asChild variant="outline" size="sm">
               <Link to="/admin/products">
                 <LayoutGrid className="h-4 w-4 mr-2" />
-                Gaa til produkter
+                Gå til produkter
               </Link>
             </Button>
             <Button asChild variant="outline" size="sm">
@@ -542,7 +543,7 @@ export default function SitesAdmin() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <WorkspaceCollection label="Sitepakker" items={SITE_PACKAGES.map(site => ({ id: site.id, title: site.name, subtitle: site.description, icon: <Store aria-hidden="true" /> }))}>
         {SITE_PACKAGES.map((sitePackage) => {
           const isInstalled = siteState.installedSiteIds.includes(sitePackage.id);
           const isActive = siteState.activeSiteId === sitePackage.id;
@@ -715,7 +716,7 @@ export default function SitesAdmin() {
             </Card>
           );
         })}
-      </div>
+      </WorkspaceCollection>
 
       <AlertDialog open={Boolean(launchSite)} onOpenChange={(open) => !open && setLaunchSiteId(null)}>
         <AlertDialogContent>

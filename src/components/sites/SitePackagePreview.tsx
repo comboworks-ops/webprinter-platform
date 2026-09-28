@@ -6,6 +6,7 @@ import {
   ArrowRight,
   CheckCircle2,
   ExternalLink,
+  Home,
   Layers,
   Ruler,
   ShoppingCart,
@@ -24,6 +25,8 @@ interface SitePackagePreviewProps {
   tenantId?: string | null;
   mode?: 'preview' | 'live';
 }
+
+const WEBPRINTER_HOME_HREF = '/?force_domain=webprinter.dk';
 
 type SitePreviewManifest = {
   mode?: 'mock' | 'iframe';
@@ -83,6 +86,8 @@ type RuntimeSiteStorformatConfig = {
   roundingStep: number;
   globalMarkupPct: number;
   quantities: number[];
+  areaPricingBasis?: string | null;
+  sourceQuoteModel?: unknown;
 };
 
 type RuntimeSiteStorformatMaterial = {
@@ -482,7 +487,6 @@ function previewPrice(name: string, index: number): number {
 
 export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SitePackagePreviewProps) {
   const sitePackage = SITE_PACKAGE_MAP[siteId];
-  const isPreviewMode = mode === 'preview';
 
   if (!sitePackage) {
     return (
@@ -491,13 +495,20 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
           <CardContent className="p-6 space-y-2">
             <h2 className="text-xl font-semibold text-slate-100">Site preview ikke fundet</h2>
             <p className="text-sm text-slate-300">
-              Kunne ikke finde site-pakken. Gaa tilbage til `Sites` og vaelg et gyldigt site.
+              Kunne ikke finde site-pakken. Gå tilbage til `Sites` og vælg et gyldigt site.
             </p>
           </CardContent>
         </Card>
       </div>
     );
   }
+
+  return <ResolvedSitePackagePreview siteId={siteId} tenantId={tenantId} mode={mode} />;
+}
+
+function ResolvedSitePackagePreview({ siteId, tenantId, mode = 'preview' }: SitePackagePreviewProps) {
+  const sitePackage = SITE_PACKAGE_MAP[siteId];
+  const isPreviewMode = mode === 'preview';
 
   const [manifest, setManifest] = useState<SitePreviewManifest | null>(null);
   const [manifestStatus, setManifestStatus] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
@@ -594,11 +605,11 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
 
         if (sourceProductIds.length > 0) {
           const readStorformatTable = async (
-            table: string,
+            table: 'storformat_configs' | 'storformat_materials' | 'storformat_m2_prices' | 'storformat_finishes' | 'storformat_finish_prices' | 'storformat_products' | 'storformat_product_fixed_prices' | 'storformat_product_price_tiers',
             orderBy?: string,
           ): Promise<Array<Record<string, unknown>>> => {
             let query = supabase
-              .from(table as any)
+              .from(table)
               .select('*')
               .in('product_id', sourceProductIds);
             if (orderBy) {
@@ -667,6 +678,8 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
               ? {
                 roundingStep: asNumber(configRow.rounding_step) ?? 1,
                 globalMarkupPct: asNumber(configRow.global_markup_pct) ?? 0,
+                areaPricingBasis: asString(configRow.area_pricing_basis),
+                sourceQuoteModel: configRow.source_quote_model,
                 quantities: Array.isArray(configRow.quantities)
                   ? configRow.quantities
                     .map((value) => asNumber(value))
@@ -934,9 +947,15 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" asChild>
+                <a href={WEBPRINTER_HOME_HREF} data-preview-exit="true">
+                  <Home className="h-4 w-4 mr-2" />
+                  Til Webprinter
+                </a>
+              </Button>
+              <Button variant="outline" asChild>
                 <a href={iframeEntryPath} target="_blank" rel="noreferrer noopener">
                   <ExternalLink className="h-4 w-4 mr-2" />
-                  Aabn bundle
+                  Åbn bundle
                 </a>
               </Button>
               <Button asChild>
@@ -1021,16 +1040,24 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
           </div>
 
           {isPreviewMode && (
-            <Button
-              asChild
-              className="border-0"
-              style={{ background: palette.primary, color: '#FFFFFF' }}
-            >
-              <a href={sitePackage.repoUrl} target="_blank" rel="noreferrer noopener">
-                <ExternalLink className="h-4 w-4 mr-2" />
-                GitHub
-              </a>
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button variant="outline" asChild>
+                <a href={WEBPRINTER_HOME_HREF} data-preview-exit="true">
+                  <Home className="h-4 w-4 mr-2" />
+                  Til Webprinter
+                </a>
+              </Button>
+              <Button
+                asChild
+                className="border-0"
+                style={{ background: palette.primary, color: '#FFFFFF' }}
+              >
+                <a href={sitePackage.repoUrl} target="_blank" rel="noreferrer noopener">
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  GitHub
+                </a>
+              </Button>
+            </div>
           )}
         </div>
       </header>
@@ -1081,7 +1108,7 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
         {isPreviewMode && manifestStatus !== 'ready' && (
           <Card style={{ backgroundColor: palette.panel, borderColor: palette.border }}>
             <CardContent className="p-4 text-sm" style={{ color: palette.mutedText }}>
-              Repo preview bundle ikke fundet. Tilfoej `public/site-previews/{siteId}/manifest.json`
+              Repo preview bundle ikke fundet. Tilføj `public/site-previews/{siteId}/manifest.json`
               med repo assets (eller `mode: iframe` + `entry`) for at vise det originale site-design.
             </CardContent>
           </Card>
@@ -1124,7 +1151,7 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
 
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl md:text-2xl font-semibold">Populaere produkter</h2>
+            <h2 className="text-xl md:text-2xl font-semibold">Populære produkter</h2>
             {isPreviewMode && (
               <p className="text-sm" style={{ color: palette.mutedText }}>
                 Preview af den valgte site facade
@@ -1251,7 +1278,7 @@ export function SitePackagePreview({ siteId, tenantId, mode = 'preview' }: SiteP
                 Shared checkout flow
               </h3>
               <p className="text-sm mt-2" style={{ color: palette.mutedText }}>
-                Kunden vaelger produkt og konfiguration i dette site UI, og checkout koerer i WebPrinter backend.
+                Kunden vælger produkt og konfiguration i dette site UI, og checkout kører i WebPrinter backend.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Badge className="border" style={{ backgroundColor: palette.bgSoft, borderColor: palette.border, color: palette.text }}>

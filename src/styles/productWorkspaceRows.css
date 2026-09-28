@@ -1,0 +1,5 @@
+/* Customer sections share a row without changing their price/source identity. */
+.workspace-customer-row { display:grid; grid-template-columns:minmax(0,1fr); gap:var(--ui-space-4,16px); align-items:start; }
+.workspace-customer-row > * { min-width:0; }
+@media(min-width:640px) { .workspace-customer-row[data-columns="2"], .workspace-customer-row[data-columns="3"] { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(min-width:1024px) { .workspace-customer-row[data-columns="3"] { grid-template-columns:repeat(3,minmax(0,1fr)); } }

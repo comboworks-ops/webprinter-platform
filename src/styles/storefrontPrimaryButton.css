@@ -1,0 +1,23 @@
+/* Explicit primary actions outrank older per-layout button recipes. */
+body :is(.storefront-primary-action,[data-shop-primary="true"]):is(.storefront-primary-action,[data-shop-primary="true"]) {
+  background:var(--shop-action-bg) !important;
+  color:var(--shop-action-text) !important;
+  border-color:var(--shop-action-border) !important;
+  border-radius:var(--shop-action-radius) !important;
+  font-size:var(--shop-action-font) !important;
+  padding:var(--shop-action-padding) 24px !important;
+  min-height:44px;
+  height:auto;
+  line-height:1.35;
+  white-space:pre;
+  overflow-wrap:normal;
+  word-break:normal;
+}
+body :is(.storefront-primary-action,[data-shop-primary="true"]):is(.storefront-primary-action,[data-shop-primary="true"]):is(:hover,:focus-visible):not(:disabled) {
+  background:var(--shop-action-hover) !important;
+  color:var(--shop-action-hover-text) !important;
+  border-color:var(--shop-action-hover-border) !important;
+}
+body :is(.storefront-primary-action,[data-shop-primary="true"]):focus-visible { outline:2px solid var(--shop-action-border); outline-offset:3px; }
+/* The designer toolbar remains a stable height, with a full touch target. */
+body [data-designer-toolbar] :is(.storefront-primary-action,[data-shop-primary="true"]):is(.storefront-primary-action,[data-shop-primary="true"]) { padding:10px 14px !important; font-size:min(var(--shop-action-font),16px) !important; }

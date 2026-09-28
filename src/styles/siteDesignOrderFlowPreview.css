@@ -1,0 +1,23 @@
+.sd-order-preview { min-width: 0; background: #fff; }
+.sd-order-preview-notice { margin: 0; padding: 12px var(--ui-page-gutter); background: #f1f5f9; border-bottom: 1px solid var(--flow-line); color: #475569; font-size: 13px; line-height: 1.6; }
+.sd-order-preview .order-design-preview-switch { display: none; }
+.sd-preview-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.sd-preview-fields label,.sd-designer-example-text { display: flex; flex-direction: column; gap: 8px; font-size: 14px; min-width: 0; }
+.sd-preview-fields input,.sd-designer-example-text input { width: 100%; min-width: 0; border: 1px solid var(--flow-line); padding: 10px; font-size: 16px; }
+.sd-preview-upload { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px; border: 1px dashed #94a3b8; margin-bottom: 18px; text-align: center; }
+.sd-preview-upload p { font-size: 14px; line-height: 1.6; }
+.sd-order-preview .sd-inline-order-dialog { position: static; width: 100%; height: auto; min-height: 600px; max-height: none; animation: none; }
+.sd-designer-example { height: 760px; }
+.sd-designer-example-canvas { display: grid; place-items: center; padding: 24px; overflow: auto; }
+.sd-designer-example-canvas > div { width: min(100%,380px); background: #fff; border: 1px solid var(--flow-line); padding: 20px; }
+.sd-designer-example-canvas img { width: 100%; }
+.sd-designer-example-canvas p { font-size: 24px; text-align: center; padding-top: 20px; overflow-wrap: anywhere; }
+.sd-designer-example-text { margin-top: 20px; }
+@media (max-width:700px) {
+  .sd-preview-fields { grid-template-columns: minmax(0,1fr); }
+  .sd-order-preview .order-flow-dialog-header { height: auto; padding: 16px; flex-wrap: wrap; }
+  .sd-designer-example { height: auto; }
+  .sd-designer-example .order-designer-workspace { display: flex !important; flex-direction: column; }
+  .sd-designer-example .order-designer-tools { width: 100%; }
+  .sd-designer-example .order-designer-inspector > section { width: 100%; margin: 0; }
+}

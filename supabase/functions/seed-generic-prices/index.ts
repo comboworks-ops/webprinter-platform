@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { optionsResponse } from '../_shared/http.ts';
 import { requireLocalOnly } from '../_shared/localOnly.ts';
@@ -19,7 +20,7 @@ Deno.serve(async (req) => {
         // 1. Init Supabase
         const supabaseClient = createClient(
             Deno.env.get('SUPABASE_URL') ?? '',
-            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+            readSupabaseKey((name) => Deno.env.get(name), "secret") ?? ''
         );
 
         // 2. Find 'tekstiltryk' product
@@ -44,7 +45,10 @@ Deno.serve(async (req) => {
         const quantities = [10, 25, 50, 100, 200];
         const basePrices = { "T-Shirt Basic": 45, "T-Shirt Premium": 65, "Polo Shirt": 85, "Hættetrøje": 125 };
 
-        const priceRecords = [];
+        const priceRecords: Array<{
+            product_id: string; variant_name: string; variant_value: string;
+            quantity: number; price_dkk: number;
+        }> = [];
 
         variants.forEach(variant => {
             quantities.forEach(qty => {
@@ -80,7 +84,7 @@ Deno.serve(async (req) => {
 
     } catch (error) {
         return new Response(
-            JSON.stringify({ error: error.message }),
+            JSON.stringify({ error: error instanceof Error ? error.message : "Could not seed local prices" }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
     }

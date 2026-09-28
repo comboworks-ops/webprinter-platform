@@ -2,6 +2,13 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { readTransientString, removeTransientKey, writeTransientString } from "@/lib/storage/transientStorage";
+import { DEFAULT_PRINT_DESIGN_ID, inheritSystemPrintDesign } from "@/lib/branding/printDesignPresets";
+import { DEFAULT_DROPDOWN_PRESET, resolveDropdownPreset } from "@/lib/branding/dropdownPresets";
+import type { HeaderDropdownPreset } from "@/lib/branding/dropdownPresets";
+import {
+    DEFAULT_STOREFRONT_LAYOUT,
+    type StorefrontLayoutSettings,
+} from "@/lib/storefront/shopTemplates";
 
 // Default hero slideshow images (External URLs for maximum reliability in production)
 const heroPrinting = "/hero-print.jpg";
@@ -90,6 +97,11 @@ export interface HeroImage {
     buttons?: HeroButton[];
     /** Text animation effect for this slide */
     textAnimation?: HeroTextAnimation;
+    /** Optional styling when the saved per-banner styling switch is enabled. */
+    titleColor?: string;
+    subtitleColor?: string;
+    titleFontId?: string;
+    subtitleFontId?: string;
 }
 
 // Hero video interface
@@ -120,6 +132,9 @@ export interface HeroVideoSettings {
 
 // Overlay settings interface (with text color customization)
 export interface HeroOverlaySettings {
+    titleFontId?: string;
+    subtitleFontId?: string;
+    usePerBannerStyling?: boolean;
     title: string;
     subtitle: string;
     /** Custom title text color */
@@ -132,6 +147,10 @@ export interface HeroOverlaySettings {
 
 // Complete hero settings interface
 export interface HeroSettings {
+    /** Optional rendered height; omitted keeps the selected theme composition. */
+    heightPx?: number;
+    /** Print themes default to shared copy; legacy themes retain per-slide copy. */
+    textSource?: 'shared' | 'slides';
     recommendedWidthPx: number;
     recommendedHeightPx: number;
     mediaType: HeroMediaType;
@@ -298,13 +317,14 @@ export interface HeaderCtaSettings {
     textColor?: string;
     /** Custom hover background color for the CTA button */
     hoverBgColor?: string;
+    hoverTextColor?: string;
 }
 
 // Header style settings
 export type HeaderStyleType = 'auto' | 'solid' | 'glass';
 export type HeaderHeightType = 'sm' | 'md' | 'lg';
 export type HeaderAlignmentType = 'left' | 'center' | 'right';
-export type HeaderDropdownPreset = 'classic' | 'showcase-bar' | 'split-preview' | 'compact-columns' | 'gallery-cards';
+export type { HeaderDropdownPreset } from "@/lib/branding/dropdownPresets";
 export type HeaderSplitPreviewSource = 'featured-product' | 'featured-side-panel';
 
 // Complete header settings
@@ -315,12 +335,14 @@ export interface HeaderSettings {
     logoFont: string;              // Font for text logo
     logoTextColor: string;         // Color for text logo (separate from nav)
     logoImageUrl: string | null;
+    logoHeightPx?: number;         // Uploaded image logo display height
     logoLink: string;
 
     // Navigation
     navItems: HeaderNavItem[];
     dropdownMode: HeaderDropdownMode;
     dropdownPreset?: HeaderDropdownPreset;
+    dropdownMotionStyle?: 'precision' | 'liquid' | 'gallery-rise' | 'soft-slide' | 'focus-slide';
     dropdownSplitPreviewSource?: HeaderSplitPreviewSource;
 
     // Styling
@@ -409,10 +431,11 @@ const DEFAULT_HEADER: HeaderSettings = {
     logoFont: 'Poppins',
     logoTextColor: '#1F2937',      // Separate color for logo text
     logoImageUrl: null,
+    logoHeightPx: 40,
     logoLink: '/',
     navItems: DEFAULT_NAV_ITEMS,
     dropdownMode: 'IMAGE_AND_TEXT',
-    dropdownPreset: 'classic',
+    dropdownPreset: DEFAULT_DROPDOWN_PRESET,
     dropdownSplitPreviewSource: 'featured-product',
     menuFontSizePx: 14,
     fontId: 'Inter',
@@ -505,7 +528,7 @@ const DEFAULT_FOOTER_SOCIAL: FooterSocialSettings = {
 // Default footer links
 const DEFAULT_FOOTER_LINKS: FooterLinkItem[] = [
     { id: 'privacy', label: 'Privatlivspolitik', href: '/privatliv', isVisible: true, order: 0 },
-    { id: 'terms', label: 'Handelsbetingelser', href: '/vilkaar', isVisible: true, order: 1 },
+    { id: 'terms', label: 'Handelsbetingelser', href: '/betingelser', isVisible: true, order: 1 },
     { id: 'contact', label: 'Kontakt', href: '/kontakt', isVisible: true, order: 2 },
     { id: 'grafisk', label: 'Grafisk vejledning', href: '/grafisk-vejledning', isVisible: true, order: 3 },
 ];
@@ -529,6 +552,10 @@ const DEFAULT_FOOTER: FooterSettings = {
 
 // Content block for front page sections
 export interface ContentBlock {
+    placement?: 'above_products' | 'below_products';
+    mediaType?: 'none' | 'single' | 'gallery';
+    gallery?: string[];
+    cta?: { enabled?: boolean; label?: string; href?: string; size?: 'sm' | 'md' | 'lg'; bgColor?: string; textColor?: string; hoverBgColor?: string; hoverTextColor?: string; font?: string; style?: 'solid' | 'outline'; };
     id: string;
     enabled: boolean;
     heading?: string;           // Renders as H2 for SEO
@@ -585,6 +612,8 @@ export interface Banner2BackgroundSettings {
 }
 
 export interface Banner2Settings {
+    /** Retained interval setting used by the glass theme. */
+    autoPlayInterval?: number;
     enabled: boolean;
     mode: Banner2Mode;
     autoPlay: boolean;
@@ -613,6 +642,20 @@ export interface FeaturedSidePanelItem {
 }
 
 export interface FeaturedProductConfig {
+    /** Optional single advertised matrix combination; leaves product defaults unchanged. */
+    matrixOffer?: import('@/lib/storefront/featuredMatrixOffer').FeaturedMatrixOffer;
+    layout?: import('@/lib/branding/featuredProductLayout').FeaturedProductLayout;
+    /** Additional complete product banners. The existing fields remain the first banner. */
+    slides?: FeaturedProductSlide[];
+    presentation?: { mode: 'carousel'; autoPlay?: boolean; intervalMs?: number };
+    layoutBehavior?: 'fixed' | 'compact';
+    titleColor?: string;
+    descriptionColor?: string;
+    priceColor?: string;
+    selectionColor?: string;
+    selectionTextColor?: string;
+    ctaFontSizePx?: number;
+    ctaPaddingYPx?: number;
     enabled: boolean;
     productId?: string;
     showInProductList?: boolean;
@@ -636,10 +679,12 @@ export interface FeaturedProductConfig {
     galleryIntervalMs?: number;
     ctaLabel?: string;
     ctaColor?: string;
+    ctaHoverColor?: string;
     ctaTextColor?: string;
     ctaBorderRadiusPx?: number;
     sidePanel?: {
         enabled: boolean;
+        contentMode?: 'banner' | 'product' | 'items';
         mode?: 'banner' | 'product';
         items?: FeaturedSidePanelItem[];
         imageUrl?: string | null;
@@ -661,12 +706,21 @@ export interface FeaturedProductConfig {
         ctaLabel?: string;
         ctaHref?: string;
         ctaColor?: string;
+        ctaHoverColor?: string;
         ctaTextColor?: string;
         productId?: string;
     };
 }
 
+export type FeaturedProductSlideConfig = Omit<FeaturedProductConfig, 'slides' | 'presentation'>;
+export interface FeaturedProductSlide { id: string; config: FeaturedProductSlideConfig; }
+
 export interface ForsideProductsSection {
+    /** Selected homepage and catalogue presentation; absent keeps the current theme. */
+    presentation?: import("@/lib/branding/productPresentations").ProductPresentationId;
+    presentationMotion?: boolean;
+    presentationTitle?: string;
+    presentationSubtitle?: string;
     enabled: boolean;
     columns: 3 | 4 | 5;
     layoutStyle: 'cards' | 'flat' | 'grouped' | 'slim';
@@ -693,6 +747,22 @@ export interface ForsideProductsSection {
         priceColor?: string;
     };
     button: {
+        borderRadiusPx?: number;
+        fontSizePx?: number;
+        paddingYPx?: number;
+        shadow?: string;
+        hoverShadow?: string;
+        hoverScale?: number;
+        hoverY?: number;
+        tapScale?: number;
+        transitionMs?: number;
+        surfaceStyle?: string;
+        gradientStart?: string;
+        gradientEnd?: string;
+        hoverGradientStart?: string;
+        hoverGradientEnd?: string;
+        innerShadow?: string;
+        sheenColor?: string;
         style: 'default' | 'bar' | 'center' | 'hidden';
         bgColor: string;
         hoverBgColor: string;
@@ -763,9 +833,46 @@ const DEFAULT_FEATURED_PRODUCT_CONFIG: FeaturedProductConfig = {
     },
 };
 
+export interface LowerInfoItem {
+    id: string;
+    enabled: boolean;
+    title: string;
+    description: string;
+    titleFont: string;
+    titleColor: string;
+    descriptionFont: string;
+    descriptionColor: string;
+    textAlign: 'left' | 'center' | 'right';
+    mediaType: 'none' | 'single' | 'gallery';
+    icon?: string;
+    mediaAlign: 'left' | 'center' | 'right';
+    imageUrl?: string;
+    gallery: string[];
+}
+
+export interface LowerInfoSettings {
+    cardStyle?: 'elevated' | 'flat' | 'bordered';
+    iconBgColor?: string;
+    iconColor?: string;
+    enabled: boolean;
+    layout: 'grid' | 'stacked';
+    background: { type: 'solid' | 'gradient'; color: string; gradientStart: string; gradientEnd: string; gradientAngle: number };
+    items: LowerInfoItem[];
+}
+
+// A missing optional section stays hidden; authored sections are retained.
+export const DEFAULT_LOWER_INFO: LowerInfoSettings = {
+    enabled: false,
+    layout: 'grid',
+    background: { type: 'solid', color: '#F8FAFC', gradientStart: '#F8FAFC', gradientEnd: '#E2E8F0', gradientAngle: 135 },
+    items: [],
+};
+
 // Forside (front page) settings
 export interface ForsideSettings {
+    lowerInfo?: LowerInfoSettings;
     showBanner: boolean;
+    layout: StorefrontLayoutSettings;
     banner2: Banner2Settings;
     productsSection: ForsideProductsSection;
     contentBlocks: ContentBlock[];  // max 4
@@ -843,6 +950,7 @@ const DEFAULT_BANNER2: Banner2Settings = {
 // Default forside settings
 const DEFAULT_FORSIDE: ForsideSettings = {
     showBanner: true,
+    layout: DEFAULT_STOREFRONT_LAYOUT,
     banner2: DEFAULT_BANNER2,
     productsSection: {
         enabled: true,
@@ -1053,14 +1161,14 @@ const DEFAULT_COLOR_PRESETS: BrandingColorPreset[] = [
         isSystem: true,
         colors: {
             primary: "#0EA5E9",
-            secondary: "#F1F5F9",
+            secondary: "#EAF5FB",
             background: "#F8FAFC",
             card: "#FFFFFF",
             dropdown: "#FFFFFF",
-            hover: "#0284C7",
-            headingText: "#1F2937",
-            bodyText: "#4B5563",
-            pricingText: "#0EA5E9",
+            hover: "#0369A1",
+            headingText: "#0F172A",
+            bodyText: "#475569",
+            pricingText: "#0F766E",
             linkText: "#0EA5E9",
         },
     },
@@ -1070,14 +1178,14 @@ const DEFAULT_COLOR_PRESETS: BrandingColorPreset[] = [
         isSystem: true,
         colors: {
             primary: "#0F766E",
-            secondary: "#E6FFFA",
-            background: "#F8FAFC",
+            secondary: "#DFF7EF",
+            background: "#F7FBFA",
             card: "#FFFFFF",
             dropdown: "#FFFFFF",
-            hover: "#0D9488",
-            headingText: "#0F172A",
-            bodyText: "#475569",
-            pricingText: "#0F766E",
+            hover: "#115E59",
+            headingText: "#102A2A",
+            bodyText: "#4B635F",
+            pricingText: "#0E7490",
             linkText: "#0F766E",
         },
     },
@@ -1086,15 +1194,15 @@ const DEFAULT_COLOR_PRESETS: BrandingColorPreset[] = [
         name: "Press Green",
         isSystem: true,
         colors: {
-            primary: "#16A34A",
-            secondary: "#ECFDF5",
-            background: "#F8FAFC",
+            primary: "#166534",
+            secondary: "#E7F4EA",
+            background: "#F8FBF7",
             card: "#FFFFFF",
             dropdown: "#FFFFFF",
-            hover: "#15803D",
-            headingText: "#102A1A",
-            bodyText: "#3F5347",
-            pricingText: "#15803D",
+            hover: "#14532D",
+            headingText: "#102116",
+            bodyText: "#405448",
+            pricingText: "#0F766E",
             linkText: "#166534",
         },
     },
@@ -1103,16 +1211,16 @@ const DEFAULT_COLOR_PRESETS: BrandingColorPreset[] = [
         name: "Print Blue",
         isSystem: true,
         colors: {
-            primary: "#2563EB",
-            secondary: "#EFF6FF",
+            primary: "#1D4ED8",
+            secondary: "#E8EEF7",
             background: "#F8FAFC",
             card: "#FFFFFF",
             dropdown: "#FFFFFF",
-            hover: "#1D4ED8",
-            headingText: "#111827",
+            hover: "#1E3A8A",
+            headingText: "#0F172A",
             bodyText: "#475569",
-            pricingText: "#1D4ED8",
-            linkText: "#2563EB",
+            pricingText: "#0F766E",
+            linkText: "#1D4ED8",
         },
     },
     {
@@ -1120,16 +1228,16 @@ const DEFAULT_COLOR_PRESETS: BrandingColorPreset[] = [
         name: "Graphite Gold",
         isSystem: true,
         colors: {
-            primary: "#D97706",
-            secondary: "#F3F4F6",
-            background: "#FAFAF9",
+            primary: "#374151",
+            secondary: "#F2EEE6",
+            background: "#FAFAF8",
             card: "#FFFFFF",
             dropdown: "#FFFFFF",
-            hover: "#B45309",
+            hover: "#111827",
             headingText: "#111827",
             bodyText: "#4B5563",
             pricingText: "#B45309",
-            linkText: "#B45309",
+            linkText: "#374151",
         },
     },
     {
@@ -1137,16 +1245,16 @@ const DEFAULT_COLOR_PRESETS: BrandingColorPreset[] = [
         name: "Slate Cyan",
         isSystem: true,
         colors: {
-            primary: "#0891B2",
-            secondary: "#E0F2FE",
-            background: "#F8FAFC",
+            primary: "#155E75",
+            secondary: "#E6F6F8",
+            background: "#F8FBFC",
             card: "#FFFFFF",
             dropdown: "#FFFFFF",
-            hover: "#0E7490",
+            hover: "#164E63",
             headingText: "#0F172A",
             bodyText: "#475569",
-            pricingText: "#0E7490",
-            linkText: "#0891B2",
+            pricingText: "#0891B2",
+            linkText: "#155E75",
         },
     },
     {
@@ -1154,16 +1262,16 @@ const DEFAULT_COLOR_PRESETS: BrandingColorPreset[] = [
         name: "Ink Coral",
         isSystem: true,
         colors: {
-            primary: "#E11D48",
-            secondary: "#FFF1F2",
-            background: "#FFF7F7",
+            primary: "#9F1239",
+            secondary: "#FDECEF",
+            background: "#FFFBFA",
             card: "#FFFFFF",
             dropdown: "#FFFFFF",
-            hover: "#BE123C",
-            headingText: "#18181B",
-            bodyText: "#52525B",
+            hover: "#881337",
+            headingText: "#111827",
+            bodyText: "#475569",
             pricingText: "#BE123C",
-            linkText: "#E11D48",
+            linkText: "#9F1239",
         },
     },
     {
@@ -1171,16 +1279,16 @@ const DEFAULT_COLOR_PRESETS: BrandingColorPreset[] = [
         name: "Royal Indigo",
         isSystem: true,
         colors: {
-            primary: "#4F46E5",
+            primary: "#4338CA",
             secondary: "#EEF2FF",
             background: "#F8FAFC",
             card: "#FFFFFF",
             dropdown: "#FFFFFF",
-            hover: "#3730A3",
+            hover: "#312E81",
             headingText: "#111827",
-            bodyText: "#4B5563",
-            pricingText: "#4338CA",
-            linkText: "#4F46E5",
+            bodyText: "#475569",
+            pricingText: "#4F46E5",
+            linkText: "#4338CA",
         },
     },
     {
@@ -1188,16 +1296,16 @@ const DEFAULT_COLOR_PRESETS: BrandingColorPreset[] = [
         name: "Mint Graphite",
         isSystem: true,
         colors: {
-            primary: "#059669",
-            secondary: "#D1FAE5",
-            background: "#F8FAFC",
+            primary: "#047857",
+            secondary: "#DFF7E8",
+            background: "#F7FBF8",
             card: "#FFFFFF",
             dropdown: "#FFFFFF",
             hover: "#047857",
             headingText: "#111827",
-            bodyText: "#4B5563",
-            pricingText: "#047857",
-            linkText: "#059669",
+            bodyText: "#475569",
+            pricingText: "#0F766E",
+            linkText: "#047857",
         },
     },
     {
@@ -1205,16 +1313,271 @@ const DEFAULT_COLOR_PRESETS: BrandingColorPreset[] = [
         name: "Navy Sun",
         isSystem: true,
         colors: {
-            primary: "#0369A1",
-            secondary: "#FEF3C7",
+            primary: "#0F172A",
+            secondary: "#FFF2C2",
+            background: "#F9FAFB",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#334155",
+            headingText: "#0F172A",
+            bodyText: "#475569",
+            pricingText: "#B45309",
+            linkText: "#0F172A",
+        },
+    },
+    {
+        id: "harbor-steel",
+        name: "Harbor Steel",
+        isSystem: true,
+        colors: {
+            primary: "#0F5E6E",
+            secondary: "#E4F2F4",
+            background: "#F7FAFB",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#134E5E",
+            headingText: "#0F172A",
+            bodyText: "#475569",
+            pricingText: "#0F766E",
+            linkText: "#0F5E6E",
+        },
+    },
+    {
+        id: "paper-sage",
+        name: "Paper Sage",
+        isSystem: true,
+        colors: {
+            primary: "#3F6B4F",
+            secondary: "#E8F1E8",
+            background: "#FAFBF7",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#2F513C",
+            headingText: "#102116",
+            bodyText: "#45574A",
+            pricingText: "#2F6B4F",
+            linkText: "#3F6B4F",
+        },
+    },
+    {
+        id: "copper-slate",
+        name: "Copper Slate",
+        isSystem: true,
+        colors: {
+            primary: "#334155",
+            secondary: "#F3EEE8",
+            background: "#FAFAF9",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#9A3412",
+            headingText: "#111827",
+            bodyText: "#475569",
+            pricingText: "#9A3412",
+            linkText: "#334155",
+        },
+    },
+    {
+        id: "plum-steel",
+        name: "Plum Steel",
+        isSystem: true,
+        colors: {
+            primary: "#6D28D9",
+            secondary: "#F1F0FF",
+            background: "#FBFBFF",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#4C1D95",
+            headingText: "#111827",
+            bodyText: "#475569",
+            pricingText: "#7C3AED",
+            linkText: "#6D28D9",
+        },
+    },
+    {
+        id: "cobalt-lime",
+        name: "Cobalt Lime",
+        isSystem: true,
+        colors: {
+            primary: "#1D4ED8",
+            secondary: "#ECFCCB",
             background: "#F8FAFC",
             card: "#FFFFFF",
             dropdown: "#FFFFFF",
-            hover: "#075985",
+            hover: "#1E40AF",
             headingText: "#0F172A",
             bodyText: "#475569",
-            pricingText: "#0369A1",
-            linkText: "#0369A1",
+            pricingText: "#4D7C0F",
+            linkText: "#1D4ED8",
+        },
+    },
+    {
+        id: "chrome-cobalt",
+        name: "Chrome Cobalt",
+        isSystem: true,
+        colors: {
+            primary: "#1D4ED8",
+            secondary: "#E5E7EB",
+            background: "#F7F8FA",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#475569",
+            headingText: "#0F172A",
+            bodyText: "#475569",
+            pricingText: "#1D4ED8",
+            linkText: "#1D4ED8",
+        },
+    },
+    {
+        id: "forest-amber",
+        name: "Forest Amber",
+        isSystem: true,
+        colors: {
+            primary: "#14532D",
+            secondary: "#FEF3C7",
+            background: "#F7FAF5",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#92400E",
+            headingText: "#102116",
+            bodyText: "#405448",
+            pricingText: "#B45309",
+            linkText: "#14532D",
+        },
+    },
+    {
+        id: "ink-electric",
+        name: "Ink Electric",
+        isSystem: true,
+        colors: {
+            primary: "#111827",
+            secondary: "#DBEAFE",
+            background: "#FFFFFF",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#2563EB",
+            headingText: "#111827",
+            bodyText: "#374151",
+            pricingText: "#2563EB",
+            linkText: "#2563EB",
+        },
+    },
+    {
+        id: "terracotta-slate",
+        name: "Terracotta Slate",
+        isSystem: true,
+        colors: {
+            primary: "#334155",
+            secondary: "#F1E7DE",
+            background: "#FAFAF9",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#C2410C",
+            headingText: "#111827",
+            bodyText: "#475569",
+            pricingText: "#C2410C",
+            linkText: "#334155",
+        },
+    },
+    {
+        id: "black-tan",
+        name: "Black Tan",
+        isSystem: true,
+        colors: {
+            primary: "#111827",
+            secondary: "#E7D3B0",
+            background: "#F8FAFC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#7C5A2A",
+            headingText: "#111827",
+            bodyText: "#475569",
+            pricingText: "#7C5A2A",
+            linkText: "#111827",
+        },
+    },
+    {
+        id: "raspberry-paper",
+        name: "Raspberry Paper",
+        isSystem: true,
+        colors: {
+            primary: "#BE123C",
+            secondary: "#FFE4E6",
+            background: "#FFF8FA",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#9F1239",
+            headingText: "#111827",
+            bodyText: "#4B5563",
+            pricingText: "#BE123C",
+            linkText: "#BE123C",
+        },
+    },
+    {
+        id: "cmyk-bright",
+        name: "CMYK Bright",
+        isSystem: true,
+        colors: {
+            primary: "#00A3E0",
+            secondary: "#FFF200",
+            background: "#FFFFFF",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#EC008C",
+            headingText: "#111827",
+            bodyText: "#374151",
+            pricingText: "#00A651",
+            linkText: "#0076A8",
+        },
+    },
+    {
+        id: "midnight-mint",
+        name: "Midnight Mint",
+        isSystem: true,
+        colors: {
+            primary: "#5EEAD4",
+            secondary: "#134E4A",
+            background: "#071312",
+            card: "#0F1F1D",
+            dropdown: "#0F1F1D",
+            hover: "#99F6E4",
+            headingText: "#F8FAFC",
+            bodyText: "#CCFBF1",
+            pricingText: "#99F6E4",
+            linkText: "#5EEAD4",
+        },
+    },
+    {
+        id: "public-blue",
+        name: "Public Blue",
+        isSystem: true,
+        colors: {
+            primary: "#1D4ED8",
+            secondary: "#DBEAFE",
+            background: "#FFFFFF",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#1E3A8A",
+            headingText: "#111827",
+            bodyText: "#374151",
+            pricingText: "#065F46",
+            linkText: "#1D4ED8",
+        },
+    },
+    {
+        id: "menu-red",
+        name: "Menu Red",
+        isSystem: true,
+        colors: {
+            primary: "#B91C1C",
+            secondary: "#FEF3C7",
+            background: "#FFF8F0",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#EA580C",
+            headingText: "#2B1712",
+            bodyText: "#5F3B30",
+            pricingText: "#B45309",
+            linkText: "#B91C1C",
         },
     },
 ];
@@ -1468,8 +1831,17 @@ const DEFAULT_BRANDING = {
         },
         orderButtons: {
             font: "Inter",
+            fontSizePx: 16,
+            fontWeight: 600,
+            radiusPx: 10,
+            borderWidthPx: 1,
+            paddingYPx: 16,
             animation: "none",
             primary: {
+                gradientStart: "",
+                gradientEnd: "",
+                hoverGradientStart: "",
+                hoverGradientEnd: "",
                 bgColor: "",
                 hoverBgColor: "",
                 textColor: "",
@@ -1547,7 +1919,7 @@ const DEFAULT_BRANDING = {
         saturate: 100,
     },
     // Theme selection (Site Designer V2)
-    themeId: 'classic',
+    themeId: DEFAULT_PRINT_DESIGN_ID,
     themeSettings: {} as Record<string, unknown>,
     selectedIconPackId: "classic",
     // Favicon (browser tab icon)
@@ -1559,7 +1931,71 @@ const DEFAULT_BRANDING = {
     },
 };
 
-export type BrandingData = typeof DEFAULT_BRANDING;
+// Optional authored styling is wider than the defaults. Declaring it must not
+// add values to existing designs or change the defaults applied on load.
+export interface ButtonSurfaceSettings {
+    shadow?: string;
+    hoverShadow?: string;
+    selectedShadow?: string;
+    hoverScale?: number;
+    hoverY?: number;
+    tapScale?: number;
+    transitionMs?: number;
+    motionStyle?: string;
+    surfaceStyle?: string;
+    gradientStart?: string;
+    gradientEnd?: string;
+    hoverGradientStart?: string;
+    hoverGradientEnd?: string;
+    innerShadow?: string;
+    sheenColor?: string;
+}
+
+type DefaultProductPage = typeof DEFAULT_BRANDING.productPage;
+type ProductPageSettings = Omit<DefaultProductPage, 'matrix' | 'pricePanel' | 'orderButtons' | 'optionSelectors'> & {
+    matrix: Omit<DefaultProductPage['matrix'], 'textButtons' | 'pictureButtons'> & {
+        textButtons: DefaultProductPage['matrix']['textButtons'] & { fontFamily?: string };
+        pictureButtons: Omit<DefaultProductPage['matrix']['pictureButtons'], 'size' | 'displayMode'> & ButtonSurfaceSettings & {
+            size: 'small' | 'medium' | 'large';
+            displayMode: 'text_and_image' | 'image_only' | 'text_only';
+            backgroundColor?: string;
+            textColor?: string;
+            hoverTextColor?: string;
+            borderWidthPx?: number;
+            borderColor?: string;
+            hoverBorderColor?: string;
+            selectedBorderColor?: string;
+            selectedRingColor?: string;
+            hoverEffect?: string;
+            selectedEffect?: string;
+        };
+    };
+    pricePanel: DefaultProductPage['pricePanel'] & {
+        shadow?: string;
+        downloadButtonSurfaceStyle?: string;
+        downloadButtonGradientStart?: string;
+        downloadButtonGradientEnd?: string;
+        downloadButtonHoverGradientStart?: string;
+        downloadButtonHoverGradientEnd?: string;
+        downloadButtonShadow?: string;
+        downloadButtonHoverShadow?: string;
+    };
+    orderButtons: DefaultProductPage['orderButtons'] & ButtonSurfaceSettings & {
+        primary: DefaultProductPage['orderButtons']['primary'] & ButtonSurfaceSettings;
+        secondary: DefaultProductPage['orderButtons']['secondary'] & ButtonSurfaceSettings;
+        selected: DefaultProductPage['orderButtons']['selected'] & ButtonSurfaceSettings;
+    };
+    optionSelectors: DefaultProductPage['optionSelectors'] & {
+        button: DefaultProductPage['optionSelectors']['button'] & ButtonSurfaceSettings;
+        image: DefaultProductPage['optionSelectors']['image'] & ButtonSurfaceSettings;
+    };
+};
+
+export type BrandingData = Omit<typeof DEFAULT_BRANDING, 'productPage'> & {
+    productPage: ProductPageSettings;
+    shop_name?: string;
+    contactPage?: { contactInfo?: { email?: string; phone?: string } };
+};
 
 // Export defaults for use in components
 export {
@@ -1584,7 +2020,7 @@ export {
 
 // Helper to deep merge branding with defaults
 export function mergeBrandingWithDefaults(data?: any): BrandingData {
-    if (!data) return DEFAULT_BRANDING;
+    if (!data) return inheritSystemPrintDesign(DEFAULT_BRANDING, DEFAULT_BRANDING);
 
     // Start with defaults
     const merged = { ...DEFAULT_BRANDING, ...data };
@@ -1594,6 +2030,7 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
         merged.header = {
             ...DEFAULT_BRANDING.header,
             ...data.header,
+            dropdownPreset: resolveDropdownPreset(data.header.dropdownPreset),
             scroll: { ...DEFAULT_BRANDING.header.scroll, ...(data.header.scroll || {}) },
             cta: { ...DEFAULT_BRANDING.header.cta, ...(data.header.cta || {}) },
             // Keep arrays from data if present, otherwise use default
@@ -1651,6 +2088,12 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
         merged.forside = {
             ...DEFAULT_BRANDING.forside,
             ...data.forside,
+            layout: {
+                ...DEFAULT_BRANDING.forside.layout,
+                ...(data.forside.layout || {}),
+                sectionOrder: data.forside.layout?.sectionOrder
+                    || DEFAULT_BRANDING.forside.layout.sectionOrder,
+            },
             banner2: {
                 ...DEFAULT_BRANDING.forside.banner2,
                 ...(data.forside.banner2 || {}),
@@ -1764,13 +2207,10 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
     if (data.colors) merged.colors = { ...DEFAULT_BRANDING.colors, ...data.colors };
     if (Array.isArray(data.colorPresets)) {
         const systemPresetIds = new Set(DEFAULT_COLOR_PRESETS.map((preset) => preset.id));
-        const storedSystemPresets = DEFAULT_COLOR_PRESETS.map((defaultPreset) =>
-            data.colorPresets.find((preset: BrandingColorPreset) => preset?.id === defaultPreset.id) || defaultPreset
-        );
         const customPresets = data.colorPresets.filter((preset: BrandingColorPreset) =>
             preset?.id && !systemPresetIds.has(preset.id)
         );
-        merged.colorPresets = [...storedSystemPresets, ...customPresets];
+        merged.colorPresets = [...DEFAULT_COLOR_PRESETS, ...customPresets];
     }
     if (Array.isArray(data.fontPresets)) {
         const systemPresetIds = new Set(DEFAULT_FONT_PRESETS.map((preset) => preset.id));
@@ -1784,7 +2224,7 @@ export function mergeBrandingWithDefaults(data?: any): BrandingData {
     }
     if (data.navigation) merged.navigation = { ...DEFAULT_BRANDING.navigation, ...data.navigation };
 
-    return merged;
+    return inheritSystemPrintDesign(merged, DEFAULT_BRANDING);
 }
 
 interface UseBrandingDraftReturn {
@@ -1869,7 +2309,7 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
             if (!user) return;
 
             const { data: tenant } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('id, name, settings')
                 .eq('owner_id', user.id)
                 .maybeSingle();
@@ -1964,6 +2404,14 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
             const newForside = partial.forside ? {
                 ...prev.forside,
                 ...partial.forside,
+                layout: partial.forside.layout
+                    ? {
+                        ...prev.forside.layout,
+                        ...partial.forside.layout,
+                        sectionOrder: partial.forside.layout.sectionOrder
+                            ?? prev.forside.layout.sectionOrder,
+                    }
+                    : prev.forside.layout,
                 banner2: partial.forside.banner2
                     ? {
                         ...prev.forside.banner2,
@@ -2104,7 +2552,7 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
 
             // 2. Update tenant settings (current draft state)
             const { data: tenant } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -2167,7 +2615,7 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
 
             // 2. Update tenant settings
             const { data: tenant } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -2230,7 +2678,7 @@ export function useBrandingDraft(): UseBrandingDraftReturn {
 
             // Update to defaults
             const { data: tenant } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();

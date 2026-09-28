@@ -1,4 +1,9 @@
-import { useEffect, useState } from "react";
+import { selectPrintDesignPreset, PRINT_HOME_DESIGN_CHOICES } from "@/lib/branding/printDesignPresets";
+import { mergeBrandingWithDefaults } from "@/lib/branding";
+import { useSearchParams } from "react-router-dom";
+import { PrintDesignPicker } from "@/components/admin/PrintDesignPicker";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { useEffect, useMemo, useState } from "react";
 
 import { SitePackagePreview } from "@/components/sites/SitePackagePreview";
 import { StorefrontHomeContent } from "@/components/storefront/StorefrontHomeContent";
@@ -29,7 +34,12 @@ function resolveEditSelectionElement(target: HTMLElement | null): HTMLElement | 
 
 const Shop = () => {
   const { data: settings } = useShopSettings();
-  const branding = settings?.branding;
+  const [designParams, setDesignParams] = useSearchParams();
+  const [designPickerOpen, setDesignPickerOpen] = useState(false);
+  const previewDesign = import.meta.env.DEV ? PRINT_HOME_DESIGN_CHOICES.find(p => String(p.number) === designParams.get("design")) : undefined;
+  const branding = useMemo(() => previewDesign
+    ? selectPrintDesignPreset(mergeBrandingWithDefaults(settings?.branding || {}), previewDesign.id)
+    : settings?.branding, [settings?.branding, previewDesign]);
   const tenantName = String(
     branding?.shop_name
     || settings?.tenant_name
@@ -200,6 +210,20 @@ const Shop = () => {
         }
       `}</style>
 
+      {previewDesign && <nav aria-label="Sammenlign designs" className="fixed bottom-4 left-1/2 z-[1001] flex w-max max-w-[calc(100%-24px)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-2xl border bg-white px-3 py-2 shadow-lg">
+        <button onClick={() => setDesignPickerOpen(true)} className="mr-2 min-h-11 whitespace-nowrap text-xs text-slate-600">Vælg design</button>
+        {PRINT_HOME_DESIGN_CHOICES.map(p => <button key={p.id} title={p.name} aria-label={`${p.number}. ${p.name}`} aria-pressed={p.id === previewDesign.id} onClick={() => setDesignParams(previous => { const next = new URLSearchParams(previous); next.set("design", String(p.number)); return next; })} className={`h-11 w-11 shrink-0 rounded-full text-sm font-medium ${p.id === previewDesign.id ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}>{p.number}</button>)}
+      </nav>}
+      {previewDesign && <Dialog open={designPickerOpen} onOpenChange={setDesignPickerOpen}>
+        <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto">
+          <DialogHeader><DialogTitle>Webprinter designs</DialogTitle><DialogDescription>Forhåndsvis systemets {PRINT_HOME_DESIGN_CHOICES.length} standarddesigns på din lokale shop.</DialogDescription></DialogHeader>
+          <PrintDesignPicker value={previewDesign.id} presentation={branding?.forside?.productsSection?.presentation} onChange={id => {
+            const preset = PRINT_HOME_DESIGN_CHOICES.find(p => p.id === id);
+            if (preset) setDesignParams(previous => { const next = new URLSearchParams(previous); next.set('design', String(preset.number)); return next; });
+            setDesignPickerOpen(false);
+          }} />
+        </DialogContent>
+      </Dialog>}
       <StorefrontThemeFrame
         branding={branding}
         tenantName={tenantName}

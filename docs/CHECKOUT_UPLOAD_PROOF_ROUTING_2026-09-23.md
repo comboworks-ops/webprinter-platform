@@ -1,0 +1,7 @@
+# Checkout upload approval routing — 2026-09-23
+
+The checkout proof dialog could open `/designer` from its "Godkend fil og fortsæt" handler when the uploaded bytes did not contain the displayed size or placement. The handler therefore navigated even though the customer had chosen upload rather than Designer. This was especially likely for raster files, trim-only PDFs, or a proof whose placement had been adjusted.
+
+The approval handler now never opens Designer. A production-ready, unchanged PDF can still be approved directly and proceed to payment. When the file needs preparation, the dialog explains why direct approval is unavailable and offers a new upload; Designer remains a separate, explicit button where the product permits it. The existing requirement that the approved production bytes match the reviewed placement is unchanged.
+
+Verification: 10 focused proof tests pass, application TypeScript passes, and the local production build passes. The normal `127.0.0.1:8113` storefront rendered without browser errors after the source sync. The conditional dialog itself was not exercised with a real upload because that localhost uses the shared Supabase bucket. No file, payment, order, or admin data was submitted, and no public frontend deployment was made. The added dialog text uses the existing modal layout and responsive classes; no conditional-dialog viewport screenshots were taken.

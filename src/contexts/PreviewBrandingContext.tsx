@@ -1,15 +1,22 @@
-import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import type { BrandingData } from "@/hooks/useBrandingDraft";
 import { mergeBrandingWithDefaults } from "@/hooks/useBrandingDraft";
 import { getGoogleFontsUrl } from "@/components/admin/FontSelector";
 import { applyFavicon } from "@/hooks/useFavicon";
 import { buildProductFilter } from "@/lib/branding/productAssets";
+import {
+    PRODUCT_PRICING_PREVIEW_CLEAR,
+    PRODUCT_PRICING_PREVIEW_UPDATE,
+    reduceProductPricingPreviewMessage,
+} from "@/lib/preview/productPricingPreview";
 
 interface PreviewBrandingContextValue {
     /** The branding data (draft in preview, published in production) */
     branding: BrandingData | null;
     /** Product-level pricing overrides used only inside admin preview */
     productPricingOverrides: Record<string, unknown>;
+    /** Changes when a clean/saved preview must re-read its database product. */
+    productPricingRefreshVersion: number;
     /** Whether we're in preview mode (admin iframe) */
     isPreviewMode: boolean;
     /** Tenant name for display */
@@ -23,6 +30,7 @@ interface PreviewBrandingContextValue {
 const PreviewBrandingContext = createContext<PreviewBrandingContextValue>({
     branding: null,
     productPricingOverrides: {},
+    productPricingRefreshVersion: 0,
     isPreviewMode: false,
     tenantName: "WebPrinter",
     previewPath: null,
@@ -96,9 +104,22 @@ export function PreviewBrandingProvider({
         initialBranding ? mergeBrandingWithDefaults(initialBranding) : null
     );
     const [productPricingOverrides, setProductPricingOverrides] = useState<Record<string, unknown>>({});
+    const productPricingOverridesRef = useRef<Record<string, unknown>>({});
+    const [productPricingRefreshVersion, setProductPricingRefreshVersion] = useState(0);
     const [tenantName, setTenantName] = useState(initialTenantName);
     const [isPreviewMode, setIsPreviewMode] = useState(false);
     const [isReady, setIsReady] = useState(!!initialBranding);
+    const [editMode, setEditMode] = useState(false);
+    const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+
+    const applyProductPricingPreviewMessage = useCallback((message: unknown) => {
+        const reduced = reduceProductPricingPreviewMessage(productPricingOverridesRef.current, message);
+        productPricingOverridesRef.current = reduced.overrides;
+        setProductPricingOverrides(reduced.overrides);
+        if (reduced.shouldRefreshProduct) {
+            setProductPricingRefreshVersion((version) => version + 1);
+        }
+    }, []);
 
     // Update state when initial props change
     useEffect(() => {
@@ -138,6 +159,7 @@ export function PreviewBrandingProvider({
         if (!isPreviewMode) return;
 
         const handleMessage = (event: MessageEvent) => {
+            if (event.origin !== window.location.origin || (window.parent !== window && event.source !== window.parent)) return;
             if (event.data?.type === "BRANDING_UPDATE") {
                 const newBranding = mergeBrandingWithDefaults(event.data.branding);
                 setBranding(newBranding);
@@ -154,14 +176,22 @@ export function PreviewBrandingProvider({
                 loadGoogleFonts(extractFontsFromBranding(newBranding));
             }
 
-            if (event.data?.type === "PRODUCT_PRICING_PREVIEW_UPDATE") {
-                const productId = typeof event.data.productId === "string" ? event.data.productId : "";
-                if (!productId) return;
+            if (
+                event.data?.type === PRODUCT_PRICING_PREVIEW_UPDATE
+                || event.data?.type === PRODUCT_PRICING_PREVIEW_CLEAR
+            ) {
+                applyProductPricingPreviewMessage(event.data);
+            }
 
-                setProductPricingOverrides((prev) => ({
-                    ...prev,
-                    [productId]: event.data.pricingStructure || null,
-                }));
+            if (event.data?.type === "SET_EDIT_MODE") {
+                setEditMode(Boolean(event.data.enabled));
+                if (!event.data.enabled) {
+                    setSelectedElementId(null);
+                }
+            }
+
+            if (event.data?.type === "CLEAR_SELECTION") {
+                setSelectedElementId(null);
             }
         };
 
@@ -173,18 +203,115 @@ export function PreviewBrandingProvider({
         }
 
         return () => window.removeEventListener("message", handleMessage);
+    }, [applyProductPricingPreviewMessage, isPreviewMode]);
+
+    useEffect(() => {
+        if (!isPreviewMode) return;
+
+        document.documentElement.setAttribute("data-site-design-edit-mode", editMode ? "true" : "false");
+
+        const handleClick = (event: MouseEvent) => {
+            if (!editMode) return;
+
+            const target = event.target as HTMLElement | null;
+            if (target?.closest('[data-workspace-editor-control]')) return;
+            const brandingElement = target?.closest?.(
+                "[data-site-design-target], [data-branding-id], [data-click-to-edit]",
+            ) as HTMLElement | null;
+
+            if (!brandingElement) return;
+
+            const sectionId = brandingElement.getAttribute("data-site-design-target")
+                || brandingElement.getAttribute("data-branding-id")
+                || brandingElement.getAttribute("data-click-to-edit");
+
+            if (!sectionId) return;
+
+            // Let disclosure headings expand while still opening their editor.
+            if (!target?.closest('[data-workspace-disclosure]')) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+            }
+
+            setSelectedElementId(sectionId);
+            brandingElement.setAttribute("data-selected", "true");
+
+            window.parent.postMessage({ type: "EDIT_SECTION", sectionId }, "*");
+            window.parent.postMessage({ type: "ELEMENT_CLICKED", sectionId }, "*");
+        };
+
+        document.addEventListener("click", handleClick, true);
+
+        return () => {
+            document.removeEventListener("click", handleClick, true);
+            document.documentElement.removeAttribute("data-site-design-edit-mode");
+        };
+    }, [isPreviewMode, editMode]);
+
+    useEffect(() => {
+        if (!isPreviewMode) return;
+
+        document.querySelectorAll("[data-selected='true']").forEach((element) => {
+            if (
+                element.getAttribute("data-site-design-target") !== selectedElementId
+                && element.getAttribute("data-branding-id") !== selectedElementId
+                && element.getAttribute("data-click-to-edit") !== selectedElementId
+            ) {
+                element.removeAttribute("data-selected");
+            }
+        });
+
+        if (!selectedElementId) return;
+
+        const selected = document.querySelector(
+            `[data-site-design-target="${CSS.escape(selectedElementId)}"], [data-branding-id="${CSS.escape(selectedElementId)}"], [data-click-to-edit="${CSS.escape(selectedElementId)}"]`,
+        );
+        selected?.setAttribute("data-selected", "true");
+    }, [isPreviewMode, selectedElementId]);
+
+    useEffect(() => {
+        if (!isPreviewMode) return;
+
+        const styleId = "site-design-preview-click-to-edit-styles";
+        if (document.getElementById(styleId)) return;
+
+        const style = document.createElement("style");
+        style.id = styleId;
+        style.textContent = `
+            [data-site-design-edit-mode="true"] [data-site-design-target],
+            [data-site-design-edit-mode="true"] [data-branding-id],
+            [data-site-design-edit-mode="true"] [data-click-to-edit] {
+                cursor: pointer;
+            }
+
+            [data-site-design-edit-mode="true"] [data-site-design-target]:hover,
+            [data-site-design-edit-mode="true"] [data-branding-id]:hover,
+            [data-site-design-edit-mode="true"] [data-click-to-edit]:hover,
+            [data-site-design-edit-mode="true"] [data-selected="true"] {
+                outline: 2px solid hsl(var(--primary));
+                outline-offset: 4px;
+            }
+        `;
+        document.head.appendChild(style);
+
+        return () => {
+            style.remove();
+        };
     }, [isPreviewMode]);
 
     // Listen for broadcasted branding updates (opened in new window)
     useEffect(() => {
-        // Only use broadcast when in preview mode (iframe or ?draft/preview)
+        // Embedded previews receive updates only from their own parent. A global
+        // broadcast would let another open shop or master editor replace this draft.
         const params = new URLSearchParams(window.location.search);
         const hasPreviewParam = params.get("preview_mode") === "1" || params.get("draft") === "1";
         const isInIframe = window.self !== window.top;
-        const useBroadcast = isInIframe || hasPreviewParam;
-        if (!useBroadcast) return;
+        const useBroadcast = !isInIframe && hasPreviewParam;
+        if (!useBroadcast || params.has("productWorkspace")) return;
 
-        const channel = new BroadcastChannel('branding-preview');
+        const sessionId = params.get('previewSession');
+        const channel = new BroadcastChannel(sessionId ? `branding-preview:${sessionId}` : 'branding-preview');
 
         const handleBroadcast = (event: MessageEvent) => {
             if (event.data?.type === "BRANDING_UPDATE") {
@@ -202,14 +329,11 @@ export function PreviewBrandingProvider({
                 loadGoogleFonts(extractFontsFromBranding(newBranding));
             }
 
-            if (event.data?.type === "PRODUCT_PRICING_PREVIEW_UPDATE") {
-                const productId = typeof event.data.productId === "string" ? event.data.productId : "";
-                if (!productId) return;
-
-                setProductPricingOverrides((prev) => ({
-                    ...prev,
-                    [productId]: event.data.pricingStructure || null,
-                }));
+            if (
+                event.data?.type === PRODUCT_PRICING_PREVIEW_UPDATE
+                || event.data?.type === PRODUCT_PRICING_PREVIEW_CLEAR
+            ) {
+                applyProductPricingPreviewMessage(event.data);
             }
 
             if (event.data?.type === "BRANDING_PING") {
@@ -228,7 +352,7 @@ export function PreviewBrandingProvider({
             channel.removeEventListener("message", handleBroadcast);
             channel.close();
         };
-    }, []);
+    }, [applyProductPricingPreviewMessage]);
 
     const fontSignature = JSON.stringify(extractFontsFromBranding(branding));
 
@@ -254,7 +378,15 @@ export function PreviewBrandingProvider({
     }, [branding?.favicon?.type, branding?.favicon?.presetId, branding?.favicon?.presetColor, branding?.favicon?.customUrl]);
 
     return (
-        <PreviewBrandingContext.Provider value={{ branding, productPricingOverrides, isPreviewMode, tenantName, previewPath, isReady }}>
+        <PreviewBrandingContext.Provider value={{
+            branding,
+            productPricingOverrides,
+            productPricingRefreshVersion,
+            isPreviewMode,
+            tenantName,
+            previewPath,
+            isReady,
+        }}>
             {children}
         </PreviewBrandingContext.Provider>
     );

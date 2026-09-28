@@ -17,9 +17,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useCookieConsent } from './CookieConsentProvider';
-import { Cookie, Shield, BarChart3, Megaphone, Settings2 } from 'lucide-react';
-import { isPlatformContext, platformNavLink } from '@/lib/platform/context';
+import { isPlatformContext } from '@/lib/platform/context';
 import { appendStorefrontTenantContext } from '@/lib/storefrontTenantContext';
+import { Cookie, Shield, BarChart3, Megaphone, Settings2 } from 'lucide-react';
 
 interface CategoryToggle {
     id: 'preferences' | 'statistics' | 'marketing';
@@ -51,17 +51,12 @@ const CATEGORIES: CategoryToggle[] = [
 
 export function CookieSettingsDialog() {
     const { isSettingsOpen, closeSettings, consent, setCategories, acceptAll, rejectAll } = useCookieConsent();
-    const platformContext = isPlatformContext();
-    const cookiePolicyHref = platformContext
-        ? platformNavLink('/cookiepolitik')
-        : appendStorefrontTenantContext('/cookiepolitik');
-    const termsHref = platformContext
-        ? platformNavLink('/handelsbetingelser')
-        : appendStorefrontTenantContext('/betingelser');
 
     const [preferences, setPreferences] = useState(false);
     const [statistics, setStatistics] = useState(false);
     const [marketing, setMarketing] = useState(false);
+    const cookiePolicyHref = appendStorefrontTenantContext('/cookiepolitik');
+    const termsHref = appendStorefrontTenantContext(isPlatformContext() ? '/handelsbetingelser' : '/betingelser');
 
     // Sync state with consent when dialog opens
     useEffect(() => {
@@ -156,7 +151,7 @@ export function CookieSettingsDialog() {
                 <div className="px-6 py-4 bg-gray-50 border-t flex flex-col gap-3">
                     <div className="flex gap-2">
                         <Button
-                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                            className="min-h-11 flex-1 bg-blue-600 text-white hover:bg-blue-700"
                             onClick={handleSave}
                         >
                             Gem valg
@@ -166,7 +161,7 @@ export function CookieSettingsDialog() {
                         <Button
                             variant="outline"
                             size="sm"
-                            className="flex-1 border-gray-300 text-gray-700"
+                            className="min-h-11 flex-1 border-gray-300 text-gray-700"
                             onClick={rejectAll}
                         >
                             Kun nødvendige
@@ -174,7 +169,7 @@ export function CookieSettingsDialog() {
                         <Button
                             variant="outline"
                             size="sm"
-                            className="flex-1 border-blue-200 text-blue-700 hover:bg-blue-50"
+                            className="min-h-11 flex-1 border-blue-200 text-blue-700 hover:bg-blue-50"
                             onClick={acceptAll}
                         >
                             Accepter alle

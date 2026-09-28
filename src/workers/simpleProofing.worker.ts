@@ -1,10 +1,13 @@
+import type { ProofingWorkerScope } from "./workerScope";
+declare const self: ProofingWorkerScope;
+
 /**
  * Simple CMYK Soft Proof Simulation
- * 
+ *
  * This is a simplified RGB→CMYK→RGB simulation that works without
  * external ICC profiles. It provides a reasonable approximation of
  * how colors will shift when printed.
- * 
+ *
  * For production-accurate proofing, a proper ICC workflow is recommended.
  */
 
@@ -210,7 +213,6 @@ self.onmessage = (e: MessageEvent) => {
                 imageData: proofedImageData,
                 gamutMask: gamutMaskImageData,
             },
-            // @ts-ignore
             transferables
         );
     } catch (error) {

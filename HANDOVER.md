@@ -1,6 +1,6 @@
 # Webprinter Handover
 
-Last updated: 2026-04-28
+Last updated: 2026-07-08
 Branch: `ui-cleanup`
 Latest commit: `7932644 feat: polish tenant site design controls`
 Live deploy: `https://www.webprinter.dk`
@@ -181,6 +181,125 @@ Important files:
 - `src/lib/pod2/danishTerms.ts`
 - `supabase/functions/pod2-explorer-request/index.ts`
 
+### Commercial Readiness Proof Gate
+
+The commercial-readiness cockpit is read-only and is currently used to prepare
+owned-tenant proof before any external print-house conversation.
+Its visible `Automatiseret browserbevis` section points operators to the same
+gate that Codex can run locally.
+
+Current automated proof command:
+- `npm run check:commercial-release` writes/verifies the proof report, writes `docs/COMMERCIAL_RELEASE_LATEST.md`, and runs the production build
+- `npm run check:commercial-proof`
+- `npm run check:commercial-proof:write` writes `docs/COMMERCIAL_PROOF_LATEST.md`
+- `npm run check:commercial-proof-report` verifies the local report without rerunning the browser smoke
+- `npm run check:commercial-changeset` prints the current dirty-worktree summary
+- `npm run check:commercial-changeset:write` writes/verifies `docs/COMMERCIAL_CHANGESET_LATEST.md`
+- `npm run check:commercial-changeset-report` verifies `docs/COMMERCIAL_CHANGESET_LATEST.md`
+- `npm run check:commercial-application-source:write` writes/verifies `docs/COMMERCIAL_APPLICATION_SOURCE_LATEST.md`
+- `npm run check:commercial-application-source-report` verifies `docs/COMMERCIAL_APPLICATION_SOURCE_LATEST.md`
+- `npm run check:commercial-supabase:write` writes/verifies `docs/COMMERCIAL_SUPABASE_LATEST.md`
+- `npm run check:commercial-supabase-report` verifies `docs/COMMERCIAL_SUPABASE_LATEST.md`
+- `npm run check:commercial-staged-packet` checks the current git index for forbidden local/debug artifacts
+- `npm run check:commercial-staged-packet:write` writes/verifies `docs/COMMERCIAL_STAGED_PACKET_LATEST.md`
+- `npm run check:commercial-staged-packet-report` verifies `docs/COMMERCIAL_STAGED_PACKET_LATEST.md`
+- `npm run check:commercial-branch-freshness` prints the upstream delta and staged-overlap review state
+- `npm run check:commercial-branch-freshness:write` writes/verifies `docs/COMMERCIAL_BRANCH_FRESHNESS_LATEST.md`
+- `npm run check:commercial-branch-freshness-report` verifies `docs/COMMERCIAL_BRANCH_FRESHNESS_LATEST.md`
+- `npm run check:commercial-upstream-reconciliation` prints whether upstream overlaps are exact, represented, superseded or unresolved
+- `npm run check:commercial-upstream-reconciliation:write` writes/verifies `docs/COMMERCIAL_UPSTREAM_RECONCILIATION_LATEST.md`
+- `npm run check:commercial-upstream-reconciliation-report` verifies `docs/COMMERCIAL_UPSTREAM_RECONCILIATION_LATEST.md`
+- `npm run check:commercial-owner-merge-readiness` prints whether the staged packet can be overlaid on the upstream tree using a temporary Git index
+- `npm run check:commercial-owner-merge-readiness:write` writes/verifies `docs/COMMERCIAL_OWNER_MERGE_READINESS_LATEST.md`
+- `npm run check:commercial-owner-merge-readiness-report` verifies `docs/COMMERCIAL_OWNER_MERGE_READINESS_LATEST.md`
+- `npm run check:commercial-release-owner-sequence` prints the release-owner sequence and stop-rule state
+- `npm run check:commercial-release-owner-sequence:write` writes/verifies `docs/COMMERCIAL_RELEASE_OWNER_SEQUENCE_LATEST.md`
+- `npm run check:commercial-release-owner-sequence-report` verifies `docs/COMMERCIAL_RELEASE_OWNER_SEQUENCE_LATEST.md`
+- `npm run check:commercial-deploy-readiness` prints the current push/deploy go/no-go state
+- `npm run check:commercial-deploy-readiness:write` writes/verifies `docs/COMMERCIAL_DEPLOY_READINESS_LATEST.md`
+- `npm run check:commercial-deploy-readiness-report` verifies `docs/COMMERCIAL_DEPLOY_READINESS_LATEST.md`
+- `npm run check:commercial-release-handoff` prints the release-owner handoff state
+- `npm run check:commercial-release-handoff:write` writes/verifies `docs/COMMERCIAL_RELEASE_HANDOFF_LATEST.md`
+- `npm run check:commercial-release-handoff-report` verifies `docs/COMMERCIAL_RELEASE_HANDOFF_LATEST.md`
+- `npm run check:commercial-release-packet` prints the open-first commercial release packet index
+- `npm run check:commercial-release-packet:write` writes/verifies `docs/COMMERCIAL_RELEASE_PACKET_LATEST.md`
+- `npm run check:commercial-release-packet-report` verifies `docs/COMMERCIAL_RELEASE_PACKET_LATEST.md`
+- `npm run check:commercial-release-report` verifies `docs/COMMERCIAL_RELEASE_LATEST.md`
+
+The release gate runs the commercial-readiness binding guard, the Playwright
+tenant proof smoke, the local report verifier and the Vite production build.
+It leaves a compact release summary at `docs/COMMERCIAL_RELEASE_LATEST.md` and
+then verifies that summary. The summary includes a read-only
+`git status --short --branch` snapshot, including dirty-entry count, so a local
+work-in-progress checkout is visible in the release evidence. It also writes the
+owner merge-readiness report so the release owner can see whether the staged
+packet overlays cleanly on the upstream tree before any pull/rebase/merge. It
+also writes the release-owner sequence report with branch freshness, commit,
+deploy and stop-rule handoff. The separate
+`docs/COMMERCIAL_CHANGESET_LATEST.md` report groups the dirty paths into
+review buckets with suggested review order and bucket-specific verification
+commands before any push/deploy decision. It also lists the first commercial
+proof-chain review packet with exact candidate files and hold reasons for every
+other bucket, plus read-only staging, staged-file validation and rollback
+command previews. The application-source report is the second runtime review
+packet: it groups app-source changes by pricing/product, designer/PDF/template,
+tenant storefront/SEO/design, admin, checkout/account and build/config risk,
+and keeps core pricing, POD, protected designer/PDF and untracked runtime files
+visible before staging. It is read-only and does not write products, prices,
+orders, SEO, POD or Supplier Bank data. The Supabase report is the database and
+function review packet: it runs the existing grant/function exposure checks,
+lists migrations, Edge Functions, temp/config duplicates and local Supabase
+artifacts separately, and stays read-only without deploying or mutating
+database/function state.
+The staged-packet report is the git-index safety check: it verifies that
+forbidden local Supabase/debug artifacts such as `supabase/.temp/cli-latest`,
+`supabase/config 2.toml` and `supabase/functions/test-env/index 2.ts` are not
+staged, keeps core pricing/POD source out of the packet unless explicitly
+approved, and lists deployable Supabase files separately from held local
+artifacts.
+The branch-freshness report is the upstream safety check: it compares the
+current `HEAD` to the configured upstream ref, lists upstream-only commits and
+changed files, and marks overlap with the staged packet as a release `HOLD`.
+It does not fetch, pull, rebase, merge, stage, commit, push or deploy.
+The upstream-reconciliation report is the overlap interpretation layer: it
+checks whether upstream-only changes that touch staged files are exact,
+represented, superseded or unresolved in the staged packet. It can show
+`0` unresolved overlaps while still leaving the branch in `HOLD`, because the
+release owner still has to merge/rebase the upstream commit before push/deploy.
+The deploy-readiness report is the push/deploy decision layer. It combines the
+latest release proof, staged packet safety, branch freshness, unstaged worktree,
+held local artifacts, deployable Supabase scope and human release ownership. It
+can honestly report `HOLD` while still verifying successfully, because a passed
+technical proof does not by itself mean a human should push/deploy while the
+branch is behind remote or local leftovers are present.
+The release-handoff report turns that HOLD/READY state into an operator packet:
+suggested commit subject/body, owner decisions, Supabase deploy scope, rollback
+note template and post-deploy tenant smoke routes. It is still read-only and
+does not run git, Vercel or Supabase deployment commands.
+The tenant proof runner retries once after the app's short Supabase transport
+cooldown only when a route reports the known temporary Supabase pause message.
+The tenant proof smoke currently verifies 12 checks:
+- Salgsmapper PDF template binary route.
+- Webprinter home and Webprinter Aluminium order/upload handoff.
+- Banner Builder Pro site-package preview, including the embedded repo bundle
+  iframe and its banner price-calculator content.
+- Salgsmapper home, category landing drilldown, standard folder
+  template/download/designer/production-PDF return, and laminated folder.
+- Onlinetryksager home, category landing drilldown, Flyers order/upload
+  handoff, and Plakater.
+
+Core commercial proof paths covered by those checks:
+- Webprinter Aluminium order/upload handoff.
+- Banner Builder Pro site-package preview.
+- Salgsmapper category landing drilldown.
+- Salgsmapper PDF template download and designer handoff.
+- Onlinetryksager category landing drilldown.
+- Onlinetryksager Flyers order/upload handoff.
+
+The proof gate must stay verification-only. It must not write products, prices,
+orders, SEO, POD or Supplier Bank data. The report-writing command only creates
+or replaces the local markdown evidence artifact.
+
 ## Non-Negotiable Rules
 
 1. Read `POD2_README.md` before touching POD v2.
@@ -216,6 +335,11 @@ For current visual/theme work, start with:
 ```bash
 npm run dev
 npm run build
+npm run check:commercial-release
+npm run check:commercial-proof
+npm run check:commercial-proof:write
+npm run check:commercial-proof-report
+npm run check:commercial-release-report
 git status --short --branch
 git log --oneline -5
 vercel deploy . --prod -y
@@ -223,8 +347,8 @@ vercel deploy . --prod -y
 
 Development server behavior:
 - Port `8080` is often already in use.
-- Vite may choose `8081` or `8082`.
-- In the latest session, the dev server was available at `http://localhost:8082/`.
+- Vite may choose `8081`, `8082` or `8083`.
+- In the latest session, the dev server was available at `http://127.0.0.1:8083/`.
 
 ## Open Follow-Up Ideas
 
@@ -235,4 +359,3 @@ These were discussed but are not completed as productized features:
 - More supplier adapters beyond Print.com. POD v2 will not automatically work
   for every supplier API without provider-specific adapters.
 - Further code-splitting to reduce Vite chunk-size warnings.
-

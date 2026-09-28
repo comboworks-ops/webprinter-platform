@@ -1,4 +1,16 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+
 const DEFAULT_FIRECRAWL_BASE = "https://api.firecrawl.dev/v1";
+const SCRAPLING_VERSION = "0.4.8";
+const SCRAPLING_SCRIPT_PATH = fileURLToPath(
+  new URL("./scrapling/extract.py", import.meta.url)
+);
+const execFileAsync = promisify(execFile);
 
 function normalizeTexts(value) {
   if (!Array.isArray(value)) return [];
@@ -146,6 +158,88 @@ export async function extractWithPlaywright({ url, ulSelector }) {
   }
 }
 
+function resolveScraplingPython() {
+  const configured = process.env.WEBPRINTER_SCRAPLING_PYTHON;
+  const codexRoot = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+  const candidates = [
+    configured,
+    path.join(
+      codexRoot,
+      "tools",
+      "webprinter-scrapling",
+      SCRAPLING_VERSION,
+      "venv",
+      "bin",
+      "python"
+    ),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {
+      // Try the next explicit runtime location.
+    }
+  }
+
+  throw new Error(
+    "Scrapling runtime unavailable; run scripts/product-import/scrapling/install-runtime.sh"
+  );
+}
+
+function scraplingErrorDetail(error) {
+  const stderr = typeof error?.stderr === "string" ? error.stderr.trim() : "";
+  if (stderr) {
+    try {
+      const parsed = JSON.parse(stderr.split(/\r?\n/).filter(Boolean).at(-1));
+      if (parsed?.error) return String(parsed.error);
+    } catch {
+      return stderr.slice(0, 1_000);
+    }
+  }
+  return errorMessage(error);
+}
+
+export async function extractWithScrapling({ url, ulSelector }) {
+  const parsedUrl = new URL(url);
+  const pythonBin = resolveScraplingPython();
+
+  try {
+    const { stdout } = await execFileAsync(
+      pythonBin,
+      [
+        SCRAPLING_SCRIPT_PATH,
+        "--url",
+        parsedUrl.toString(),
+        "--selector",
+        ulSelector,
+        "--allowed-host",
+        parsedUrl.hostname,
+      ],
+      {
+        timeout: 60_000,
+        maxBuffer: 12 * 1024 * 1024,
+        windowsHide: true,
+      }
+    );
+    const payload = JSON.parse(stdout);
+    const liTexts = normalizeTexts(payload?.liTexts);
+
+    if (payload?.provider !== "scrapling-http" || liTexts.length === 0) {
+      throw new Error("Scrapling returned no validated LI texts");
+    }
+
+    return {
+      provider: "scrapling-http",
+      liTexts,
+      payload,
+    };
+  } catch (error) {
+    throw new Error(`Scrapling extraction failed: ${scraplingErrorDetail(error)}`);
+  }
+}
+
 function stripTags(html) {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -235,26 +329,58 @@ export async function extractWithStaticHtml({ url, ulSelector }) {
   };
 }
 
-export async function extractLiTexts({ url, ulSelector }) {
-  try {
-    return await extractWithFirecrawl({ url, ulSelector });
-  } catch (firecrawlError) {
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export async function runExtractorChain({ url, ulSelector, providers }) {
+  const providerErrors = {};
+
+  for (const provider of providers) {
     try {
-      const fallback = await extractWithPlaywright({ url, ulSelector });
+      const result = await provider.extract({ url, ulSelector });
       return {
-        ...fallback,
-        firecrawlError:
-          firecrawlError instanceof Error ? firecrawlError.message : String(firecrawlError),
+        ...result,
+        ...providerErrors,
       };
-    } catch (playwrightError) {
-      const staticFallback = await extractWithStaticHtml({ url, ulSelector });
-      return {
-        ...staticFallback,
-        firecrawlError:
-          firecrawlError instanceof Error ? firecrawlError.message : String(firecrawlError),
-        playwrightError:
-          playwrightError instanceof Error ? playwrightError.message : String(playwrightError),
-      };
+    } catch (error) {
+      providerErrors[provider.errorKey] = errorMessage(error);
     }
   }
+
+  const summary = providers
+    .map((provider) => `${provider.name}: ${providerErrors[provider.errorKey] || "unknown error"}`)
+    .join("; ");
+  const failure = new Error(`All extraction providers failed (${summary})`);
+  failure.providerErrors = providerErrors;
+  throw failure;
+}
+
+export async function extractLiTexts({ url, ulSelector }) {
+  return runExtractorChain({
+    url,
+    ulSelector,
+    providers: [
+      {
+        name: "playwright",
+        errorKey: "playwrightError",
+        extract: extractWithPlaywright,
+      },
+      {
+        name: "scrapling",
+        errorKey: "scraplingError",
+        extract: extractWithScrapling,
+      },
+      {
+        name: "static-html",
+        errorKey: "staticHtmlError",
+        extract: extractWithStaticHtml,
+      },
+      {
+        name: "firecrawl",
+        errorKey: "firecrawlError",
+        extract: extractWithFirecrawl,
+      },
+    ],
+  });
 }

@@ -1,0 +1,64 @@
+-- Synthetic-only fixture. Run in a disposable, empty local PostgreSQL database.
+\set ON_ERROR_STOP on
+CREATE ROLE anon;
+CREATE ROLE authenticated;
+CREATE ROLE service_role BYPASSRLS;
+
+CREATE TABLE public.pod_catalog_products (
+  id integer PRIMARY KEY, status text, public_title text, private_cost numeric
+);
+CREATE TABLE public.pod2_catalog_products (LIKE public.pod_catalog_products INCLUDING ALL);
+ALTER TABLE public.pod_catalog_products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pod2_catalog_products ENABLE ROW LEVEL SECURITY;
+INSERT INTO public.pod_catalog_products VALUES (1, 'published', 'Public product', 42), (2, 'draft', 'Private product', 17);
+INSERT INTO public.pod2_catalog_products SELECT * FROM public.pod_catalog_products;
+CREATE VIEW public.pod_catalog_public AS SELECT id, status, public_title FROM public.pod_catalog_products WHERE status = 'published';
+CREATE VIEW public.pod2_catalog_public AS SELECT id, status, public_title FROM public.pod2_catalog_products WHERE status = 'published';
+GRANT ALL ON public.pod_catalog_public, public.pod2_catalog_public TO anon, authenticated, service_role;
+
+-- Reproduce the original RLS bypass with synthetic data only.
+SET ROLE anon;
+UPDATE public.pod_catalog_public SET public_title = 'Unauthorized fixture edit' WHERE id = 1;
+RESET ROLE;
+UPDATE public.pod_catalog_products SET public_title = 'Public product' WHERE id = 1;
+
+-- Supply the exact migration path with psql -v migration_file=...
+\i :migration_file
+
+DO $$
+DECLARE
+  caller_role text;
+  catalog_view text;
+  visible_rows integer;
+  row_title text;
+BEGIN
+  FOREACH caller_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+    EXECUTE format('SET LOCAL ROLE %I', caller_role);
+    FOREACH catalog_view IN ARRAY ARRAY['public.pod_catalog_public', 'public.pod2_catalog_public'] LOOP
+      EXECUTE format('SELECT count(*), min(public_title) FROM %s', catalog_view) INTO visible_rows, row_title;
+      IF visible_rows <> 1 OR row_title <> 'Public product' THEN RAISE EXCEPTION 'Published read changed'; END IF;
+      BEGIN
+        EXECUTE format('INSERT INTO %s (id, status, public_title) VALUES (3, ''published'', ''Attack'')', catalog_view);
+        RAISE EXCEPTION 'INSERT bypass';
+      EXCEPTION WHEN insufficient_privilege THEN NULL;
+      END;
+      BEGIN
+        EXECUTE format('UPDATE %s SET public_title = ''Attack'' WHERE id = 1', catalog_view);
+        RAISE EXCEPTION 'UPDATE bypass';
+      EXCEPTION WHEN insufficient_privilege THEN NULL;
+      END;
+      BEGIN
+        EXECUTE format('DELETE FROM %s WHERE id = 1', catalog_view);
+        RAISE EXCEPTION 'DELETE bypass';
+      EXCEPTION WHEN insufficient_privilege THEN NULL;
+      END;
+    END LOOP;
+    RESET ROLE;
+  END LOOP;
+  IF NOT has_table_privilege('service_role', 'public.pod_catalog_public', 'INSERT')
+    OR NOT has_table_privilege('service_role', 'public.pod2_catalog_public', 'INSERT') THEN
+    RAISE EXCEPTION 'Service permissions changed';
+  END IF;
+END;
+$$;
+SELECT 'PASS: both public roles read only published rows; all 12 writes denied; service grants preserved' AS result;

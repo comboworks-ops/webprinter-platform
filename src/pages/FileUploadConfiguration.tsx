@@ -1,10 +1,33 @@
+import { PrintMockupButton } from '@/components/mockup/PrintMockupButton';
+import { useApprovedPrintModel } from '@/components/mockup/useApprovedPrintModel';
+import { resolveApprovedPrintModel } from '@/lib/mockup/approvedPrintModels';
+import { preparePrintModelPdf, placePrintArtwork } from '@/lib/mockup/printModelArtwork';
+import { PrintJourneyDialogContent } from '@/components/storefront/PrintJourneyDialogContent';
+import { resolveSharedButton, sharedButtonAttributes } from '@/lib/branding/sharedButtons';
+import { CheckoutProductValue } from '@/components/checkout/CheckoutProductValue';
+import { quantityValueOptions, type QuantityTier } from '@/lib/checkout/quantityValue';
+import { FileUploadProgress } from "@/components/checkout/FileUploadProgress";
+import { FileProofActions } from "@/components/checkout/FileProofActions";
+import { FolderMockupButton } from '@/components/mockup/FolderMockupButton';
+import { resolveFolderDefinition } from '@/lib/mockup/folderDefinition';
+import { composeFolderArtwork } from '@/lib/mockup/artwork';
+import type { FileTransferProgress } from "@/lib/storage/resumableUpload";
+import { openLocalPdf } from "@/lib/localPdf";
+import { StorefrontPrimaryButton } from "@/components/storefront/StorefrontPrimaryButton";
+import {safePdfDocumentOptions} from '@/lib/pdfDocumentOptions';
+import { uploadCheckoutFile, readCheckoutUpload, checkoutUploadAccess, MAX_CHECKOUT_UPLOAD_BYTES, CHECKOUT_UPLOAD_LIMIT_LABEL } from "@/lib/checkout/privateUploads";
+import { PDF_COLOUR_REVIEW_NOTICE } from '@/lib/checkout/pdfColourReview';
+import { useOrderFlowDesign } from "@/hooks/useOrderFlowDesign";
+import { PREVIEW_PAYMENT_DISABLED, PREVIEW_PAYMENT_MESSAGE } from "@/lib/isolatedPreview";
+import { OrderDesignPreviewSwitch } from "@/components/checkout/OrderDesignPreviewSwitch";
+import { OrderCheckoutLayout, OrderFlowDialog, OrderPaymentLayout, OrderConfirmationLayout, ProofReviewLayout, type OrderReceiptData } from "@/components/checkout/OrderFlowLayouts";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -21,6 +44,16 @@ import {
     writeSiteCheckoutSession,
 } from "@/lib/checkout/siteCheckoutSession";
 import { deleteCheckoutCustomerProfile, readCheckoutCustomerProfiles, upsertCheckoutCustomerProfile, type CheckoutCustomerProfile } from "@/lib/checkout/customerProfiles";
+import { fillEmptyCustomerContact, resolveCustomerContact } from "@/lib/account/profile";
+import { canHydrateDeliveryAddress, checkoutCountryCode, deliveryAddressLines } from "@/lib/checkout/addressIntegrity";
+import { requiresProofExport, proofArtifactFingerprint, primaryProductionFiles } from "@/lib/checkout/proofArtifact";
+import { getCheckoutProofAvailability } from "@/lib/checkout/proofAvailability";
+import { hashCheckoutArtifact } from "@/lib/checkout/checkoutArtifact";
+import { checkoutNotificationNotice } from "@/lib/checkout/checkoutNotification";
+import { checkoutStartMessage } from "@/lib/checkout/checkoutStartMessage";
+import { checkoutTaxPreview } from '@/lib/checkout/tax';
+import { linkCompanyOrder } from "@/lib/company-hub";
+import { readCheckoutRecovery, saveCheckoutRecovery, clearCheckoutRecovery, requireCheckoutV2Response } from "@/lib/checkout/checkoutRecovery";
 import { ptToMm } from "@/utils/unitConversions";
 import {
     getFlyerMatrixDataFromDB,
@@ -37,6 +70,20 @@ import {
     getGenericMatrixDataFromDB
 } from "@/utils/pricingDatabase";
 import { StorefrontThemeFrame } from "@/components/storefront/StorefrontThemeFrame";
+import {
+    applyDesignerDocumentParams,
+    buildCurrentInternalPath,
+    buildProductFallbackPath,
+    getSafeInternalPath,
+} from "@/lib/designer/orderFlowNavigation";
+import {
+    ProductFormatGuidePanel,
+    type ProductFormatGuideData,
+} from "@/components/product-price-page/ProductFormatGuide";
+import {
+    templateMatchesSelectedConfiguration,
+    type ProductTemplateFile,
+} from "@/lib/designer/productTemplateLinks";
 
 interface TechnicalSpecs {
     width_mm: number;
@@ -46,13 +93,9 @@ interface TechnicalSpecs {
     safe_area_mm?: number;
 }
 
-interface TemplateFile {
-    name: string;
-    url: string;
-    path: string;
-    format?: string;
-    uploadedAt: string;
-}
+type TemplateFile = ProductTemplateFile & {
+    path?: string;
+};
 
 interface LinkedTemplatePreview {
     previewUrl: string;
@@ -124,6 +167,121 @@ interface PdfContourScanResult {
     summary: string;
     note: string;
 }
+
+type CheckoutFlowNotice = {
+    title: string;
+    body: string;
+    checklist: string[];
+    tone: "blue" | "amber" | "emerald" | "slate";
+    designerActionLabel: string;
+    showDesignerAction: boolean;
+};
+
+const getCheckoutFlowNotice = (
+    designerMode?: string | null,
+    productFlowLabel?: string | null,
+    requiresCutContour = false,
+    professionalPdfUploadOnly = false,
+    artworkModeReasonDa?: string | null,
+): CheckoutFlowNotice => {
+    const mode = String(designerMode || "").trim();
+    const label = String(productFlowLabel || "Fil-tjek").trim();
+
+    if (professionalPdfUploadOnly) {
+        return {
+            title: "Professionel tryk-PDF kræves",
+            body: String(artworkModeReasonDa || "Denne efterbehandling kræver en separat staffagefarve, som online-designeren ikke kan oprette sikkert. Download skabelonen og upload en færdig tryk-PDF."),
+            checklist: [
+                "Brug den valgte produktskabelon til den færdige trykfil.",
+                "Bevar den krævede staffagefarve og overprint i din professionelle PDF.",
+                "Online-designeren er deaktiveret for denne efterbehandling.",
+            ],
+            tone: "amber",
+            designerActionLabel: "Online-designer ikke tilgængelig",
+            showDesignerAction: false,
+        };
+    }
+
+    if (mode === "pdf_template") {
+        return {
+            title: "Skabelonprodukt",
+            body: "Brug upload til en færdig trykfil, eller åbn designeren når filen skal placeres oven på produktets skabelon.",
+            checklist: [
+                "Skabelonlinjer bruges kun som visuel kontrol.",
+                "Fold, ryg, beskæring og sikkerhedszone skal passe før betaling.",
+                "Skabelonens hjælpelinjer må ikke ende som trykbar grafik.",
+            ],
+            tone: "blue",
+            designerActionLabel: "Åbn designer med skabelon",
+            showDesignerAction: true,
+        };
+    }
+
+    if (mode === "upload_only") {
+        return {
+            title: "Kun upload og fil-tjek",
+            body: "Dette produkt er sat op til færdige trykfiler. Upload filen her og brug korrekturvinduet til sidste kontrol.",
+            checklist: [
+                "Designknappen skjules på produktsiden.",
+                "Korrektur kontrollerer størrelse, bleed og sikkerhedszone.",
+                "Fuld designer bruges kun som manuel ekstra-kontrol.",
+            ],
+            tone: "slate",
+            designerActionLabel: "Åbn manuel designerkontrol",
+            showDesignerAction: true,
+        };
+    }
+
+    if (mode === "storformat" || mode === "signage") {
+        return {
+            title: mode === "signage" ? "Skilt/facade flow" : "Storformat flow",
+            body: "Upload en produktionsklar fil, eller brug designeren til at kontrollere motivet mod de valgte mål.",
+            checklist: [
+                "Motivet kontrolleres mod bredde, højde og bleed.",
+                requiresCutContour ? "CutContour bør kontrolleres, hvis produktet kræver udskæring." : "Brug PDF for mest stabil filkontrol.",
+                "Store rasterfiler skal have nok opløsning ved valgt størrelse.",
+            ],
+            tone: "emerald",
+            designerActionLabel: mode === "signage" ? "Åbn skiltdesigner" : "Åbn storformatdesigner",
+            showDesignerAction: true,
+        };
+    }
+
+    if (mode === "apparel") {
+        return {
+            title: "Tekstiltryk flow",
+            body: "Upload motivet her. Størrelser og antal håndteres i ordreflowet, mens designeren kan bruges til placering af trykfelt.",
+            checklist: [
+                "Motivet skal være klart og i høj opløsning.",
+                "Størrelsesfordeling skal matche det samlede antal.",
+                "Designer er bedst til placering, ikke til prisændringer.",
+            ],
+            tone: "amber",
+            designerActionLabel: "Åbn trykfeltdesigner",
+            showDesignerAction: true,
+        };
+    }
+
+    return {
+        title: label,
+        body: "Upload en trykklar fil, eller brug designeren hvis du vil placere eller kontrollere filen visuelt.",
+        checklist: [
+            "PDF anbefales til trykklare filer.",
+            "Korrektur viser størrelse, bleed og sikkerhedszone.",
+            "Du kan gå tilbage til produktet uden at miste konfigurationen.",
+        ],
+        tone: "blue",
+        designerActionLabel: "Åbn fuld designer",
+        showDesignerAction: true,
+    };
+};
+
+const checkoutFlowNoticeClasses: Record<CheckoutFlowNotice["tone"], string> = {
+    blue: "border-sky-200 bg-sky-50 text-sky-950",
+    amber: "border-amber-200 bg-amber-50 text-amber-950",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-950",
+    slate: "border-slate-200 bg-slate-50 text-slate-900",
+};
 
 interface CheckoutSavedAddress {
     id: string;
@@ -405,6 +563,12 @@ const parsePositiveNumber = (value: unknown): number | null => {
     return parsed;
 };
 
+const parseNonNegativeNumber = (value: unknown): number | null => {
+    if (value == null || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
+
 const normalizeFormatKey = (value: unknown): string | null => {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
@@ -525,13 +689,61 @@ const FileUploadConfiguration = () => {
     const navigate = useNavigate();
     const locationSearchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
     const returnedPaymentIntentId = locationSearchParams.get("payment_intent");
-    const returnedRedirectStatus = locationSearchParams.get("redirect_status");
     const persistedCheckoutState = useMemo(() => readSiteCheckoutSession(), []);
-    const rawCheckoutState = (location.state as any) || persistedCheckoutState;
+    const incomingCheckoutState = location.state as any;
+    const rawCheckoutState = incomingCheckoutState?.checkoutInstanceId
+        && incomingCheckoutState.checkoutInstanceId === persistedCheckoutState?.checkoutInstanceId
+        ? persistedCheckoutState : incomingCheckoutState || persistedCheckoutState;
     const hasCheckoutState = Boolean(rawCheckoutState);
     const state = rawCheckoutState || {};
+    const [checkoutInstanceId] = useState(() => String(state.checkoutInstanceId || crypto.randomUUID()));
+    // Give this browser history entry a stable checkout identity, including reload.
+    // A fresh product configuration arrives without one and starts a new checkout.
+    useEffect(() => {
+        if (!hasCheckoutState || state.checkoutInstanceId === checkoutInstanceId) return;
+        navigate({ pathname: location.pathname, search: location.search }, {
+            replace: true, state: { ...state, checkoutInstanceId },
+        });
+    }, [checkoutInstanceId, hasCheckoutState, state, location.pathname, location.search, navigate]);
+    const checkoutTitle = String(state?.checkoutTitle || "Konfigurer dit design");
+    const productFlowLabel = String(state?.productFlowLabel || "Fil-tjek");
+    const productFlowHelpText = String(state?.productFlowHelpText || "");
+    const activeDesignerMode = typeof state?.designerMode === "string" ? state.designerMode : null;
+    const checkoutTemplatePdfUrl = typeof state?.templatePdfUrl === "string" && state.templatePdfUrl.trim()
+        ? state.templatePdfUrl.trim()
+        : null;
+    const checkoutTemplatePdfName = typeof state?.templatePdfName === "string" && state.templatePdfName.trim()
+        ? state.templatePdfName.trim()
+        : "Produktskabelon";
+    const checkoutTemplatePdfSha256 = typeof state?.templatePdfSha256 === "string"
+        && /^[a-f0-9]{64}$/i.test(state.templatePdfSha256.trim())
+        ? state.templatePdfSha256.trim().toLowerCase()
+        : null;
+    const checkoutTemplateArtworkMode = state?.templateArtworkMode === "professional_pdf_upload_only"
+        ? "professional_pdf_upload_only"
+        : state?.templateArtworkMode === "online_designer"
+            ? "online_designer"
+            : null;
+    const checkoutTemplateArtworkModeReasonDa = typeof state?.templateArtworkModeReasonDa === "string"
+        && state.templateArtworkModeReasonDa.trim()
+        ? state.templateArtworkModeReasonDa.trim()
+        : null;
+    const professionalPdfUploadOnly = checkoutTemplateArtworkMode === "professional_pdf_upload_only";
+    const checkoutTemplateDownloadName = checkoutTemplatePdfName.toLowerCase().endsWith(".pdf")
+        ? checkoutTemplatePdfName
+        : `${checkoutTemplatePdfName}.pdf`;
+    const checkoutUploadTitle = String(state?.checkoutUploadTitle || "Upload trykfil");
+    const checkoutUploadHelpText = String(
+        state?.checkoutUploadHelpText
+        || "Upload en trykklar PDF eller brug fuld designer til at placere filen på formatet.",
+    );
     const shopSettings = useShopSettings();
     const branding = shopSettings.data?.branding;
+    const sharedSelection = sharedButtonAttributes(resolveSharedButton(branding, 'selection', 'order-selection'), 'selection');
+    const checkoutDesign = useOrderFlowDesign('checkout', branding);
+    const proofDesign = useOrderFlowDesign('proof', branding);
+    const paymentDesign = useOrderFlowDesign('payment', branding);
+    const confirmationDesign = useOrderFlowDesign('confirmation', branding);
     const tenantName = String(
         branding?.shop_name
         || shopSettings.data?.tenant_name
@@ -543,23 +755,45 @@ const FileUploadConfiguration = () => {
     const initialBasePrice = Math.round(Number(state?.productPrice || 0) + Number(state?.extraPrice || 0));
     const initialOrderSubtotal = Math.max(0, initialTotalPrice - initialShippingCost) || initialBasePrice || initialTotalPrice;
     const persistedSiteUpload = state?.siteUpload;
+    const persistedDesignerExport = state?.designerExport;
 
     const [loading, setLoading] = useState(true);
     const [product, setProduct] = useState<any>(null);
     const [orderDeliveryConfig, setOrderDeliveryConfig] = useState<any>(null);
     const [uploading, setUploading] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState(0);
+    const [uploadProgress, setUploadProgress] = useState<FileTransferProgress>({phase: "preparing", loaded: 0, total: 0});
+    const uploadBusyRef = useRef(false);
     const [uploadDropActive, setUploadDropActive] = useState(false);
-    const [uploadedFile, setUploadedFile] = useState<{ name: string; url: string; path: string } | null>(() => {
+    const [uploadedFile, setUploadedFile] = useState<{ name: string; url: string; path: string; sha256: string } | null>(() => {
+        if (persistedDesignerExport?.fileUrl) {
+            return {
+                name: String(persistedDesignerExport.name || "designer-production.pdf"),
+                url: String(persistedDesignerExport.fileUrl),
+                path: String(persistedDesignerExport.filePath || ""),
+                sha256: String(persistedDesignerExport.sha256 || ""),
+            };
+        }
         if (!persistedSiteUpload?.fileUrl || !persistedSiteUpload?.filePath) return null;
         return {
             name: String(persistedSiteUpload.name || "upload"),
             url: String(persistedSiteUpload.fileUrl),
             path: String(persistedSiteUpload.filePath),
+            sha256: String(persistedSiteUpload.sha256 || ""),
         };
     });
     const [checkoutUserId, setCheckoutUserId] = useState<string | null>(null);
     const [savedCustomerProfiles, setSavedCustomerProfiles] = useState<CheckoutCustomerProfile[]>([]);
+
+    const markTemplateDownloaded = () => {
+        if (!checkoutTemplatePdfUrl) return;
+        const existingSession = readSiteCheckoutSession() || state;
+        writeSiteCheckoutSession({
+            ...existingSession,
+            templatePdfName: checkoutTemplatePdfName,
+            templatePdfUrl: checkoutTemplatePdfUrl,
+            templateDownloadedAt: new Date().toISOString(),
+        });
+    };
     const [selectedCustomerProfileId, setSelectedCustomerProfileId] = useState(String(state?.checkoutCustomer?.selectedCustomerProfileId || "new"));
     const [customerProfileLabel, setCustomerProfileLabel] = useState("");
     const [customerEmail, setCustomerEmail] = useState(String(state?.checkoutCustomer?.customerEmail || ""));
@@ -572,6 +806,8 @@ const FileUploadConfiguration = () => {
     const [deliveryRecipientName, setDeliveryRecipientName] = useState(String(state?.checkoutCustomer?.deliveryRecipientName || ""));
     const [deliveryCompany, setDeliveryCompany] = useState(String(state?.checkoutCustomer?.deliveryCompany || ""));
     const [deliveryAddress, setDeliveryAddress] = useState(String(state?.checkoutCustomer?.deliveryAddress || ""));
+    const [deliveryAddress2, setDeliveryAddress2] = useState(String(state?.checkoutCustomer?.deliveryAddress2 || ""));
+    const [deliveryCountry, setDeliveryCountry] = useState(String(state?.checkoutCustomer?.deliveryCountry || "DK"));
     const [deliveryZip, setDeliveryZip] = useState(String(state?.checkoutCustomer?.deliveryZip || ""));
     const [deliveryCity, setDeliveryCity] = useState(String(state?.checkoutCustomer?.deliveryCity || ""));
     const [saveAddressForLater, setSaveAddressForLater] = useState(Boolean(state?.checkoutCustomer?.saveAddressForLater));
@@ -586,8 +822,13 @@ const FileUploadConfiguration = () => {
     const [billingName, setBillingName] = useState(String(state?.checkoutCustomer?.billingName || ""));
     const [billingCompany, setBillingCompany] = useState(String(state?.checkoutCustomer?.billingCompany || ""));
     const [billingAddress, setBillingAddress] = useState(String(state?.checkoutCustomer?.billingAddress || ""));
+    const [billingAddress2, setBillingAddress2] = useState(String(state?.checkoutCustomer?.billingAddress2 || ""));
+    const [billingCountry, setBillingCountry] = useState(String(state?.checkoutCustomer?.billingCountry || "DK"));
     const [billingZip, setBillingZip] = useState(String(state?.checkoutCustomer?.billingZip || ""));
     const [billingCity, setBillingCity] = useState(String(state?.checkoutCustomer?.billingCity || ""));
+    const deliveryDraftRef = useRef<Record<string, string>>({});
+    const deliveryAddressEditedRef = useRef(false);
+    deliveryDraftRef.current = { name: deliveryRecipientName, company: deliveryCompany, address: deliveryAddress, address2: deliveryAddress2, zip: deliveryZip, city: deliveryCity };
     const [paymentLoading, setPaymentLoading] = useState(false);
     const [tenantPaymentStatus, setTenantPaymentStatus] = useState<{
         status: string;
@@ -614,10 +855,36 @@ const FileUploadConfiguration = () => {
     } | null>(null);
     const [platformPreflightLoading, setPlatformPreflightLoading] = useState(false);
     const [previewUrl, setPreviewUrl] = useState<string | null>(() => {
-        const persistedPreview = persistedSiteUpload?.previewDataUrl || persistedSiteUpload?.fileUrl;
+        const persistedPreview = persistedDesignerExport?.previewDataUrl
+            || persistedSiteUpload?.previewDataUrl
+            || persistedSiteUpload?.fileUrl;
         return persistedPreview ? String(persistedPreview) : null;
     });
     const [proofingPreview, setProofingPreview] = useState<ProofingPreviewData | null>(() => {
+        if (persistedDesignerExport?.previewDataUrl) {
+            const physicalWidthMm = Number(
+                persistedDesignerExport.previewWidthMm
+                || state?.designWidthMm
+                || 0
+            );
+            const physicalHeightMm = Number(
+                persistedDesignerExport.previewHeightMm
+                || state?.designHeightMm
+                || 0
+            );
+
+            if (physicalWidthMm > 0 && physicalHeightMm > 0) {
+                return {
+                    fileType: persistedDesignerExport.mimeType === "image/png" ? "image" : "pdf",
+                    previewUrl: String(persistedDesignerExport.previewDataUrl),
+                    physicalWidthMm,
+                    physicalHeightMm,
+                    sourceWidthPx: 0,
+                    sourceHeightPx: 0,
+                };
+            }
+        }
+
         if (!persistedSiteUpload?.previewDataUrl) return null;
         const physicalWidthMm = Number(persistedSiteUpload.physicalWidthMm || 0);
         const physicalHeightMm = Number(persistedSiteUpload.physicalHeightMm || 0);
@@ -641,7 +908,8 @@ const FileUploadConfiguration = () => {
     const [linkedTemplatePreview, setLinkedTemplatePreview] = useState<LinkedTemplatePreview | null>(null);
     const [pdfContourScan, setPdfContourScan] = useState<PdfContourScanResult | null>(null);
     const [proofingOpen, setProofingOpen] = useState(false);
-    const [proofingApproved, setProofingApproved] = useState(false);
+    const [proofingApproved, setProofingApproved] = useState(Boolean(persistedDesignerExport?.fileUrl) && !state.proofApprovalRequired);
+    const [approvedProofIdentity, setApprovedProofIdentity] = useState<string | null>(null);
     const [proofingScale, setProofingScale] = useState(100);
     const [proofingOffset, setProofingOffset] = useState({ x: 0, y: 0 });
     const [proofingDragging, setProofingDragging] = useState(false);
@@ -650,8 +918,10 @@ const FileUploadConfiguration = () => {
     // Local Order Configuration (to allow for Best Deal upgrades)
     const [orderQuantity, setOrderQuantity] = useState<number>(state?.quantity || 0);
     const [orderPrice, setOrderPrice] = useState<number>(initialOrderSubtotal);
-    const [matrix, setMatrix] = useState<{ rows: string[], columns: number[], cells: any } | null>(null);
-    const [upsellOptions, setUpsellOptions] = useState<{ quantity: number, price: number, savingPercent: number }[]>([]);
+    const [quantityTiers, setQuantityTiers] = useState<QuantityTier[]>(state?.pricingQuote?.quantityTiers || []);
+    const [exportingProof, setExportingProof] = useState(false);
+    const proofExportBusyRef = useRef(false);
+    const latestProofIdentityRef = useRef<string | null>(null);
     const [sizeDistributionValues, setSizeDistributionValues] = useState<Record<string, number>>({});
     const [shippingSelected, setShippingSelected] = useState<string>(String(state?.shippingSelected || ""));
     const [deliveryNow, setDeliveryNow] = useState<Date>(() => new Date());
@@ -667,12 +937,19 @@ const FileUploadConfiguration = () => {
     const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null);
     const [paymentConnectedAccountId, setPaymentConnectedAccountId] = useState<string | null>(null);
     const [paymentSuccess, setPaymentSuccess] = useState(false);
+    const [confirmedReceipt, setConfirmedReceipt] = useState<OrderReceiptData | null>(null);
+    const [finalizingPayment, setFinalizingPayment] = useState(false);
+    const finalizingPaymentRef = useRef(false);
+    const [hasCheckoutRecovery, setHasCheckoutRecovery] = useState(false);
+    const [recoverablePaymentId, setRecoverablePaymentId] = useState<string | null>(null);
     const [createdOrderNumber, setCreatedOrderNumber] = useState<string | null>(null);
     const [orderPersistWarning, setOrderPersistWarning] = useState<string | null>(null);
     const [orderNotificationWarning, setOrderNotificationWarning] = useState<string | null>(null);
     const [orderSuccessMessage, setOrderSuccessMessage] = useState("Vi har modtaget din betaling og begynder at behandle din ordre.");
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const checkoutSummaryRef = useRef<HTMLDivElement>(null);
+    const returnToCheckoutAfterProofRef = useRef(false);
     const proofingDragStartRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
     const proofingResizeStartRef = useRef<{ centerX: number; centerY: number; startDistance: number; startScale: number } | null>(null);
     const proofingArtworkRef = useRef<HTMLDivElement>(null);
@@ -698,19 +975,9 @@ const FileUploadConfiguration = () => {
                 pathname: location.pathname,
                 search: nextParams.toString() ? `?${nextParams.toString()}` : "",
             },
-            { replace: true, state: location.state }
+            { replace: true, state: { ...state, checkoutInstanceId } }
         );
     };
-
-    const notificationSettings = (shopSettings.data?.notifications as Record<string, any> | undefined) || {};
-    const companySettings = (shopSettings.data?.company as Record<string, any> | undefined) || {};
-    const customerOrderConfirmationsEnabled = notificationSettings.order_confirmations ?? true;
-    const adminNewOrderNotificationsEnabled = notificationSettings.new_orders ?? true;
-    const supportEmail = String(companySettings.email || "info@webprinter.dk").trim();
-    const shopName = String(companySettings.name || shopSettings.data?.tenant_name || "Webprinter").trim();
-    const adminName = String(companySettings.admin_name || "").trim();
-    const customerOrdersUrl = typeof window !== "undefined" ? `${window.location.origin}/mine-ordrer` : undefined;
-    const adminOrdersUrl = typeof window !== "undefined" ? `${window.location.origin}/admin/ordrer` : undefined;
 
     useEffect(() => {
         const linkedTemplateId = String(state?.linkedTemplateId || "").trim();
@@ -724,7 +991,7 @@ const FileUploadConfiguration = () => {
         const loadLinkedTemplatePreview = async () => {
             try {
                 const { data: template, error } = await supabase
-                    .from("designer_templates" as any)
+                    .from("designer_templates")
                     .select("preview_image_url, template_pdf_url")
                     .eq("id", linkedTemplateId)
                     .maybeSingle();
@@ -747,7 +1014,7 @@ const FileUploadConfiguration = () => {
                     const pdfjs = await import("pdfjs-dist");
                     pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
-                    const loadingTask = pdfjs.getDocument(String((template as any).template_pdf_url));
+                    const loadingTask = pdfjs.getDocument(safePdfDocumentOptions({url: String((template as any).template_pdf_url)}));
                     const pdf = await loadingTask.promise;
                     const page = await pdf.getPage(1);
                     const viewport = page.getViewport({ scale: 2.5 });
@@ -795,6 +1062,8 @@ const FileUploadConfiguration = () => {
         setDeliveryRecipientName([address.first_name, address.last_name].filter(Boolean).join(" ").trim());
         setDeliveryCompany(String(address.company_name || ""));
         setDeliveryAddress(String(address.street_address || ""));
+        setDeliveryAddress2(String(address.street_address_2 || ""));
+        setDeliveryCountry(String(address.country || "DK"));
         setDeliveryZip(String(address.postal_code || ""));
         setDeliveryCity(String(address.city || ""));
         setCustomerPhone((prev) => prev || String(address.phone || ""));
@@ -809,12 +1078,16 @@ const FileUploadConfiguration = () => {
         setDeliveryRecipientName(String(profile.deliveryRecipientName || ""));
         setDeliveryCompany(String(profile.deliveryCompany || ""));
         setDeliveryAddress(String(profile.deliveryAddress || ""));
+        setDeliveryAddress2(String(profile.deliveryAddress2 || ""));
+        setDeliveryCountry(String(profile.deliveryCountry || "DK"));
         setDeliveryZip(String(profile.deliveryZip || ""));
         setDeliveryCity(String(profile.deliveryCity || ""));
         setUseSeparateBillingAddress(Boolean(profile.useSeparateBillingAddress));
         setBillingName(String(profile.billingName || ""));
         setBillingCompany(String(profile.billingCompany || ""));
         setBillingAddress(String(profile.billingAddress || ""));
+        setBillingAddress2(String(profile.billingAddress2 || ""));
+        setBillingCountry(String(profile.billingCountry || "DK"));
         setBillingZip(String(profile.billingZip || ""));
         setBillingCity(String(profile.billingCity || ""));
         setSenderMode(
@@ -845,6 +1118,8 @@ const FileUploadConfiguration = () => {
         name: string;
         company: string;
         address: string;
+        address2: string;
+        country: string;
         zip: string;
         city: string;
         savedAddressId: string;
@@ -861,6 +1136,8 @@ const FileUploadConfiguration = () => {
                 name: deliveryRecipientName,
                 company: deliveryCompany,
                 address: deliveryAddress,
+                address2: deliveryAddress2,
+                country: deliveryCountry,
                 zip: deliveryZip,
                 city: deliveryCity,
                 savedAddressId: selectedSavedAddressId,
@@ -875,6 +1152,8 @@ const FileUploadConfiguration = () => {
                 setDeliveryRecipientName(snap.name);
                 setDeliveryCompany(snap.company);
                 setDeliveryAddress(snap.address);
+                setDeliveryAddress2(snap.address2);
+                setDeliveryCountry(snap.country);
                 setDeliveryZip(snap.zip);
                 setDeliveryCity(snap.city);
                 setSelectedSavedAddressId(snap.savedAddressId);
@@ -906,10 +1185,14 @@ const FileUploadConfiguration = () => {
         [orderPrice, activeDeliveryMethod]
     );
 
-    const checkoutTotal = useMemo(
+    const checkoutNetTotal = useMemo(
         () => Math.max(0, orderPrice + shippingCost),
         [orderPrice, shippingCost]
     );
+    const {tax: checkoutTax, message: checkoutTaxMessage} = checkoutTaxPreview(
+        shopSettings.data?.id, checkoutCountryCode(deliveryCountry), Math.round(checkoutNetTotal * 100),
+    );
+    const checkoutTotal = checkoutTax ? checkoutTax.grossAmountOre / 100 : checkoutNetTotal;
 
     const selectedDeliveryLabel = activeDeliveryMethod?.name || shippingSelected || "";
 
@@ -1062,522 +1345,239 @@ const FileUploadConfiguration = () => {
         }));
     };
 
-    const generateOrderNumber = () => {
-        const now = new Date();
-        const yy = String(now.getFullYear()).slice(-2);
-        const mm = String(now.getMonth() + 1).padStart(2, "0");
-        const dd = String(now.getDate()).padStart(2, "0");
-        const randomPart = Math.floor(100000 + Math.random() * 900000);
-        return `WP${yy}${mm}${dd}-${randomPart}`;
-    };
-
-    const isMissingOrderConfigurationColumn = (error: any) => {
-        const message = String(error?.message || "").toLowerCase();
-        return error?.code === "PGRST204" && message.includes("product_configuration");
-    };
-
-    const isOrderNumberCollision = (error: any) => {
-        return error?.code === "23505" || String(error?.message || "").includes("orders_order_number_key");
-    };
-
     const handleBackToConfiguration = () => {
-        if (window.history.length > 1) {
-            navigate(-1);
+        const storedProductPath = getSafeInternalPath(state?.productReturnPath);
+        if (storedProductPath) {
+            navigate(storedProductPath, { replace: true });
             return;
         }
-        if (state?.productSlug) {
-            navigate(`/produkt/${state.productSlug}`);
+
+        const productFallbackPath = buildProductFallbackPath(state?.productSlug, locationSearchParams);
+        if (productFallbackPath) {
+            navigate(productFallbackPath, { replace: true });
+            return;
+        }
+
+        if (window.history.length > 1) {
+            navigate(-1);
             return;
         }
         navigate("/");
     };
 
-    const handleProceedToPayment = async () => {
-        if (sizeDistributionMismatch) {
-            toast.error(`Størrelsesfordeling skal summere til ${orderQuantity} stk.`);
-            return;
-        }
+    const buildCheckoutOrder = async () => {
+        const session = readSiteCheckoutSession();
+        // An old Designer export must not take precedence over a newer upload.
+        const design = session?.designerExport?.fileUrl === uploadedFile?.url ? session.designerExport : null;
+        const productionFiles = primaryProductionFiles(design?.productionFiles?.filter(file => file.fileUrl && file.filePath) || []);
+        const sources = productionFiles.length > 0 ? productionFiles.map(file => ({
+            name: String(file.name || "production.pdf"), path: String(file.filePath), sha256: String(file.sha256 || ""),
+        })) : uploadedFile ? [{ name: uploadedFile.name, path: uploadedFile.path, sha256: uploadedFile.sha256 }] : [];
+        if (!sources.length) throw new Error("Godkend en produktionsfil før betaling.");
+        const files = await Promise.all(sources.map(async source => {
+            const access = checkoutUploadAccess(source.path);
+            let sha256 = source.sha256;
+            if (!access) {
+                const blob = await readCheckoutUpload(supabase, source.path);
+                if (blob.size > MAX_CHECKOUT_UPLOAD_BYTES) throw new Error(`Trykfiler over ${CHECKOUT_UPLOAD_LIMIT_LABEL} skal aftales med butikken før betaling.`);
+                sha256 = await hashCheckoutArtifact(blob);
+                if (sha256 !== source.sha256) throw new Error("Trykfilen er ændret siden korrekturen. Upload og godkend den aktuelle fil igen.");
+            }
+            return { file_name: source.name, storage_path: source.path, bucket: "order-files", sha256,
+                ...(access ? {access_token: access.access_token} : {}) };
+        }));
+        const billingSummary = useSeparateBillingAddress
+            ? [billingName, billingCompany, deliveryAddressLines(billingAddress, billingAddress2), billingZip, billingCity, billingCountry]
+            : [customerName, customerCompany, deliveryAddressLines(deliveryAddress, deliveryAddress2), deliveryZip, deliveryCity, deliveryCountry];
+        return {
+            customer_email: customerEmail.trim(), customer_name: customerName.trim(), customer_phone: customerPhone.trim(),
+            delivery_type: selectedDeliveryLabel, delivery_address: deliveryAddress.trim(), delivery_address2: deliveryAddress2.trim(),
+            delivery_zip: deliveryZip.trim(), delivery_city: deliveryCity.trim(), delivery_country: checkoutCountryCode(deliveryCountry),
+            product_configuration: sizeDistributionSummary || null,
+            status_note: [
+                `[MODTAGER] ${deliveryRecipientName.trim()}`,
+                deliveryCompany.trim() ? `[MODTAGER-FIRMA] ${deliveryCompany.trim()}` : null,
+                customerCompany.trim() ? `[FIRMA] ${customerCompany.trim()}` : null,
+                customerPhone.trim() ? `[TELEFON] ${customerPhone.trim()}` : null,
+                `[FAKTURERING] ${billingSummary.filter(Boolean).join(", ")}`,
+                senderMode === "blind" ? "[BLIND_SHIPPING] Ja" : null,
+                senderMode === "custom" ? `[AFSENDER] ${senderName.trim()}` : null,
+                `[PRODUKTIONSFLOW] ${design ? "Designer online" : "Godkendt tryk-PDF"}`,
+            ].filter(Boolean).join("\n"),
+            files,
+        };
+    };
 
+    const handleProceedToPayment = async () => {
+        if (PREVIEW_PAYMENT_DISABLED) { toast.info(PREVIEW_PAYMENT_MESSAGE); return; }
+        if (finalizingPaymentRef.current) return;
+        if (checkoutTaxMessage || !checkoutTax) { toast.error(checkoutTaxMessage || 'Moms kunne ikke bekræftes.'); return; }
+        if (sizeDistributionMismatch) { toast.error(`Størrelsesfordeling skal summere til ${orderQuantity} stk.`); return; }
+        if (!proofArtifactApproved || uploading || platformPreflightLoading) {
+            toast.error("Godkend den aktuelle produktionsfil før betaling."); setProofingOpen(true); return;
+        }
         if (!customerEmail.trim() || !customerName.trim() || !deliveryRecipientName.trim() || !deliveryAddress.trim() || !deliveryZip.trim() || !deliveryCity.trim()) {
-            toast.error("Udfyld kunde- og leveringsoplysninger før betaling.");
-            return;
+            toast.error("Udfyld kunde- og leveringsoplysninger før betaling."); return;
+        }
+        if (!checkoutCountryCode(deliveryCountry) || (useSeparateBillingAddress && !checkoutCountryCode(billingCountry))) {
+            toast.error("Angiv en landekode på to bogstaver, fx DK eller SE."); return;
         }
         if (useSeparateBillingAddress && (!billingName.trim() || !billingAddress.trim() || !billingZip.trim() || !billingCity.trim())) {
-            toast.error("Udfyld faktureringsadresse før betaling.");
-            return;
+            toast.error("Udfyld faktureringsadresse før betaling."); return;
         }
-
         const tenantId = shopSettings.data?.id;
-        if (!tenantId) {
-            toast.error("Kunne ikke finde shop-id til betaling.");
-            return;
-        }
-
+        if (!tenantId) { toast.error("Kunne ikke finde shop-id til betaling."); return; }
         setPaymentLoading(true);
         try {
-            const totalPrice = checkoutTotal;
-            const amountOre = Math.round(totalPrice * 100);
-            const optionSummary = Object.values(effectiveOptionSelections)
-                .map((option) => option.name)
-                .filter(Boolean)
-                .join(" | ");
-            const sizeSummaryWithTotal = sizeDistributionSummary
-                ? `${sizeDistributionSummary} (sum ${sizeDistributionTotal}/${orderQuantity})`
-                : "";
-            const verifiedOptionIds = Object.values(nonSizeOptionSelections)
-                .map((option) => option.optionId)
-                .filter((optionId) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(optionId || "")));
-            const checkoutQuote = state?.pricingQuote
-                ? {
-                    ...state.pricingQuote,
-                    productId: state.pricingQuote.productId || state?.productId || null,
-                    productSlug: state.pricingQuote.productSlug || state?.productSlug || null,
-                    quantity: orderQuantity,
-                    optionIds: verifiedOptionIds,
-                    shippingSelected,
-                }
-                : null;
-
-            if (!checkoutQuote) {
-                toast.error("Kunne ikke verificere prisgrundlaget. Gå tilbage til produktet og vælg prisen igen.");
-                return;
+            const optionIds = Object.values(nonSizeOptionSelections).map(option => option.optionId)
+                .filter(id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id || "")));
+            const checkoutQuote = state?.pricingQuote ? { ...state.pricingQuote,
+                productId: state.pricingQuote.productId || state?.productId || null,
+                productSlug: state.pricingQuote.productSlug || state?.productSlug || null,
+                quantity: orderQuantity, optionIds, shippingSelected,
+                pricingModel: state?.pricingModel || state.pricingQuote.pricingModel,
+            } : null;
+            if (checkoutQuote) delete checkoutQuote.quantityTiers;
+            if (!checkoutQuote) throw new Error("Gå tilbage til produktet og vælg prisen igen.");
+            const order = await buildCheckoutOrder();
+            const body = { contract_version: 2, tenant_id: tenantId, amount_ore: Math.round(checkoutTotal * 100), currency: "dkk", checkout_quote: checkoutQuote, checkout_order: order };
+            const payloadHash = await hashCheckoutArtifact(new Blob([JSON.stringify(body)]));
+            const storedRecovery = readCheckoutRecovery(localStorage, tenantId);
+            const previous = storedRecovery?.completed && storedRecovery.checkoutInstanceId !== checkoutInstanceId ? null : storedRecovery;
+            if (previous?.completed) { await handlePaymentSuccess(previous.paymentIntentId); return; }
+            if (previous && previous.payloadHash !== payloadHash) {
+                setRecoverablePaymentId(previous.paymentIntentId || null);
+                throw new Error("Der findes en påbegyndt betaling for andre oplysninger. Afslut eller annuller den nedenfor, før du starter en ny.");
             }
-
+            const recovery = previous || { tenantId, attemptId: crypto.randomUUID(), accessToken: crypto.randomUUID(), payloadHash, checkoutInstanceId,
+                companyOrderRequestId: readSiteCheckoutSession()?.companyOrderRequestId || undefined };
+            // Persist recovery before invoking Stripe, including when the response gets lost.
+            saveCheckoutRecovery(localStorage, recovery);
+            setHasCheckoutRecovery(true);
+            try { await saveCheckoutAddress(); } catch { toast.error("Adressen kunne ikke gemmes i adressebogen."); }
             const { data, error } = await supabase.functions.invoke("stripe-create-payment-intent", {
-                body: {
-                    tenant_id: tenantId,
-                    amount_ore: amountOre,
-                    currency: "dkk",
-                    checkout_quote: checkoutQuote,
-                    metadata: {
-                        product_id: state?.productId || "",
-                        product_slug: state?.productSlug || "",
-                        uploaded_file: uploadedFile?.path || "",
-                        quantity: String(orderQuantity || 0),
-                        option_summary: optionSummary.slice(0, 450),
-                        size_distribution: sizeSummaryWithTotal.slice(0, 450),
-                        customer_email: customerEmail.trim().slice(0, 250),
-                        customer_name: customerName.trim().slice(0, 250),
-                        recipient_name: deliveryRecipientName.trim().slice(0, 250),
-                        delivery_city: deliveryCity.trim().slice(0, 120),
-                        delivery_type: selectedDeliveryLabel.slice(0, 120),
-                        blind_shipping: senderMode === "blind" ? "true" : "false",
-                        sender_name: (senderMode === "custom" ? senderName.trim() : "").slice(0, 250),
-                    },
-                },
+                body: { ...body, checkout_attempt_id: recovery.attemptId, checkout_access_token: recovery.accessToken },
             });
-
-            if (error) throw error;
-
-            if (data?.client_secret) {
-                setPaymentClientSecret(data.client_secret);
-                // Synchronize frontend "Connect" mode with Backend "Connect" mode
-                // If backend used "connected": true, we MUST use stripe_account_id options.
-                // If backend used "connected": false, we MUST NOT use stripe_account_id options.
-                if (data.connected && tenantPaymentStatus?.stripe_account_id) {
-                    setPaymentConnectedAccountId(tenantPaymentStatus.stripe_account_id);
-                } else {
-                    setPaymentConnectedAccountId(null);
-                }
-                setShowPaymentModal(true);
-            } else {
-                toast.error("Kunne ikke oprette betaling.");
-            }
-        } catch (err: any) {
-            console.error("Payment intent error:", err);
-            toast.error(err?.message || "Kunne ikke oprette betaling.");
-        } finally {
-            setPaymentLoading(false);
-        }
+            if (error) throw new Error(await checkoutStartMessage(error));
+            requireCheckoutV2Response(data, recovery.attemptId);
+            saveCheckoutRecovery(localStorage, { ...recovery, paymentIntentId: data.payment_intent_id });
+            setRecoverablePaymentId(data.payment_intent_id);
+            setPaymentClientSecret(data.client_secret);
+            setPaymentConnectedAccountId(data.connected ? tenantPaymentStatus?.stripe_account_id || null : null);
+            setShowPaymentModal(true);
+            setOrderPersistWarning(null);
+        } catch (error: any) {
+            setOrderPersistWarning(error?.message || "Betaling kunne ikke oprettes.");
+            toast.error(error?.message || "Betaling kunne ikke oprettes.");
+        } finally { setPaymentLoading(false); }
     };
 
-    const handlePaymentSuccess = async (paymentIntentId: string) => {
-        setShowPaymentModal(false);
-        setPaymentClientSecret(null);
+    const saveCheckoutAddress = async () => {
+        if (!saveAddressForLater || !checkoutUserId) return;
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.id !== checkoutUserId) return;
+        const recipient = splitFullName(deliveryRecipientName.trim());
+        const payload = { user_id: user.id, label: addressLabel.trim() || null, company_name: deliveryCompany.trim() || null,
+            first_name: recipient.firstName, last_name: recipient.lastName, street_address: deliveryAddress.trim(),
+            street_address_2: deliveryAddress2.trim() || null, postal_code: deliveryZip.trim(), city: deliveryCity.trim(),
+            country: deliveryCountry.trim(), phone: customerPhone.trim() || null, is_default: savedAddresses.length === 0 };
+        const query = selectedSavedAddressId && selectedSavedAddressId !== "new"
+            ? supabase.from("customer_addresses").update(payload).eq("id", selectedSavedAddressId).eq("user_id", user.id)
+            : supabase.from("customer_addresses").insert(payload);
+        const { data, error } = await query.select("id").single();
+        if (error || !(data as any)?.id) toast.error("Adressen kunne ikke gemmes i adressebogen.");
+    };
+
+    const handlePaymentSuccess = async (paymentIntentId?: string) => {
+        const tenantId = shopSettings.data?.id;
+        if (!tenantId || finalizingPaymentRef.current) return;
+        finalizingPaymentRef.current = true; setFinalizingPayment(true); setShowPaymentModal(false);
         setOrderPersistWarning(null);
-        setOrderNotificationWarning(null);
-        setCreatedOrderNumber(null);
-        setOrderSuccessMessage("Vi har modtaget din betaling og begynder at behandle din ordre.");
-
-        const productConfigurationText = sizeDistributionConfig && sizeDistributionEntries.length > 0
-            ? `${sizeDistributionConfig.title}: ${sizeDistributionSummary}`
-            : null;
-
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            const tenantId = shopSettings.data?.id || null;
-            const totalPrice = checkoutTotal;
-            const resolvedCustomerEmail = customerEmail.trim()
-                || user?.email
-                || `guest-${Date.now()}@webprinter.local`;
-            const resolvedCustomerName = customerName.trim()
-                || String(user?.user_metadata?.full_name || "").trim()
-                || String(user?.user_metadata?.name || "").trim()
-                || resolvedCustomerEmail.split("@")[0]
-                || "Kunde";
-            const resolvedRecipientName = deliveryRecipientName.trim() || resolvedCustomerName;
-            const deliverySummary = [
-                resolvedRecipientName,
-                deliveryCompany.trim() || null,
-                deliveryAddress.trim(),
-                `${deliveryZip.trim()} ${deliveryCity.trim()}`.trim(),
-            ]
-                .filter(Boolean)
-                .join(", ");
-            const resolvedBillingName = useSeparateBillingAddress
-                ? (billingName.trim() || resolvedCustomerName)
-                : resolvedCustomerName;
-            const resolvedBillingCompany = useSeparateBillingAddress
-                ? billingCompany.trim()
-                : customerCompany.trim();
-            const resolvedBillingAddress = useSeparateBillingAddress
-                ? billingAddress.trim()
-                : deliveryAddress.trim();
-            const resolvedBillingZip = useSeparateBillingAddress
-                ? billingZip.trim()
-                : deliveryZip.trim();
-            const resolvedBillingCity = useSeparateBillingAddress
-                ? billingCity.trim()
-                : deliveryCity.trim();
-            const billingSummary = [
-                resolvedBillingName,
-                resolvedBillingCompany || null,
-                resolvedBillingAddress || null,
-                `${resolvedBillingZip} ${resolvedBillingCity}`.trim() || null,
-                customerEmail.trim() || null,
-            ].filter(Boolean).join(", ");
-            const senderSummary = senderMode === "blind"
-                ? "Blind forsendelse"
-                : senderMode === "custom"
-                    ? (senderName.trim() || customerCompany.trim() || resolvedCustomerName)
-                    : "Standard WebPrinter-afsender";
-            const latestCheckoutSession = readSiteCheckoutSession();
-            const productionFlow = latestCheckoutSession?.designerExport?.fileUrl
-                ? "Designer online"
-                : uploadedFile
-                    ? "Uploadet fil"
-                    : latestCheckoutSession?.templateDownloadedAt
-                        ? "Downloadet skabelon til eget design"
-                        : "Ingen produktionsfil ved ordreoprettelse";
-            const templatePdfName = latestCheckoutSession?.templatePdfName || null;
-            const templatePdfUrl = latestCheckoutSession?.templatePdfUrl || null;
-            const templateSummary = templatePdfName || templatePdfUrl
-                ? [
-                    templatePdfName || "Produktskabelon",
-                    templatePdfUrl ? `(${templatePdfUrl})` : null,
-                  ].filter(Boolean).join(" ")
-                : null;
-            const supplementalOrderNotes = [
-                customerPhone.trim() ? `[TELEFON] ${customerPhone.trim()}` : null,
-                customerCompany.trim() ? `[FIRMA] ${customerCompany.trim()}` : null,
-                resolvedRecipientName ? `[MODTAGER] ${resolvedRecipientName}` : null,
-                deliveryCompany.trim() ? `[MODTAGER-FIRMA] ${deliveryCompany.trim()}` : null,
-                deliverySummary ? `[LEVERING] ${deliverySummary}` : null,
-                billingSummary ? `[FAKTURERING] ${billingSummary}` : null,
-                selectedDeliveryLabel ? `[LEVERINGSMETODE] ${selectedDeliveryLabel}` : null,
-                senderMode === "blind" ? "[BLIND_SHIPPING] Ja" : null,
-                senderSummary ? `[AFSENDER] ${senderSummary}` : null,
-                `[PRODUKTIONSFLOW] ${productionFlow}`,
-                templateSummary ? `[SKABELON] ${templateSummary}` : null,
-                latestCheckoutSession?.templateDownloadedAt ? `[SKABELON-DOWNLOAD] ${latestCheckoutSession.templateDownloadedAt}` : null,
-            ].filter(Boolean).join("\n");
-
-            let includeProductConfigurationColumn = !!productConfigurationText;
-            let insertedOrder: any = null;
-
-            for (let attempt = 0; attempt < 5; attempt += 1) {
-                const basePayload: Record<string, any> = {
-                    order_number: generateOrderNumber(),
-                    user_id: user?.id || null,
-                    customer_email: resolvedCustomerEmail,
-                    customer_name: resolvedCustomerName,
-                    product_name: state?.productName || product?.name || "Produkt",
-                    product_slug: state?.productSlug || product?.slug || null,
-                    quantity: orderQuantity || 1,
-                    total_price: totalPrice,
-                    currency: "DKK",
-                    status: "pending",
-                    delivery_type: selectedDeliveryLabel || null,
-                    // Persist the structured delivery fields — POD v2 submission
-                    // reads these off the order row to build Print.com's
-                    // recipient address. Previously only delivery_city landed
-                    // here so the shipment address came out with empty street
-                    // and postcode.
-                    delivery_address: deliveryAddress.trim() || null,
-                    delivery_zip: deliveryZip.trim() || null,
-                    delivery_city: deliveryCity.trim() || null,
-                    delivery_country: "DK",
-                    tenant_id: tenantId,
-                };
-
-                if (includeProductConfigurationColumn && productConfigurationText) {
-                    basePayload.product_configuration = productConfigurationText;
-                    if (supplementalOrderNotes) {
-                        basePayload.status_note = supplementalOrderNotes;
-                    }
-                } else if (productConfigurationText) {
-                    // Fallback for environments where product_configuration column is not migrated yet.
-                    basePayload.status_note = [`[SIZE-DISTRIBUTION] ${productConfigurationText}`, supplementalOrderNotes]
-                        .filter(Boolean)
-                        .join("\n");
-                } else if (supplementalOrderNotes) {
-                    basePayload.status_note = supplementalOrderNotes;
-                }
-
-                const { data: createdOrder, error: createOrderError } = await (supabase
-                    .from("orders" as any)
-                    .insert(basePayload)
-                    .select("id, order_number, customer_email, customer_name, product_name, quantity, total_price")
-                    .single() as any);
-
-                if (!createOrderError) {
-                    insertedOrder = createdOrder;
-                    break;
-                }
-
-                if (includeProductConfigurationColumn && isMissingOrderConfigurationColumn(createOrderError)) {
-                    includeProductConfigurationColumn = false;
-                    continue;
-                }
-
-                if (isOrderNumberCollision(createOrderError)) {
-                    continue;
-                }
-
-                throw createOrderError;
+            const recovery = readCheckoutRecovery(localStorage, tenantId);
+            if (!recovery) throw new Error("Betalingsreferencen mangler. Kontakt butikken før en ny betaling.");
+            const intentId = paymentIntentId || recovery.paymentIntentId;
+            if (paymentIntentId && recovery.paymentIntentId && paymentIntentId !== recovery.paymentIntentId) {
+                throw new Error("Betalingsreferencen matcher ikke denne bestilling.");
             }
-
-            if (!insertedOrder) {
-                throw new Error("Ordren kunne ikke oprettes i databasen.");
+            const { data, error } = await supabase.functions.invoke("stripe-finalize-checkout", { body: {
+                checkout_attempt_id: recovery.attemptId, checkout_access_token: recovery.accessToken, payment_intent_id: intentId,
+            } });
+            if (error || data?.contract_version !== 2 || data?.success !== true || !data?.order?.id || !data?.order?.order_number) {
+                throw new Error("Betaling og ordre er endnu ikke bekræftet samlet. Prøv at kontrollere igen. Betal ikke igen.");
             }
-
-            setCreatedOrderNumber(insertedOrder.order_number);
-
-            const finalOrderFile = latestCheckoutSession?.designerExport?.fileUrl
-                ? {
-                    name: String(latestCheckoutSession.designerExport.name || "designer-production.pdf"),
-                    url: String(latestCheckoutSession.designerExport.fileUrl),
-                    path: String(latestCheckoutSession.designerExport.filePath || ""),
-                    mimeType: String(latestCheckoutSession.designerExport.mimeType || "application/pdf"),
-                  }
-                : uploadedFile
-                    ? {
-                        name: uploadedFile.name,
-                        url: uploadedFile.url,
-                        path: uploadedFile.path,
-                        mimeType: uploadedFile.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : null,
-                      }
-                    : null;
-
-            if (finalOrderFile?.url) {
-                const fileType = finalOrderFile.name.includes(".")
-                    ? finalOrderFile.name.split(".").pop()?.toLowerCase() || null
-                    : null;
-
-                const { error: orderFileError } = await supabase
-                    .from("order_files" as any)
-                    .insert({
-                        order_id: insertedOrder.id,
-                        file_name: finalOrderFile.name,
-                        file_url: finalOrderFile.url,
-                        file_type: fileType,
-                        is_current: true,
-                        uploaded_by: user?.id || null,
-                        notes: [
-                            productConfigurationText ? `Konfiguration: ${productConfigurationText}` : null,
-                            latestCheckoutSession?.designerExport?.fileUrl ? "Kilde: designer production export" : null,
-                            !latestCheckoutSession?.designerExport?.fileUrl && uploadedFile ? "Kilde: kundeupload" : null,
-                            templateSummary ? `Skabelon: ${templateSummary}` : null,
-                        ].filter(Boolean).join(" | ") || null,
-                    });
-
-                if (orderFileError) {
-                    console.error("Order file save error:", orderFileError);
-                }
+            setCreatedOrderNumber(data.order.order_number);
+            if (!data.order.checkout_receipt || !Number.isFinite(data.order.checkout_receipt.total)) {
+                throw new Error("Ordrekvitteringen kunne ikke indlæses. Kontrollér ordren igen.");
             }
-
-            // Auto-create POD v2 fulfillment job for POD products so tenants
-            // don't have to open the admin and click "Opret job fra ordre".
-            // Fire-and-forget: order is already persisted; a job failure here
-            // shouldn't block the customer's success flow. Tenant admins can
-            // retry manually in POD v2 Ordrer if this misses.
-            if (isPodV2Product && insertedOrder?.id) {
-                try {
-                    const { error: podJobError } = await supabase.functions.invoke("pod2-create-jobs", {
-                        body: { orderId: insertedOrder.id },
-                    });
-                    if (podJobError) {
-                        console.error("POD v2 auto-create-jobs error:", podJobError);
-                    }
-                } catch (podErr) {
-                    console.error("POD v2 auto-create-jobs threw:", podErr);
-                }
+            setConfirmedReceipt(data.order.checkout_receipt);
+            const notificationNotice = checkoutNotificationNotice(data.order.checkout_notification);
+            setOrderNotificationWarning(notificationNotice.warning ? notificationNotice.message : null);
+            setOrderSuccessMessage(`Din betaling, ordre og produktionsfil er gemt. ${notificationNotice.warning ? "Gem dit ordrenummer ved spørgsmål." : notificationNotice.message}`);
+            setPaymentSuccess(true); setPaymentClientSecret(null); setRecoverablePaymentId(null); setHasCheckoutRecovery(false);
+            clearStripeReturnParams();
+            try { saveCheckoutRecovery(localStorage, { ...recovery, completed: true, checkoutInstanceId }); } catch { /* Keep the original attempt recoverable if local persistence fails. */ }
+            toast.success("Din ordre er modtaget!");
+            if (recovery.companyOrderRequestId) {
+                void linkCompanyOrder(supabase, recovery.companyOrderRequestId, data.order.id)
+                    .catch(() => setOrderNotificationWarning("Ordren er gemt. Butikken skal kontrollere forbindelsen til virksomhedens bestilling."));
             }
-
-            const emailWarnings: string[] = [];
-            const emailContext = {
-                name: shopName || "Webprinter",
-                supportEmail: supportEmail || "info@webprinter.dk",
-                orderUrl: customerOrdersUrl,
-                adminOrderUrl: adminOrdersUrl,
-                homepageUrl: typeof window !== "undefined" ? window.location.origin : undefined,
-            };
-
-            try {
-                const { sendAdminNewOrderNotification, sendOrderConfirmation } = await import("@/lib/emailService");
-                const emailJobs: Promise<boolean>[] = [];
-
-                if (customerOrderConfirmationsEnabled) {
-                    emailJobs.push(
-                        sendOrderConfirmation({
-                            order_number: insertedOrder.order_number,
-                            product_name: insertedOrder.product_name,
-                            quantity: insertedOrder.quantity,
-                            total_price: insertedOrder.total_price,
-                            customer_email: insertedOrder.customer_email,
-                            customer_name: insertedOrder.customer_name || "Kunde",
-                            customer_phone: customerPhone.trim() || undefined,
-                            delivery_type: selectedDeliveryLabel || undefined,
-                            delivery_summary: deliverySummary || undefined,
-                            billing_summary: billingSummary || undefined,
-                            blind_shipping: senderMode === "blind",
-                            sender_summary: senderSummary || undefined,
-                            shop: emailContext,
-                        })
-                    );
-                }
-
-                if (adminNewOrderNotificationsEnabled) {
-                    const adminRecipientEmail = String(companySettings.email || "").trim();
-                    if (adminRecipientEmail) {
-                        emailJobs.push(
-                            sendAdminNewOrderNotification({
-                                order_number: insertedOrder.order_number,
-                                product_name: insertedOrder.product_name,
-                                quantity: insertedOrder.quantity,
-                                total_price: insertedOrder.total_price,
-                                customer_email: insertedOrder.customer_email,
-                                customer_name: insertedOrder.customer_name || "Kunde",
-                                customer_phone: customerPhone.trim() || undefined,
-                                delivery_type: selectedDeliveryLabel || undefined,
-                                delivery_summary: deliverySummary || undefined,
-                                billing_summary: billingSummary || undefined,
-                                blind_shipping: senderMode === "blind",
-                                sender_summary: senderSummary || undefined,
-                                admin_email: adminRecipientEmail,
-                                admin_name: adminName || companySettings.name || undefined,
-                                shop: emailContext,
-                            })
-                        );
-                    } else {
-                        console.warn("Order notification skipped: tenant company email is missing for new order notifications.");
-                        emailWarnings.push("Hvis du ikke modtager en bekræftelse eller hører fra os snart, så kontakt os.");
-                    }
-                }
-
-                const results = await Promise.all(emailJobs);
-                let resultIndex = 0;
-                let customerConfirmationSent = false;
-
-                if (customerOrderConfirmationsEnabled) {
-                    customerConfirmationSent = results[resultIndex] ?? false;
-                    resultIndex += 1;
-                    if (!customerConfirmationSent) {
-                        emailWarnings.push("Vi kunne ikke sende ordrebekræftelsen automatisk. Kontakt os, hvis du ikke hører fra os.");
-                    }
-                }
-
-                if (adminNewOrderNotificationsEnabled && String(companySettings.email || "").trim()) {
-                    const adminNotificationSent = results[resultIndex] ?? false;
-                    if (!adminNotificationSent) {
-                        emailWarnings.push("Hvis du ikke modtager en bekræftelse eller hører fra os snart, så kontakt os.");
-                    }
-                }
-
-                if (customerOrderConfirmationsEnabled && customerConfirmationSent) {
-                    setOrderSuccessMessage("Vi har modtaget din betaling og begynder at behandle din ordre. Du modtager en bekræftelse på email.");
-                } else {
-                    setOrderSuccessMessage("Vi har modtaget din betaling og begynder at behandle din ordre.");
-                }
-            } catch (emailError) {
-                console.error("Order notification error:", emailError);
-                emailWarnings.push("Vi kunne ikke sende alle automatiske beskeder om ordren.");
-            }
-
-            if (emailWarnings.length > 0) {
-                setOrderNotificationWarning(emailWarnings.join(" "));
-            }
-
-            if (user?.id && saveAddressForLater && deliveryAddress.trim() && deliveryZip.trim() && deliveryCity.trim()) {
-                const recipientParts = splitFullName(resolvedRecipientName);
-                const addressPayload = {
-                    user_id: user.id,
-                    label: addressLabel.trim() || null,
-                    company_name: deliveryCompany.trim() || null,
-                    first_name: recipientParts.firstName || resolvedRecipientName,
-                    last_name: recipientParts.lastName || "",
-                    street_address: deliveryAddress.trim(),
-                    street_address_2: null,
-                    postal_code: deliveryZip.trim(),
-                    city: deliveryCity.trim(),
-                    country: "Danmark",
-                    phone: customerPhone.trim() || null,
-                    is_default: savedAddresses.length === 0,
-                };
-
-                const targetAddressId = selectedSavedAddressId && selectedSavedAddressId !== "new"
-                    ? selectedSavedAddressId
-                    : null;
-
-                const saveQuery = targetAddressId
-                    ? supabase.from("customer_addresses" as any).update(addressPayload).eq("id", targetAddressId)
-                    : supabase.from("customer_addresses" as any).insert(addressPayload);
-
-                const { error: addressSaveError } = await saveQuery;
-                if (addressSaveError) {
-                    console.error("Customer address save error:", addressSaveError);
-                }
+            if (data.order.checkout_context?.podV2 === true) {
+                void supabase.functions.invoke("pod2-create-jobs", { body: { orderId: data.order.id,
+                    checkout_attempt_id: recovery.attemptId, checkout_access_token: recovery.accessToken } })
+                    .then(({ error }) => { if (error) setOrderNotificationWarning("Ordren er gemt. Butikken skal kontrollere overførslen til produktion."); })
+                    .catch(() => setOrderNotificationWarning("Ordren er gemt. Butikken skal kontrollere overførslen til produktion."));
             }
         } catch (error: any) {
-            console.error("Order persist error after payment:", error);
-            setOrderPersistWarning(`Betaling gennemført, men ordren kunne ikke gemmes automatisk. Gem reference: ${paymentIntentId}`);
-        }
-
-        clearStripeReturnParams();
-        setPaymentSuccess(true);
-        toast.success("Din ordre er modtaget!");
-        console.log("Payment successful:", paymentIntentId);
+            const message = error?.message || "Ordren kunne ikke bekræftes. Betal ikke igen.";
+            setOrderPersistWarning(message); toast.error(message);
+        } finally { finalizingPaymentRef.current = false; setFinalizingPayment(false); }
     };
 
-    const handlePaymentCancel = () => {
-        setShowPaymentModal(false);
-        setPaymentClientSecret(null);
+    const cancelPendingPayment = async () => {
+        const tenantId = shopSettings.data?.id;
+        if (!tenantId || finalizingPaymentRef.current) return;
+        setPaymentLoading(true);
+        try {
+            const recovery = readCheckoutRecovery(localStorage, tenantId);
+            if (!recovery) { setOrderPersistWarning(null); return; }
+            const { data, error } = await supabase.functions.invoke("stripe-finalize-checkout", { body: {
+                action: "cancel", checkout_attempt_id: recovery.attemptId, checkout_access_token: recovery.accessToken,
+                payment_intent_id: recovery.paymentIntentId,
+            } });
+            if (!error && data?.success === true) {
+                await handlePaymentSuccess(recovery.paymentIntentId);
+                return;
+            }
+            if (error || data?.contract_version !== 2 || data?.cancelled !== true || data?.checkout_attempt_id !== recovery.attemptId) throw new Error("Betalingen kunne ikke annulleres sikkert. Kontrollér ordren eller kontakt butikken.");
+            clearCheckoutRecovery(localStorage, tenantId);
+            setRecoverablePaymentId(null); setHasCheckoutRecovery(false); setPaymentClientSecret(null); setShowPaymentModal(false); setOrderPersistWarning(null);
+            toast.info("Den påbegyndte betaling er annulleret. Du kan nu ændre bestillingen.");
+        } catch (error: any) { setOrderPersistWarning(error?.message); toast.error(error?.message); }
+        finally { setPaymentLoading(false); }
     };
+    const handlePaymentCancel = () => { setShowPaymentModal(false); };
 
     useEffect(() => {
-        if (!returnedPaymentIntentId || !returnedRedirectStatus) return;
+        const tenantId = shopSettings.data?.id;
+        if (!tenantId) return;
+        try {
+            const stored = readCheckoutRecovery(localStorage, tenantId);
+            const recovery = stored?.completed && stored.checkoutInstanceId !== checkoutInstanceId ? null : stored;
+            setHasCheckoutRecovery(Boolean(recovery));
+            setRecoverablePaymentId(recovery?.paymentIntentId || null);
+            if (recovery?.completed) void handlePaymentSuccess(recovery.paymentIntentId);
+        }
+        catch (error: any) { setOrderPersistWarning(error.message); }
+    }, [shopSettings.data?.id, checkoutInstanceId]);
+
+    useEffect(() => {
+        if (!returnedPaymentIntentId || !shopSettings.data?.id) return;
         if (processedRedirectPaymentIntentRef.current === returnedPaymentIntentId) return;
-
-        if (returnedRedirectStatus === "succeeded") {
-            processedRedirectPaymentIntentRef.current = returnedPaymentIntentId;
-            toast.success("Betaling bekræftet. Vi færdiggør din ordre...");
-            void handlePaymentSuccess(returnedPaymentIntentId);
-            return;
-        }
-
-        if (returnedRedirectStatus === "processing") {
-            processedRedirectPaymentIntentRef.current = returnedPaymentIntentId;
-            toast.info("Betalingen behandles stadig hos Stripe. Opdater siden om et øjeblik.");
-            clearStripeReturnParams();
-            return;
-        }
-
-        if (returnedRedirectStatus === "failed") {
-            processedRedirectPaymentIntentRef.current = returnedPaymentIntentId;
-            toast.error("Betalingen kunne ikke bekræftes. Prøv igen.");
-            clearStripeReturnParams();
-        }
-    }, [returnedPaymentIntentId, returnedRedirectStatus]);
+        processedRedirectPaymentIntentRef.current = returnedPaymentIntentId;
+        // URL redirect_status is an untrusted hint. The server verifies Stripe.
+        void handlePaymentSuccess(returnedPaymentIntentId);
+    }, [returnedPaymentIntentId, shopSettings.data?.id]);
 
     // Resolve specs: prefer explicit width/height from state or query, then standard formats, then product metadata
     const getResolvedSpecs = (): TechnicalSpecs | null => {
@@ -1585,7 +1585,7 @@ const FileUploadConfiguration = () => {
         const explicitWidthMm = parsePositiveNumber(state?.designWidthMm) ?? parsePositiveNumber(locationSearchParams.get("widthMm"));
         const explicitHeightMm = parsePositiveNumber(state?.designHeightMm) ?? parsePositiveNumber(locationSearchParams.get("heightMm"));
         const explicitBleedMm = parsePositiveNumber(state?.designBleedMm) ?? parsePositiveNumber(locationSearchParams.get("bleedMm")) ?? bleedDefault;
-        const explicitSafeAreaMm = parsePositiveNumber(state?.designSafeAreaMm) ?? parsePositiveNumber(locationSearchParams.get("safeMm")) ?? 2;
+        const explicitSafeAreaMm = parseNonNegativeNumber(state?.designSafeAreaMm) ?? parseNonNegativeNumber(locationSearchParams.get("safeMm")) ?? parseNonNegativeNumber(product?.technical_specs?.safe_area_mm) ?? 3;
 
         if (explicitWidthMm && explicitHeightMm) {
             return {
@@ -1606,7 +1606,7 @@ const FileUploadConfiguration = () => {
             return {
                 ...(product.technical_specs as TechnicalSpecs),
                 bleed_mm: parsePositiveNumber((product.technical_specs as any).bleed_mm) ?? bleedDefault,
-                safe_area_mm: parsePositiveNumber((product.technical_specs as any).safe_area_mm) ?? 2,
+                safe_area_mm: parseNonNegativeNumber((product.technical_specs as any).safe_area_mm) ?? 3,
                 min_dpi: parsePositiveNumber((product.technical_specs as any).min_dpi) ?? 300,
             };
         }
@@ -1621,6 +1621,13 @@ const FileUploadConfiguration = () => {
     // should surface CutContour status/warnings in the upload previews. Admin opts in
     // via `technical_specs.requires_cut_contour` in ProductPriceManager.
     const requiresCutContour = Boolean((product?.technical_specs as any)?.requires_cut_contour);
+    const checkoutFlowNotice = getCheckoutFlowNotice(
+        activeDesignerMode,
+        productFlowLabel,
+        requiresCutContour,
+        professionalPdfUploadOnly,
+        checkoutTemplateArtworkModeReasonDa,
+    );
     const podPreflightAutoFix = (product?.technical_specs as any)?.pod_preflight_auto_fix ?? true;
     // NOTE: We used to gate checkout on the server-side preflight result, but per
     // product direction we now keep that preflight silent (background autoFix only)
@@ -1632,9 +1639,125 @@ const FileUploadConfiguration = () => {
         () => getReadableFormatLabel(state?.selectedFormat || locationSearchParams.get("format"), specs),
         [state?.selectedFormat, locationSearchParams, specs]
     );
+    const checkoutTemplateSelectionLabels = useMemo(() => {
+        const quotedLabels = Array.isArray(state?.pricingQuote?.variantDisplayLabels)
+            ? state.pricingQuote.variantDisplayLabels
+            : [];
+        const summaryLabels = String(state?.summary || "")
+            .split("•")
+            .map((label) => label.trim())
+            .filter(Boolean);
+
+        return Array.from(new Set([...quotedLabels, ...summaryLabels]));
+    }, [state?.pricingQuote?.variantDisplayLabels, state?.summary]);
+    const availableTemplateFiles = useMemo<TemplateFile[]>(() => {
+        const byUrl = new Map<string, TemplateFile>();
+
+        if (checkoutTemplatePdfUrl) {
+            byUrl.set(checkoutTemplatePdfUrl, {
+                name: checkoutTemplatePdfName,
+                url: checkoutTemplatePdfUrl,
+                path: "",
+                format: resolvedFormatLabel || "Valgt format",
+                uploadedAt: state?.templateDownloadedAt || "",
+            });
+        }
+
+        const productTemplates = Array.isArray(product?.template_files)
+            ? product.template_files as TemplateFile[]
+            : [];
+        productTemplates.forEach((template: TemplateFile) => {
+            if (!template?.url || byUrl.has(template.url)) return;
+            if (!templateMatchesSelectedConfiguration(
+                template,
+                state?.selectedFormat,
+                resolvedFormatLabel,
+                checkoutTemplateSelectionLabels,
+            )) return;
+            byUrl.set(template.url, template);
+        });
+
+        return Array.from(byUrl.values());
+    }, [
+        checkoutTemplatePdfName,
+        checkoutTemplatePdfUrl,
+        checkoutTemplateSelectionLabels,
+        product?.template_files,
+        resolvedFormatLabel,
+        state?.selectedFormat,
+        state?.templateDownloadedAt,
+    ]);
     const targetWidth = specs ? specs.width_mm + (specs.bleed_mm * 2) : 0;
     const targetHeight = specs ? specs.height_mm + (specs.bleed_mm * 2) : 0;
-    const safeAreaMm = specs?.safe_area_mm ?? 2;
+    const folderMockupDefinition = resolveFolderDefinition(checkoutTemplatePdfSha256, targetWidth, targetHeight);
+    const verifiedPrintModel = useApprovedPrintModel({ pdfUrl: checkoutTemplatePdfUrl, templatePdfSha256: checkoutTemplatePdfSha256 });
+    const approvedPrintModel = resolveApprovedPrintModel(verifiedPrintModel?.definition.templateHash, targetWidth, targetHeight);
+
+    const safeAreaMm = specs?.safe_area_mm ?? 3;
+    const checkoutFormatGuideData = useMemo<ProductFormatGuideData | null>(() => {
+        if (!specs || specs.width_mm <= 0 || specs.height_mm <= 0) return null;
+
+        const selectionText = [displayProductName, state?.summary, ...checkoutTemplateSelectionLabels]
+            .filter(Boolean)
+            .join(" ")
+            .toLocaleLowerCase("da-DK");
+        const layoutKind = /(folder|foldetype|falset|rullefals|zigzag)/.test(selectionText)
+            ? "folded"
+            : "flat";
+        const printSideLabel = checkoutTemplateSelectionLabels.find((label) => (
+            /4\+0|4\+4|en side|begge sider|enkeltsidet|dobbeltsidet/i.test(label)
+        )) || null;
+        const selectedTemplate = availableTemplateFiles[0] || null;
+        const foldedFormatKey = layoutKind === "folded"
+            ? [resolvedFormatLabel, ...checkoutTemplateSelectionLabels]
+                .map((label) => normalizeFormatKey(label))
+                .find((key) => Boolean(key && STANDARD_SPECS[key]))
+            : null;
+        const foldedFinishedSpecs = foldedFormatKey ? STANDARD_SPECS[foldedFormatKey] : null;
+        const templateDataWidthMm = parsePositiveNumber(selectedTemplate?.widthMm ?? selectedTemplate?.width_mm);
+        const templateDataHeightMm = parsePositiveNumber(selectedTemplate?.heightMm ?? selectedTemplate?.height_mm);
+        const orientationLabel = checkoutTemplateSelectionLabels.find((label) => /^(lodret|vandret)$/i.test(label)) || null;
+        const foldTypeLabel = checkoutTemplateSelectionLabels.find((label) => /rullefalset|zigzag/i.test(label)) || null;
+        const pageCountLabel = checkoutTemplateSelectionLabels.find((label) => /\d+\s*sider/i.test(label)) || null;
+        const swapFinishedDimensions = layoutKind === "folded"
+            && /vandret/i.test(orientationLabel || "")
+            && (foldedFinishedSpecs?.width_mm ?? specs.width_mm) !== (foldedFinishedSpecs?.height_mm ?? specs.height_mm);
+        const baseFinishedWidthMm = foldedFinishedSpecs?.width_mm ?? specs.width_mm;
+        const baseFinishedHeightMm = foldedFinishedSpecs?.height_mm ?? specs.height_mm;
+
+        return {
+            productName: displayProductName,
+            productImageUrl: product?.image_url || null,
+            formatLabel: resolvedFormatLabel,
+            finishedWidthMm: swapFinishedDimensions ? baseFinishedHeightMm : baseFinishedWidthMm,
+            finishedHeightMm: swapFinishedDimensions ? baseFinishedWidthMm : baseFinishedHeightMm,
+            dataWidthMm: layoutKind === "folded" ? (templateDataWidthMm ?? specs.width_mm) : undefined,
+            dataHeightMm: layoutKind === "folded" ? (templateDataHeightMm ?? specs.height_mm) : undefined,
+            bleedMm: specs.bleed_mm,
+            safeAreaMm,
+            minDpi: specs.min_dpi,
+            layoutKind,
+            printSideLabel,
+            foldTypeLabel,
+            pageCountLabel,
+            foldGeometry: selectedTemplate?.guideGeometry || selectedTemplate?.guide_geometry,
+            template: selectedTemplate?.url
+                ? {
+                    name: selectedTemplate.name,
+                    url: selectedTemplate.url,
+                }
+                : null,
+        };
+    }, [
+        availableTemplateFiles,
+        checkoutTemplateSelectionLabels,
+        displayProductName,
+        product?.image_url,
+        resolvedFormatLabel,
+        safeAreaMm,
+        specs,
+        state?.summary,
+    ]);
 
     const bleedXPercent = specs ? (specs.bleed_mm / targetWidth) * 100 : 0;
     const bleedYPercent = specs ? (specs.bleed_mm / targetHeight) * 100 : 0;
@@ -1709,16 +1832,55 @@ const FileUploadConfiguration = () => {
     // never surfaced to customers directly.
     const originalFilePrimaryIssue = preflightResults?.issues?.[0] || null;
     const proofingPlacementPrimaryIssue = proofingPlacementIssues[0] || null;
-    const proofingApprovalPending = Boolean(uploadedFile) && !proofingApproved;
+    const activeDesignerProductionFile = Boolean(
+        uploadedFile?.url
+        && persistedDesignerExport?.fileUrl
+        && uploadedFile.url === persistedDesignerExport.fileUrl
+    );
+    const currentProofArtifact = proofingPreview && uploadedFile ? {
+        fileUrl: uploadedFile.url, filePath: uploadedFile.path, sha256: uploadedFile.sha256, fileType: proofingPreview.fileType,
+        designerExport: persistedDesignerExport?.fileUrl === uploadedFile.url,
+        physicalWidthMm: proofingPreview.physicalWidthMm, physicalHeightMm: proofingPreview.physicalHeightMm,
+        targetWidthMm: targetWidth, targetHeightMm: targetHeight,
+        scale: proofingScale, offsetX: proofingOffset.x, offsetY: proofingOffset.y,
+    } : null;
+    const proofNeedsExport = !currentProofArtifact || requiresProofExport(currentProofArtifact);
+    const currentProofIdentity = currentProofArtifact ? proofArtifactFingerprint(currentProofArtifact) : null;
+    const proofArtifactApproved = proofingApproved && !proofNeedsExport && (
+        approvedProofIdentity === currentProofIdentity
+        || (approvedProofIdentity === null && currentProofArtifact?.designerExport === true)
+    );
+    const proofingApprovalPending = !proofArtifactApproved;
     const proofingDpiWarning = Boolean(proofingEffectiveDpi && specs?.min_dpi && proofingEffectiveDpi < specs.min_dpi);
     const proofingPhysicalMismatch = false;
-    const proofingRequiresModalReview = Boolean(
-        originalFilePrimaryIssue
-        || proofingPlacementPrimaryIssue
-    );
-    const quickApproveAvailable = Boolean(proofingApprovalPending && !proofingRequiresModalReview);
-    const proofingFileKindLabel = proofingPreview?.fileType === "image" ? "Rasterfil" : "PDF / vektor";
-    const proofingApprovalLabel = proofingApproved ? "Godkendt" : "Afventer godkendelse";
+    const proofAvailability = getCheckoutProofAvailability({
+        hasFile: Boolean(uploadedFile?.url),
+        hasPreview: Boolean(proofingPreview),
+        processing: uploading || platformPreflightLoading || exportingProof,
+        approved: proofArtifactApproved,
+        hasLocalCheck: preflightResults !== null,
+        designerExport: activeDesignerProductionFile,
+        hasIssues: Boolean(originalFilePrimaryIssue || proofingPlacementPrimaryIssue),
+        needsExport: proofNeedsExport,
+    });
+    latestProofIdentityRef.current = currentProofIdentity;
+    const canExportImageHere = Boolean(currentProofArtifact?.fileType === 'image'
+        && /\.(png|jpe?g)$/i.test(uploadedFile?.name || '') && !professionalPdfUploadOnly
+        && !requiresCutContour && activeDesignerMode !== 'apparel');
+    const canApproveHere = proofAvailability.canReview && (!proofNeedsExport || canExportImageHere);
+    const outsideProofIssues = [...new Set([
+        ...(preflightResults?.issues || []), ...proofingPlacementIssues,
+        ...(canExportImageHere ? [PDF_COLOUR_REVIEW_NOTICE] : []),
+        ...(!preflightResults && !activeDesignerProductionFile ? ['Kontrollér billedet omhyggeligt. Filens automatiske tjek er ikke tilgængeligt i denne session.'] : []),
+    ])];
+    const proofingRequiresModalReview = proofAvailability.requiresModalReview;
+    const quickApproveAvailable = proofAvailability.quickApproveAvailable;
+    const proofingFileKindLabel = activeDesignerProductionFile
+        ? "Designer-PDF"
+        : proofingPreview?.fileType === "image"
+            ? "Rasterfil"
+            : "PDF / vektor";
+    const proofingApprovalLabel = proofArtifactApproved ? "Godkendt" : "Afventer godkendelse";
 
     useEffect(() => {
         if (!proofingDragging && !proofingResizing) return;
@@ -1782,16 +1944,21 @@ const FileUploadConfiguration = () => {
         writeSiteCheckoutSession({
             ...existingSession,
             ...state,
+            checkoutInstanceId,
+            proofApprovalRequired: !proofArtifactApproved,
             quantity: orderQuantity,
             productPrice: orderPrice,
-            totalPrice: checkoutTotal,
+            // Existing session totalPrice is net; keep that contract on reload
+            // so VAT cannot become part of the next product subtotal.
+            totalPrice: checkoutNetTotal,
             shippingCost,
             shippingSelected,
             selectedFormat: resolvedFormatLabel,
             designWidthMm: specs?.width_mm || null,
             designHeightMm: specs?.height_mm || null,
             designBleedMm: specs?.bleed_mm || null,
-            designSafeAreaMm: safeAreaMm || null,
+            designSafeAreaMm: safeAreaMm ?? null,
+            designerExport: uploadedFile?.url === existingSession?.designerExport?.fileUrl ? existingSession?.designerExport || null : null,
             siteUpload: uploadedFile ? {
                 name: uploadedFile.name,
                 mimeType: uploadedFile.name.includes(".")
@@ -1805,6 +1972,7 @@ const FileUploadConfiguration = () => {
                     : null,
                 fileUrl: uploadedFile.url,
                 filePath: uploadedFile.path,
+                sha256: uploadedFile.sha256,
                 widthPx: proofingPreview?.sourceWidthPx || preflightResults?.width_px || null,
                 heightPx: proofingPreview?.sourceHeightPx || preflightResults?.height_px || null,
                 physicalWidthMm: proofingPreview?.physicalWidthMm || null,
@@ -1825,6 +1993,8 @@ const FileUploadConfiguration = () => {
                 deliveryRecipientName,
                 deliveryCompany,
                 deliveryAddress,
+                deliveryAddress2,
+                deliveryCountry,
                 deliveryZip,
                 deliveryCity,
                 selectedSavedAddressId,
@@ -1836,6 +2006,8 @@ const FileUploadConfiguration = () => {
                 billingName,
                 billingCompany,
                 billingAddress,
+                billingAddress2,
+                billingCountry,
                 billingZip,
                 billingCity,
             },
@@ -1843,9 +2015,10 @@ const FileUploadConfiguration = () => {
         });
     }, [
         state,
+        proofArtifactApproved,
         orderQuantity,
         orderPrice,
-        checkoutTotal,
+        checkoutNetTotal,
         shippingCost,
         shippingSelected,
         uploadedFile,
@@ -1863,6 +2036,8 @@ const FileUploadConfiguration = () => {
         deliveryRecipientName,
         deliveryCompany,
         deliveryAddress,
+        deliveryAddress2,
+        deliveryCountry,
         deliveryZip,
         deliveryCity,
         selectedSavedAddressId,
@@ -1874,6 +2049,8 @@ const FileUploadConfiguration = () => {
         billingName,
         billingCompany,
         billingAddress,
+        billingAddress2,
+        billingCountry,
         billingZip,
         billingCity,
     ]);
@@ -1895,7 +2072,7 @@ const FileUploadConfiguration = () => {
             try {
                 // Use specific columns to avoid any issues with missing columns in schema
                 let query = supabase.from("products")
-                    .select("id, slug, name, description, image_url, technical_specs, banner_config");
+                    .select("id, slug, name, description, image_url, technical_specs, banner_config, template_files, pricing_structure");
 
                 if (state.productId) {
                     query = query.eq("id", state.productId);
@@ -1924,6 +2101,9 @@ const FileUploadConfiguration = () => {
                     // Fetch Matrix for Upsell logic (wrapped in try/catch to not block the main product load)
                     try {
                         let matrixData: any = null;
+                        if (productData.pricing_structure && typeof productData.pricing_structure === "object"
+                            && !Array.isArray(productData.pricing_structure)
+                            && productData.pricing_structure.mode === "matrix_layout_v1") return;
                         const slug = (state.productSlug || productData.slug)?.toLowerCase();
                         const format = normalizeFormatKey(state.selectedFormat || locationSearchParams.get("format")) || "A4";
 
@@ -1947,7 +2127,6 @@ const FileUploadConfiguration = () => {
 
                         if (matrixData && matrixData.columns && matrixData.columns.length > 0 && matrixData.rows) {
                             console.log("Matrix data loaded. Columns:", matrixData.columns.length, "Rows:", matrixData.rows);
-                            setMatrix(matrixData);
 
                             // Find the closest row match
                             const variantValue = state.variant || state.selectedVariant;
@@ -1955,9 +2134,7 @@ const FileUploadConfiguration = () => {
 
                             const rowName = matrixData.rows.find((r: string) =>
                                 variantValue && r.toLowerCase().trim() === variantValue.toLowerCase().trim()
-                            ) || matrixData.rows.find((r: string) =>
-                                variantValue && r.toLowerCase().includes(variantValue.toLowerCase())
-                            ) || matrixData.rows[0];
+                            );
 
                             console.log("Matched row name:", rowName);
 
@@ -1984,49 +2161,71 @@ const FileUploadConfiguration = () => {
     }, [hasCheckoutState, navigate, state]);
 
     useEffect(() => {
-        const hydrateCustomer = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
+        let cancelled = false;
+        let revision = 0;
+        let currentUserId: string | null | undefined;
+        const hydrateCustomer = async (user: any) => {
+            const request = ++revision;
+            const active = () => !cancelled && revision === request;
+            if (currentUserId !== undefined && currentUserId !== (user?.id || null)) {
+                deliveryAddressEditedRef.current = false;
+                setCustomerEmail(""); setCustomerName(""); setCustomerPhone(""); setCustomerCompany("");
+                setDeliveryRecipientName(""); setDeliveryCompany(""); setDeliveryAddress(""); setDeliveryAddress2("");
+                setDeliveryZip(""); setDeliveryCity(""); setDeliveryCountry("DK");
+                setBillingName(""); setBillingCompany(""); setBillingAddress(""); setBillingAddress2("");
+                setBillingZip(""); setBillingCity(""); setBillingCountry("DK");
+                setSelectedSavedAddressId("new"); setSelectedCustomerProfileId("new");
+            }
+            currentUserId = user?.id || null;
+            setCheckoutUserId(currentUserId);
+            setSavedAddresses([]); setSavedCustomerProfiles([]);
+            setSavedAddressesLoading(Boolean(user));
             if (!user) return;
-            setCheckoutUserId(user.id);
-            setSavedCustomerProfiles(await readCheckoutCustomerProfiles(user.id));
-            setSavedAddressesLoading(true);
-            setCustomerEmail((prev) => prev || String(user.email || ""));
-            setCustomerName((prev) =>
-                prev
-                || String(user.user_metadata?.full_name || "").trim()
-                || String(user.user_metadata?.name || "").trim()
-            );
-            setCustomerPhone((prev) => prev || String(user.user_metadata?.phone || "").trim());
-            setCustomerCompany((prev) => prev || String(user.user_metadata?.company || "").trim());
-
             try {
-                const { data, error } = await supabase
-                    .from("customer_addresses" as any)
-                    .select("*")
-                    .eq("user_id", user.id)
-                    .order("is_default", { ascending: false })
-                    .order("created_at", { ascending: false });
-
+                const profiles = await readCheckoutCustomerProfiles(user.id);
+                if (!active()) return;
+                setSavedCustomerProfiles(profiles);
+                const { data: profile, error } = await supabase.from("profiles")
+                    .select("first_name, last_name, phone, company").eq("id", user.id).maybeSingle();
+                if (!active()) return;
                 if (error) throw error;
-
-                const nextAddresses = ((data as CheckoutSavedAddress[] | null) || []).filter((entry) => entry?.id);
-                setSavedAddresses(nextAddresses);
-
-                if (!deliveryAddress.trim() && !deliveryCity.trim() && !deliveryZip.trim() && !deliveryRecipientName.trim()) {
-                    const defaultAddress = nextAddresses.find((entry) => entry.is_default) || nextAddresses[0];
-                    if (defaultAddress) {
-                        applySavedAddress(defaultAddress);
-                        setSelectedSavedAddressId(defaultAddress.id);
-                    }
+                const contact = resolveCustomerContact(user, profile);
+                setCustomerEmail(prev => fillEmptyCustomerContact(prev, contact.customerEmail));
+                setCustomerName(prev => fillEmptyCustomerContact(prev, contact.customerName));
+                setCustomerPhone(prev => fillEmptyCustomerContact(prev, contact.customerPhone));
+                setCustomerCompany(prev => fillEmptyCustomerContact(prev, contact.customerCompany));
+            } catch {
+                if (!active()) return;
+                setCustomerEmail(prev => prev || String(user.email || ""));
+                toast.error("Dine kontaktoplysninger kunne ikke hentes. Udfyld dem her, før du fortsætter.");
+            }
+            try {
+                const { data, error } = await supabase.from("customer_addresses").select("*")
+                    .eq("user_id", user.id).order("is_default", { ascending: false }).order("created_at", { ascending: false })
+                    .returns<CheckoutSavedAddress[]>();
+                if (!active()) return;
+                if (error) throw error;
+                const addresses = (data || []).filter(entry => entry?.id);
+                setSavedAddresses(addresses);
+                if (!deliveryAddressEditedRef.current && canHydrateDeliveryAddress(deliveryDraftRef.current)) {
+                    const address = addresses.find(entry => entry.is_default) || addresses[0];
+                    if (address) { applySavedAddress(address); setSelectedSavedAddressId(address.id); }
                 }
-            } catch (addressError) {
-                console.error("Customer address fetch error:", addressError);
+            } catch {
+                if (active()) toast.error("Adressebogen kunne ikke hentes. Du kan indtaste adressen her.");
             } finally {
-                setSavedAddressesLoading(false);
+                if (active()) setSavedAddressesLoading(false);
             }
         };
-
-        hydrateCustomer();
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            if (cancelled || currentUserId === (session?.user?.id || null)) return;
+            // Defer database calls outside Supabase's auth callback lock.
+            void Promise.resolve().then(() => { if (!cancelled) void hydrateCustomer(session?.user || null); });
+        });
+        void supabase.auth.getUser().then(({ data: { user } }) => {
+            if (!cancelled && currentUserId === undefined) void hydrateCustomer(user);
+        });
+        return () => { cancelled = true; revision += 1; subscription.unsubscribe(); };
     }, []);
 
     useEffect(() => {
@@ -2034,6 +2233,8 @@ const FileUploadConfiguration = () => {
         setBillingName((prev) => prev || customerName);
         setBillingCompany((prev) => prev || customerCompany);
         setBillingAddress((prev) => prev || deliveryAddress);
+        setBillingAddress2((prev) => prev || deliveryAddress2);
+        setBillingCountry(deliveryCountry);
         setBillingZip((prev) => prev || deliveryZip);
         setBillingCity((prev) => prev || deliveryCity);
     }, [
@@ -2041,6 +2242,8 @@ const FileUploadConfiguration = () => {
         customerName,
         customerCompany,
         deliveryAddress,
+        deliveryAddress2,
+        deliveryCountry,
         deliveryZip,
         deliveryCity,
     ]);
@@ -2056,6 +2259,7 @@ const FileUploadConfiguration = () => {
 
     useEffect(() => {
         const productKey = state?.productId;
+        if (state.proofApprovalRequired) return;
         if (!productKey) return;
         if (!isSiteCheckoutDesignReady(productKey, state)) return;
         setProofingApproved(true);
@@ -2085,64 +2289,31 @@ const FileUploadConfiguration = () => {
         fetchPaymentStatus();
     }, [shopSettings.data?.id]);
 
-    const calculateUpsells = (m: any, currentQty: number, row: string) => {
-        console.log(`Calculating upsells for Row: ${row}, Current Qty: ${currentQty}`);
-        if (!m || !m.columns || !row) {
-            console.warn("Aborting upsell calculation: missing matrix, columns, or row");
+    const calculateUpsells = (m: { columns: number[]; cells: Record<string, Record<number, number>> }, currentQty: number, row: string) => {
+        if (state?.pricingQuote?.quantityTiers?.length) return;
+        // Old checkout sessions must match the exact selected row and price.
+        // Extra-cost configurations return to the full calculator instead.
+        const cells = row ? m.cells[row] : null;
+        if (!cells || Number(state?.extraPrice) > 0 || Math.round(Number(cells[currentQty])) !== initialOrderSubtotal) {
+            setQuantityTiers([]);
             return;
         }
-
-        const q = Number(currentQty);
-        // Find the index of the current (or next) quantity tier
-        const currentIndex = m.columns.findIndex((c: number) => Number(c) >= q);
-        console.log("Current quantity index in matrix:", currentIndex);
-
-        if (currentIndex === -1) {
-            console.log("Current quantity is beyond the highest matrix tier.");
-            return;
-        }
-
-        const tiers = m.columns.slice(currentIndex + 1, currentIndex + 3);
-        console.log("Potential upsell tiers:", tiers);
-
-        const options = tiers.map((qty: number) => {
-            const price = m.cells[row]?.[qty] || 0;
-
-            // For unit price comparison, use the price of the current tier in the matrix or state price
-            const currentTierQty = m.columns[currentIndex];
-            const currentTierPrice = m.cells[row]?.[currentTierQty] || state?.productPrice || orderPrice || 1;
-
-            const currentUnitPrice = currentTierPrice / currentTierQty;
-            const newUnitPrice = price / qty;
-            const savingPercent = Math.round((1 - (newUnitPrice / currentUnitPrice)) * 100);
-
-            console.log(`Tier ${qty}: Price=${price}, UnitPrice=${newUnitPrice.toFixed(2)}, Saving=${savingPercent}%`);
-
-            return {
-                quantity: qty,
-                price: price,
-                savingPercent: Math.max(0, savingPercent)
-            };
-        }).filter((opt: any) => opt.price > 0);
-
-        console.log("Final upsell options:", options);
-        setUpsellOptions(options);
+        setQuantityTiers(m.columns.map(quantity => ({ quantity: Number(quantity), price: Math.round(Number(cells[quantity])) })));
     };
 
     const handleUpgrade = (qty: number, price: number) => {
+        if (!quantityValueOptions(quantityTiers, orderQuantity, orderPrice).some(option => option.quantity === qty && option.price === price)) return;
         setOrderQuantity(qty);
         setOrderPrice(price);
-        toast.success(`Ordre opgraderet til ${qty.toLocaleString()} stk!`);
-        // Recalculate upsells for the new quantity
-        if (matrix) {
-            const variantValue = state.variant || state.selectedVariant;
-            const rowName = matrix.rows.find((r: string) =>
-                variantValue && r.toLowerCase().trim() === variantValue.toLowerCase().trim()
-            ) || matrix.rows.find((r: string) =>
-                variantValue && r.toLowerCase().includes(variantValue.toLowerCase())
-            ) || matrix.rows[0];
-            calculateUpsells(matrix, qty, rowName);
-        }
+        toast.success(`Antal ændret til ${qty.toLocaleString('da-DK')} stk.`);
+    };
+
+    const handleEditProduct = () => {
+        const path = getSafeInternalPath(state?.productReturnPath) || buildProductFallbackPath(state?.productSlug, locationSearchParams);
+        if (!path) return handleBackToConfiguration();
+        const url = new URL(path, window.location.origin);
+        url.searchParams.set('editCheckout', '1');
+        navigate(url.pathname + url.search + url.hash);
     };
 
     const resetProofingAdjustments = () => {
@@ -2155,14 +2326,17 @@ const FileUploadConfiguration = () => {
             return null;
         }
 
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const rawPdf = new TextDecoder().decode(bytes);
-        const cutContourNameDetected = /(?:\/|\()CutContour\b/i.test(rawPdf) || /\bCutContour\b/i.test(rawPdf);
-        const separationHintDetected = /\/Separation\s*\/CutContour\b/i.test(rawPdf)
-            || /\/DeviceN\s*\[[^\]]*\/CutContour\b/i.test(rawPdf);
-        const overprintHintDetected = /\/OP\s+true\b/i.test(rawPdf)
-            || /\/op\s+true\b/i.test(rawPdf)
-            || /\/OPM\s+[12]\b/i.test(rawPdf);
+        let cutContourNameDetected = false;
+        let separationHintDetected = false;
+        let overprintHintDetected = false;
+        let tail = '';
+        for (let offset = 0; offset < file.size; offset += 1024 * 1024) {
+            const text = tail + new TextDecoder().decode(await file.slice(offset, offset + 1024 * 1024).arrayBuffer());
+            cutContourNameDetected ||= /\bCutContour\b/i.test(text);
+            separationHintDetected ||= /\/Separation\s*\/CutContour\b/i.test(text) || /\/DeviceN\s*\[[^\]]*\/CutContour\b/i.test(text);
+            overprintHintDetected ||= /\/[Oo][Pp]\s+true\b/i.test(text) || /\/OPM\s+[12]\b/i.test(text);
+            tail = text.slice(-4096);
+        }
 
         const summary = cutContourNameDetected
             ? "CutContour-navn fundet i PDF-data"
@@ -2201,11 +2375,8 @@ const FileUploadConfiguration = () => {
     };
 
     const preparePdfProofingPreview = async (file: File, specs: TechnicalSpecs): Promise<ProofingPreviewData> => {
-        const pdfjsLib = await import("pdfjs-dist");
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const pdf = await openLocalPdf(file);
+        try {
         const page = await pdf.getPage(1);
         const baseViewport = page.getViewport({ scale: 1 });
         const widthMm = ptToMm(baseViewport.width);
@@ -2240,6 +2411,7 @@ const FileUploadConfiguration = () => {
             sourceHeightPx: canvas.height,
             pageCount: pdf.numPages,
         };
+        } finally { await pdf.destroy(); }
     };
 
     const prepareProofingPreview = async (file: File, specs: TechnicalSpecs) => {
@@ -2250,16 +2422,21 @@ const FileUploadConfiguration = () => {
     };
 
     const processUploadFile = async (file: File | null | undefined) => {
-        if (!file) return;
+        if (!file || uploadBusyRef.current || proofExportBusyRef.current) return;
 
         const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'];
         if (!allowedTypes.includes(file.type)) {
             toast.error("Venligst upload en PDF eller et billede (JPG, PNG, TIFF)");
             return;
         }
+        if (!file.size || file.size > MAX_CHECKOUT_UPLOAD_BYTES) {
+            toast.error(`Trykfiler over ${CHECKOUT_UPLOAD_LIMIT_LABEL} skal aftales med butikken.`);
+            return;
+        }
 
+        uploadBusyRef.current = true;
         setUploading(true);
-        setUploadProgress(0);
+        setUploadProgress({phase: "preparing", loaded: 0, total: file.size});
         setPreflightResults(null);
         setPlatformPreflight(null);
         setProofingApproved(false);
@@ -2283,19 +2460,12 @@ const FileUploadConfiguration = () => {
             const fileName = `${productRef}-order-${Date.now()}.${fileExt}`;
             const filePath = `order-files/${fileName}`;
 
-            const { error: uploadError } = await supabase.storage
-                .from('order-files')
-                .upload(filePath, file);
-
-            if (uploadError) throw uploadError;
-
-            const { data: { publicUrl } } = supabase.storage
-                .from('order-files')
-                .getPublicUrl(filePath);
+            const upload = await uploadCheckoutFile(supabase, shopSettings.data?.id || '', file, file.name, filePath, setUploadProgress);
+            const publicUrl = upload.url;
 
             const preparedPreview = await prepareProofingPreview(file, specs);
             const contourScan = await scanPdfContourSignals(file);
-            setUploadedFile({ name: file.name, url: publicUrl, path: filePath });
+            setUploadedFile(upload);
             setPreviewUrl(preparedPreview.previewUrl);
             setProofingPreview(preparedPreview);
             setPdfContourScan(contourScan);
@@ -2308,20 +2478,20 @@ const FileUploadConfiguration = () => {
                 });
             }
 
-            const preflightResult = await runPreflight(file, { filePath, publicUrl });
-            const shouldAutoOpenProofing = Boolean(
-                preflightResult?.issues.length
-                || (isPodProduct && podPreflightEnabled)
-            );
-
-            setProofingOpen(shouldAutoOpenProofing);
+            await runPreflight(file, { filePath: upload.path, publicUrl });
+            // The preview and warnings can be reviewed and accepted on this page.
+            setProofingOpen(false);
 
             toast.success("Fil uploadet og tjekket");
         } catch (err) {
             console.error("Error uploading file:", err);
-            toast.error("Kunne ikke uploade fil");
+            const message = err instanceof Error ? err.message : "";
+            toast.error(/^(Trykfilen|Trykfiler|Uploaden|Shoppen|Adgangen)/.test(message)
+                ? message
+                : "Kunne ikke uploade filen. Prøv igen, eller kontakt butikken hvis fejlen fortsætter.");
         } finally {
             setUploading(false);
+            uploadBusyRef.current = false;
             setUploadDropActive(false);
         }
     };
@@ -2375,11 +2545,9 @@ const FileUploadConfiguration = () => {
             dpiOk = true;
             aspectRatioMatch = true;
         } else if (file.type === 'application/pdf') {
+            issues.push(PDF_COLOUR_REVIEW_NOTICE);
             try {
-                const pdfjsLib = await import("pdfjs-dist");
-                pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-                const arrayBuffer = await file.arrayBuffer();
-                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                const pdf = await openLocalPdf(file);
                 const page = await pdf.getPage(1);
                 const viewport = page.getViewport({ scale: 1 });
 
@@ -2396,47 +2564,7 @@ const FileUploadConfiguration = () => {
                     issues.push(`PDF-formatet er ${Math.round(pdfWidthMm)} × ${Math.round(pdfHeightMm)} mm og matcher hverken trimformatet ${Math.round(trimWidthMm)} × ${Math.round(trimHeightMm)} mm eller formatet med bleed ${Math.round(targetWidthMm)} × ${Math.round(targetHeightMm)} mm.`);
                 }
 
-                // Scan the first up-to-3 pages for RGB colour usage. We walk
-                // the operator list and look for explicit RGB colour-space
-                // switches or RGB fill/stroke operators. Catches the common
-                // case of "designed in RGB, exported as-is" without needing a
-                // server-side preflight engine.
-                try {
-                    const OPS: any = (pdfjsLib as any).OPS || {};
-                    let hasRGB = false;
-                    const pagesToScan = Math.min(pdf.numPages, 3);
-                    const scanPages: any[] = [page];
-                    for (let pIdx = 2; pIdx <= pagesToScan; pIdx++) {
-                        scanPages.push(await pdf.getPage(pIdx));
-                    }
-                    for (const scanPage of scanPages) {
-                        if (hasRGB) break;
-                        const ops = await scanPage.getOperatorList();
-                        const fns: number[] = ops.fnArray || [];
-                        const args: any[] = ops.argsArray || [];
-                        for (let i = 0; i < fns.length; i++) {
-                            const op = fns[i];
-                            if (op === OPS.setFillRGBColor || op === OPS.setStrokeRGBColor) {
-                                hasRGB = true;
-                                break;
-                            }
-                            if (op === OPS.setFillColorSpace || op === OPS.setStrokeColorSpace) {
-                                const csName = args[i]?.[0];
-                                if (csName === "DeviceRGB" || csName === "CalRGB") {
-                                    hasRGB = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if (hasRGB) {
-                        issues.push("Filen indeholder RGB-farver. Til tryk skal farverne være i CMYK — eksporter som CMYK-PDF og upload igen.");
-                    }
-                } catch (colorErr) {
-                    // Colour-space scanning is best-effort; never block the
-                    // customer on a scan failure.
-                    console.debug("Color space scan skipped:", colorErr);
-                }
+                await pdf.destroy();
             } catch (pdfError) {
                 console.error("PDF dimension check failed:", pdfError);
                 issues.push("Kunne ikke læse PDF-dimensioner automatisk. Kontroller filformatet manuelt.");
@@ -2478,6 +2606,7 @@ const FileUploadConfiguration = () => {
                     productId: params.productId,
                     storageBucket: "order-files",
                     filePath: params.filePath,
+                    fileAccess: checkoutUploadAccess(params.filePath),
                     specs: params.specs,
                     autoFix: params.autoFix,
                 },
@@ -2499,7 +2628,13 @@ const FileUploadConfiguration = () => {
             setPlatformPreflight(result);
 
             if (data.updatedFileUrl) {
+                // A processor output is a new version. Never approve it using the old preview.
                 setUploadedFile((prev) => prev ? { ...prev, url: data.updatedFileUrl } : prev);
+                setProofingApproved(false);
+                setApprovedProofIdentity(null);
+                setProofingPreview(null);
+                setPreviewUrl(null);
+                toast.info("Filkontrollen har lavet en ny version. Download og upload den rettede fil til ny korrektur.");
             }
         } catch (err: any) {
             console.error("Teknisk kontrol fejlede:", err);
@@ -2564,13 +2699,90 @@ const FileUploadConfiguration = () => {
         setProofingResizing(true);
     };
 
-    const handleApproveProofing = () => {
+    const handleContinueToCheckout = () => {
+        const summary = checkoutSummaryRef.current;
+        if (!summary) return;
+        summary.focus({ preventScroll: true });
+        summary.scrollIntoView({
+            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+            block: 'start',
+        });
+    };
+
+    const handleApproveProofing = async () => {
+        if (proofExportBusyRef.current) return;
+        if (!proofAvailability.canReview) {
+            toast.error(uploading || platformPreflightLoading
+                ? "Vent, mens filen uploades og tjekkes."
+                : "Upload en fil, før du godkender korrekturen.");
+            return;
+        }
+        if (!currentProofArtifact) {
+            toast.error("Upload filen igen, så korrekturen viser den aktuelle produktionsfil.");
+            return;
+        }
+        if (proofNeedsExport) {
+            if (!canExportImageHere || !uploadedFile || !specs) {
+                toast.error("Upload en færdig tryk-PDF i produktets mål inklusive bleed, eller ret filen i designeren.");
+                return;
+            }
+            proofExportBusyRef.current = true;
+            setExportingProof(true);
+            const sourceIdentity = currentProofIdentity;
+            try {
+                const source = await readCheckoutUpload(supabase, uploadedFile.path);
+                if (await hashCheckoutArtifact(source) !== uploadedFile.sha256) throw new Error('Trykfilen er ændret. Upload og godkend filen igen.');
+                const { createImageProofPdf } = await import('@/lib/checkout/imageProofPdf');
+                const bytes = await createImageProofPdf(new Uint8Array(await source.arrayBuffer()), {
+                    ...currentProofArtifact, bleedMm: specs.bleed_mm,
+                });
+                const name = uploadedFile.name.replace(/\.[^.]+$/, '') + '-tryk.pdf';
+                const file = new File([bytes as BlobPart], name, { type: 'application/pdf' });
+                const preview = await preparePdfProofingPreview(file, specs);
+                const upload = await uploadCheckoutFile(supabase, shopSettings.data?.id || '', file, name,
+                    `order-files/proof-${crypto.randomUUID()}.pdf`, setUploadProgress);
+                if (latestProofIdentityRef.current !== sourceIdentity) throw new Error('Korrekturen er ændret. Kontrollér den aktuelle fil igen.');
+                const identity = proofArtifactFingerprint({ ...currentProofArtifact,
+                    fileUrl: upload.url, filePath: upload.path, sha256: upload.sha256,
+                    fileType: 'pdf', designerExport: false, physicalWidthMm: targetWidth, physicalHeightMm: targetHeight,
+                    scale: 100, offsetX: 0, offsetY: 0,
+                });
+                setUploadedFile(upload);
+                setProofingPreview(preview);
+                setPreviewUrl(preview.previewUrl);
+                resetProofingAdjustments();
+                setApprovedProofIdentity(identity);
+                setProofingApproved(true);
+                returnToCheckoutAfterProofRef.current = proofingOpen;
+                setProofingOpen(false);
+                if (!proofingOpen) requestAnimationFrame(handleContinueToCheckout);
+                toast.success('Trykfilen er klargjort og godkendt.');
+            } catch (error) {
+                toast.error(error instanceof Error ? error.message : 'Trykfilen kunne ikke klargøres. Prøv igen.');
+            } finally {
+                proofExportBusyRef.current = false;
+                setExportingProof(false);
+            }
+            return;
+        }
+        setApprovedProofIdentity(currentProofIdentity);
         setProofingApproved(true);
+        // Let Radix finish closing before moving focus out of the Corrector.
+        returnToCheckoutAfterProofRef.current = proofingOpen;
         setProofingOpen(false);
-        toast.success("Fil godkendt til ordre.");
+        if (!proofingOpen) requestAnimationFrame(handleContinueToCheckout);
+        toast.success("Fil godkendt. Du kan nu færdiggøre din bestilling.");
     };
 
     const handleOpenFullDesigner = () => {
+        if (professionalPdfUploadOnly) {
+            toast.error(
+                checkoutTemplateArtworkModeReasonDa
+                || "Denne efterbehandling kræver en professionel tryk-PDF. Download skabelonen og upload den færdige fil her.",
+            );
+            return;
+        }
+
         const existingSession = readSiteCheckoutSession();
         if (existingSession?.siteUpload) {
             writeSiteCheckoutSession({
@@ -2585,62 +2797,133 @@ const FileUploadConfiguration = () => {
         }
 
         const params = new URLSearchParams(location.search);
+        if (shopSettings.data?.id) params.set("tenantId", shopSettings.data.id);
         if (state?.productId) params.set("productId", String(state.productId));
+        if (state?.designerMode) params.set("designerMode", String(state.designerMode));
+        if (state?.pricingModel) params.set("pricingModel", String(state.pricingModel));
         if (state?.linkedTemplateId) params.set("templateId", String(state.linkedTemplateId));
-        if (resolvedFormatLabel && resolvedFormatLabel !== "Standard") {
-            params.set("format", String(resolvedFormatLabel));
-        } else if (specs) {
-            params.set("widthMm", String(specs.width_mm));
-            params.set("heightMm", String(specs.height_mm));
-            params.set("bleedMm", String(specs.bleed_mm));
-            params.set("safeMm", String(safeAreaMm));
+        if (checkoutTemplatePdfUrl) {
+            params.set("templatePdfUrl", checkoutTemplatePdfUrl);
+            params.set("templatePdfName", checkoutTemplatePdfName);
+            if (checkoutTemplatePdfSha256) {
+                params.set("templatePdfSha256", checkoutTemplatePdfSha256);
+            }
         }
+        applyDesignerDocumentParams(params, {
+            formatLabel: resolvedFormatLabel,
+            widthMm: specs?.width_mm,
+            heightMm: specs?.height_mm,
+            bleedMm: specs?.bleed_mm,
+            safeMm: safeAreaMm,
+        });
         params.set("order", "1");
-        params.set("returnTo", `${location.pathname}${location.search}`);
+        const checkoutPath = buildCurrentInternalPath(location.pathname, location.search);
+        if (checkoutPath) {
+            params.set("returnTo", checkoutPath);
+            params.set("backTo", checkoutPath);
+        }
         navigate(`/designer?${params.toString()}`);
     };
 
-    return (
-        <StorefrontThemeFrame
-            branding={branding}
-            tenantName={tenantName}
-        >
-            <main className="flex-1 container mx-auto px-4 py-12">
-                <div className="max-w-5xl mx-auto">
-                    <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                        <h1 className="text-2xl font-heading font-semibold tracking-tight text-slate-900 md:text-[28px]">
-                            Konfigurer dit design
-                        </h1>
-                        <div className="flex flex-wrap gap-3">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={handleBackToConfiguration}
-                                className="h-auto rounded-md bg-white px-3 py-1 text-xs font-semibold"
-                            >
-                                1. Bestilling
-                            </Button>
-                            <Badge className="rounded-md px-3 py-1">2. Fil-tjek</Badge>
-                            <Badge variant="outline" className="rounded-md bg-white px-3 py-1 opacity-50">3. Betaling</Badge>
-                        </div>
-                    </div>
+    const receipt: OrderReceiptData = {
+        productName: displayProductName, imageUrl: product?.image_url,
+        format: resolvedFormatLabel, variant: state?.selectedVariant,
+        quantity: orderQuantity, fileName: uploadedFile?.name,
+        subtotal: orderPrice, shipping: shippingCost, total: checkoutTotal, tax: checkoutTax || undefined,
+    };
+    const deliveryForm = (<>
+                                    {activeDeliveryMethods.length > 0 && (
+                                        <div className="space-y-2 pt-2 border-t border-black/5">
+                                            <div className="flex items-center gap-2">
+                                                <Truck className="h-4 w-4 text-primary" />
+                                                <h4 className="text-sm font-semibold text-slate-900">Leveringsmetode</h4>
+                                            </div>
+                                            <RadioGroup value={shippingSelected} onValueChange={setShippingSelected} className="space-y-1.5">
+                                                {activeDeliveryMethods.map((method) => {
+                                                    const methodCost = resolveDeliveryMethodCost(orderPrice, method);
+                                                    const deadline = getNextCutoffDate(method, deliveryNow);
+                                                    const countdown = deadline ? formatCountdown(deadline.getTime() - deliveryNow.getTime()) : null;
+                                                    const estimatedDelivery = getEstimatedDeliveryDate(method, deliveryNow);
+                                                    const isSelected = shippingSelected === method.id;
+                                                    return (
+                                                        <label
+                                                            key={method.id}
+                                                            {...sharedSelection}
+                                                            data-state={isSelected ? "checked" : "unchecked"}
+                                                            htmlFor={`cfg-delivery-${method.id}`}
+                                                            className={`block cursor-pointer rounded-lg border px-3 py-2.5 transition-colors ${isSelected ? "border-primary bg-primary/5" : "border-slate-200 bg-white hover:border-primary/40"}`}
+                                                        >
+                                                            <div className="flex items-start gap-2.5">
+                                                                <RadioGroupItem id={`cfg-delivery-${method.id}`} value={method.id} className="mt-0.5" />
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-start justify-between gap-2">
+                                                                        <p className="text-sm font-medium text-slate-900 truncate">{method.name}</p>
+                                                                        <p className="text-sm font-semibold text-slate-900 whitespace-nowrap">{methodCost} kr</p>
+                                                                    </div>
+                                                                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+                                                                        {estimatedDelivery && (
+                                                                            <span>Levering {deliveryDateFormatter.format(estimatedDelivery)}</span>
+                                                                        )}
+                                                                        {countdown && (
+                                                                            <span className="inline-flex items-center gap-1 text-primary">
+                                                                                <Clock3 className="h-3 w-3" />
+                                                                                {countdown}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </RadioGroup>
+                                        </div>
+                                    )}
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                        <div className="lg:col-span-2 space-y-6">
-                            <Card className="shadow-sm">
+    </>);
+    const orderSummary = (<Card ref={checkoutSummaryRef} tabIndex={-1} role="region" aria-labelledby="checkout-summary-heading" data-branding-id="colors.card" className="order-summary-card scroll-mt-24 shadow-sm focus-visible:outline-primary">
                                 <CardHeader className="pb-2">
                                     <div className="flex items-center justify-between">
-                                        <CardTitle>Valgt konfiguration</CardTitle>
+                                        <CardTitle id="checkout-summary-heading">Din bestilling</CardTitle>
                                         <Package className="h-5 w-5 text-slate-400" />
                                     </div>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
-                                    <div className="pb-4 border-b border-black/5">
+                                    <div className="order-checkout-product pb-4 border-b border-black/5">
+                                        {product?.image_url && <img src={product.image_url} alt={displayProductName} className="order-checkout-product-image" />}
                                         <h4 className="font-bold text-lg">{displayProductName}</h4>
-                                        <p className="text-sm text-muted-foreground">{state.summary}</p>
-                                        <div className="mt-2 space-y-1">
-                                            {Object.values(nonSizeOptionSelections).map((opt: CheckoutOptionSelection, idx: number) => (
+                                        <p className="text-sm text-muted-foreground">{String(state.summary || "").replace(/[\d., ]+\s*stk\.?/i, ` ${orderQuantity.toLocaleString("da-DK")} stk.`)}</p>
+                                            <div className="mt-2 space-y-1">
+<details className="order-flow-help"><summary>Om fil og produktion</summary>                                            <div className="mb-3 flex flex-wrap items-center gap-2">
+                                                <Badge variant="secondary" className="rounded-sm">
+                                                    {productFlowLabel}
+                                                </Badge>
+                                            {productFlowHelpText ? (
+                                                <span className="text-xs text-muted-foreground">
+                                                    {productFlowHelpText}
+                                                </span>
+                                            ) : null}
+                                        </div>
+                                        <div className={`mb-3 rounded-lg border px-3 py-3 text-sm ${checkoutFlowNoticeClasses[checkoutFlowNotice.tone]}`}>
+                                            <div className="flex items-start gap-2">
+                                                <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                                                <div className="space-y-2">
+                                                    <div>
+                                                        <p className="font-semibold">{checkoutFlowNotice.title}</p>
+                                                        <p className="text-xs opacity-80">{checkoutFlowNotice.body}</p>
+                                                    </div>
+                                                    <div className="grid gap-1 text-xs opacity-85 md:grid-cols-3">
+                                                        {checkoutFlowNotice.checklist.map((item) => (
+                                                            <span key={item} className="flex items-start gap-1.5">
+                                                                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                                                {item}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+</details>                                            {Object.values(nonSizeOptionSelections).map((opt: CheckoutOptionSelection, idx: number) => (
                                                 <p key={idx} className="text-xs text-slate-500 flex items-center gap-1">
                                                     <span className="w-1.5 h-1.5 bg-primary/40 rounded-full" />
                                                     {opt.name}
@@ -2690,58 +2973,14 @@ const FileUploadConfiguration = () => {
                                         </div>
                                     </div>
 
-                                    {/* Leveringsmetode lives here now (used to be on the customer card) so
-                                        shipping cost is picked as part of configuring the product. */}
-                                    {activeDeliveryMethods.length > 0 && (
-                                        <div className="space-y-2 pt-2 border-t border-black/5">
-                                            <div className="flex items-center gap-2">
-                                                <Truck className="h-4 w-4 text-primary" />
-                                                <h4 className="text-sm font-semibold text-slate-900">Leveringsmetode</h4>
-                                            </div>
-                                            <RadioGroup value={shippingSelected} onValueChange={setShippingSelected} className="space-y-1.5">
-                                                {activeDeliveryMethods.map((method) => {
-                                                    const methodCost = resolveDeliveryMethodCost(orderPrice, method);
-                                                    const deadline = getNextCutoffDate(method, deliveryNow);
-                                                    const countdown = deadline ? formatCountdown(deadline.getTime() - deliveryNow.getTime()) : null;
-                                                    const estimatedDelivery = getEstimatedDeliveryDate(method, deliveryNow);
-                                                    const isSelected = shippingSelected === method.id;
-                                                    return (
-                                                        <label
-                                                            key={method.id}
-                                                            htmlFor={`cfg-delivery-${method.id}`}
-                                                            className={`block cursor-pointer rounded-lg border px-3 py-2.5 transition-colors ${isSelected ? "border-primary bg-primary/5" : "border-slate-200 bg-white hover:border-primary/40"}`}
-                                                        >
-                                                            <div className="flex items-start gap-2.5">
-                                                                <RadioGroupItem id={`cfg-delivery-${method.id}`} value={method.id} className="mt-0.5" />
-                                                                <div className="flex-1 min-w-0">
-                                                                    <div className="flex items-start justify-between gap-2">
-                                                                        <p className="text-sm font-medium text-slate-900 truncate">{method.name}</p>
-                                                                        <p className="text-sm font-semibold text-slate-900 whitespace-nowrap">{methodCost} kr</p>
-                                                                    </div>
-                                                                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
-                                                                        {estimatedDelivery && (
-                                                                            <span>Levering {deliveryDateFormatter.format(estimatedDelivery)}</span>
-                                                                        )}
-                                                                        {countdown && (
-                                                                            <span className="inline-flex items-center gap-1 text-primary">
-                                                                                <Clock3 className="h-3 w-3" />
-                                                                                {countdown}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </label>
-                                                    );
-                                                })}
-                                            </RadioGroup>
-                                        </div>
-                                    )}
+                                    {checkoutDesign === 4 ? deliveryForm : <div className="order-selected-delivery"><span>Levering ({activeDeliveryMethods.find(method => method.id === shippingSelected)?.name || 'valgt'})</span><strong>{shippingCost} kr</strong></div>}
 
                                     <div className="pt-3 border-t-2 border-primary/10 flex justify-between items-end">
-                                        <span className="font-bold">Total (ex. moms):</span>
-                                        <span className="text-2xl font-bold text-primary">{checkoutTotal} kr</span>
+                                        <span className="font-bold">{checkoutTax ? 'Total (inkl. moms):' : 'Beløb ekskl. moms:'}</span>
+                                        <span className="text-2xl font-bold text-primary">{checkoutTotal.toLocaleString('da-DK', {minimumFractionDigits: 2, maximumFractionDigits: 2})} kr</span>
                                     </div>
+                                    {checkoutTax && <p className="flex justify-between text-sm"><span>Moms (25 %)</span><span>{(checkoutTax.vatAmountOre / 100).toLocaleString('da-DK', {minimumFractionDigits: 2, maximumFractionDigits: 2})} kr</span></p>}
+                                    {checkoutTaxMessage && <p role="alert" className="text-sm text-destructive">{checkoutTaxMessage}</p>}
 
                                     {paymentStatusLoaded &&
                                         !shopSettings.data?.is_platform_owned &&
@@ -2772,13 +3011,13 @@ const FileUploadConfiguration = () => {
                                         </div>
                                     )}
 
-                                    {proofingApprovalPending && proofingRequiresModalReview && (
+                                    {proofAvailability.canReview && proofingApprovalPending && proofingRequiresModalReview && (
                                         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 flex items-start gap-2 shadow-sm">
                                             <AlertCircle className="h-4 w-4 mt-0.5" />
                                             <div className="space-y-1">
                                                 <p className="font-medium">Filkorrektur mangler godkendelse</p>
                                                 <p className="text-xs text-amber-700">
-                                                    Åbn korrekturvinduet, juster filen og godkend den før betaling.
+                                                    Godkend filen ved previewet, eller åbn korrektur for at se nærmere på den.
                                                 </p>
                                                 <Button
                                                     type="button"
@@ -2804,9 +3043,9 @@ const FileUploadConfiguration = () => {
                                                     </p>
                                                 </div>
                                                 <div className="flex flex-wrap gap-2">
-                                                    <Button type="button" size="sm" className="h-8" onClick={handleApproveProofing}>
+                                                    <StorefrontPrimaryButton type="button" size="sm" className="h-8" onClick={handleApproveProofing}>
                                                         Godkend fil
-                                                    </Button>
+                                                    </StorefrontPrimaryButton>
                                                     <Button
                                                         type="button"
                                                         variant="outline"
@@ -2821,10 +3060,17 @@ const FileUploadConfiguration = () => {
                                         </div>
                                     )}
 
-                                    <Button
+                                    {proofArtifactApproved && (
+                                        <p role="status" className="flex items-start gap-2 text-sm text-primary">
+                                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                                            Filen er godkendt. Kontrollér kontakt og levering, og gå videre til betaling.
+                                        </p>
+                                    )}
+
+                                    <StorefrontPrimaryButton
                                         className="w-full h-12 text-lg font-bold mt-4 group shadow-md"
                                         onClick={handleProceedToPayment}
-                                        disabled={!uploadedFile || paymentLoading || sizeDistributionMismatch || proofingApprovalPending}
+                                        disabled={!uploadedFile || paymentLoading || sizeDistributionMismatch || proofingApprovalPending || !!checkoutTaxMessage}
                                     >
                                         {paymentLoading ? (
                                             <>
@@ -2837,11 +3083,134 @@ const FileUploadConfiguration = () => {
                                                 <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
                                             </>
                                         )}
-                                    </Button>
+                                    </StorefrontPrimaryButton>
                                 </CardContent>
-                            </Card>
+                            </Card>);
+    const advancedForm = (<div className="order-advanced-form">
+                                    {/* ──────────────────────────────────────────────────────────────
+                                         Step 3 — Flere muligheder (collapsed by default)
+                                         Afsender på pakken + separat faktureringsadresse.
+                                         ────────────────────────────────────────────────────────────── */}
+                                    <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
+                                        <button
+                                            type="button"
+                                            className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50/60"
+                                            onClick={() => setMoreOptionsOpen(!moreOptionsOpen)}
+                                        >
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 shrink-0">
+                                                    <span className="text-xs font-bold">3</span>
+                                                </div>
+                                                <div className="text-left">
+                                                    <p className="text-sm font-semibold text-slate-900">Flere muligheder</p>
+                                                    <p className="text-xs text-muted-foreground">Afsender, blind forsendelse, separat fakturering</p>
+                                                </div>
+                                            </div>
+                                            <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${moreOptionsOpen ? "rotate-180" : ""}`} />
+                                        </button>
+                                        {moreOptionsOpen && (
+                                            <div className="px-4 pb-4 pt-1 space-y-4 border-t border-slate-100">
+                                                <div className="space-y-2">
+                                                    <p className="text-xs font-semibold text-slate-700">Afsender på pakken</p>
+                                                    <RadioGroup
+                                                        value={senderMode}
+                                                        onValueChange={(value) => {
+                                                            const nextValue = value as CheckoutSenderMode;
+                                                            setSenderMode(nextValue);
+                                                            if (nextValue === "custom" && !senderName.trim()) {
+                                                                setSenderName(customerCompany.trim() || customerName.trim());
+                                                            }
+                                                        }}
+                                                        className="space-y-1.5"
+                                                    >
+                                                        <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5">
+                                                            <RadioGroupItem value="standard" id="sender-standard" className="mt-0.5" />
+                                                            <div>
+                                                                <p className="text-sm font-medium text-slate-900">Standard</p>
+                                                                <p className="text-xs text-muted-foreground">WebPrinter står som normal afsender.</p>
+                                                            </div>
+                                                        </label>
+                                                        <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5">
+                                                            <RadioGroupItem value="blind" id="sender-blind" className="mt-0.5" />
+                                                            <div>
+                                                                <p className="text-sm font-medium text-slate-900">Blind forsendelse</p>
+                                                                <p className="text-xs text-muted-foreground">Modtageren ser ikke WebPrinter som afsender.</p>
+                                                            </div>
+                                                        </label>
+                                                        <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5">
+                                                            <RadioGroupItem value="custom" id="sender-custom" className="mt-0.5" />
+                                                            <div>
+                                                                <p className="text-sm font-medium text-slate-900">Brug eget navn/firma</p>
+                                                                <p className="text-xs text-muted-foreground">Pakken sendes med dit navn eller firmanavn som afsender.</p>
+                                                            </div>
+                                                        </label>
+                                                    </RadioGroup>
+                                                    {senderMode === "custom" && (
+                                                        <div className="space-y-1.5">
+                                                            <Label htmlFor="sender-name" className="text-xs">Afsendernavn</Label>
+                                                            <Input
+                                                                id="sender-name"
+                                                                value={senderName}
+                                                                onChange={(event) => setSenderName(event.target.value)}
+                                                                placeholder="Dit navn eller firmanavn"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </div>
 
-                            <Card className="overflow-hidden shadow-sm">
+                                                <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-slate-50/60 px-3 py-2.5">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="mt-1 h-4 w-4 rounded border-slate-300"
+                                                        checked={useSeparateBillingAddress}
+                                                        onChange={(event) => setUseSeparateBillingAddress(event.target.checked)}
+                                                    />
+                                                    <div>
+                                                        <p className="text-sm font-medium text-slate-900">Brug separat faktureringsadresse</p>
+                                                        <p className="text-xs text-muted-foreground">Hvis fakturaen skal gå til en anden adresse end leveringen.</p>
+                                                    </div>
+                                                </label>
+
+                                                {useSeparateBillingAddress && (
+                                                    <div className="space-y-3 pl-7">
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                            <div className="space-y-1.5">
+                                                                <Label htmlFor="billing-name" className="text-xs">Faktura navn</Label>
+                                                                <Input id="billing-name" value={billingName} onChange={(event) => setBillingName(event.target.value)} />
+                                                            </div>
+                                                            <div className="space-y-1.5">
+                                                                <Label htmlFor="billing-company" className="text-xs">Faktura firma</Label>
+                                                                <Input id="billing-company" value={billingCompany} onChange={(event) => setBillingCompany(event.target.value)} />
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <Label htmlFor="billing-address" className="text-xs">Faktura adresse</Label>
+                                                            <Input id="billing-address" value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} />
+                                                <Label htmlFor="billing-address2" className="text-xs">Adresselinje 2 (valgfri)</Label>
+                                                <Input id="billing-address2" value={billingAddress2} onChange={event => setBillingAddress2(event.target.value)} autoComplete="address-line2" />
+                                                <Label htmlFor="billing-country" className="text-xs">Land (landekode, fx DK eller SE)</Label>
+                                                <Input id="billing-country" value={billingCountry} onChange={event => setBillingCountry(event.target.value)} autoComplete="country" />
+                                                        </div>
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                            <div className="space-y-1.5">
+                                                                <Label htmlFor="billing-zip" className="text-xs">Faktura postnr.</Label>
+                                                                <Input id="billing-zip" value={billingZip} onChange={(event) => setBillingZip(event.target.value)} />
+                                                            </div>
+                                                            <div className="space-y-1.5">
+                                                                <Label htmlFor="billing-city" className="text-xs">Faktura by</Label>
+                                                                <Input id="billing-city" value={billingCity} onChange={(event) => setBillingCity(event.target.value)} />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+    </div>);
+    const contactForm = (<Card onChangeCapture={event => {
+        if ((event.target as HTMLInputElement).id?.startsWith("delivery-")) deliveryAddressEditedRef.current = true;
+    }} data-branding-id="colors.card" className="order-contact-card overflow-hidden shadow-sm">
                                 <CardHeader className="bg-primary/5">
                                     <div className="flex items-center justify-between">
                                         <div>
@@ -2851,7 +3220,7 @@ const FileUploadConfiguration = () => {
                                         <User className="h-8 w-8 text-primary opacity-20" />
                                     </div>
                                 </CardHeader>
-                                <CardContent className="pt-6 space-y-4">
+                                <CardContent className="pt-6 space-y-4" onFocusCapture={(event) => { if (event.target instanceof HTMLInputElement) setYourDetailsOpen(true); }}>
 
                                     {/* ──────────────────────────────────────────────────────────────
                                          Step 1 — Dine oplysninger
@@ -2970,12 +3339,16 @@ const FileUploadConfiguration = () => {
                                                                                     deliveryRecipientName,
                                                                                     deliveryCompany,
                                                                                     deliveryAddress,
+                                                                                    deliveryAddress2,
+                                                                                    deliveryCountry,
                                                                                     deliveryZip,
                                                                                     deliveryCity,
                                                                                     useSeparateBillingAddress,
                                                                                     billingName,
                                                                                     billingCompany,
                                                                                     billingAddress,
+                                                                                    billingAddress2,
+                                                                                    billingCountry,
                                                                                     billingZip,
                                                                                     billingCity,
                                                                                     senderMode,
@@ -3115,6 +3488,11 @@ const FileUploadConfiguration = () => {
                                             <div className="space-y-1.5">
                                                 <Label htmlFor="delivery-address" className="text-xs">Leveringsadresse</Label>
                                                 <Input id="delivery-address" value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} />
+                                                <Label htmlFor="delivery-address2" className="text-xs">Adresselinje 2 (valgfri)</Label>
+                                                <Input id="delivery-address2" value={deliveryAddress2} onChange={event => setDeliveryAddress2(event.target.value)} autoComplete="address-line2" />
+                                                <Label htmlFor="delivery-country" className="text-xs">Leveringsland (DK — Danmark)</Label>
+                                                <Input id="delivery-country" value={deliveryCountry} onChange={event => setDeliveryCountry(event.target.value)} autoComplete="country" />
+                                                <p className="text-xs text-muted-foreground">Vi leverer i øjeblikket kun til Danmark. Prisen ved betaling inkluderer 25 % moms.</p>
                                             </div>
 
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -3157,133 +3535,15 @@ const FileUploadConfiguration = () => {
                                         </div>
                                     </div>
 
-                                    {/* ──────────────────────────────────────────────────────────────
-                                         Step 3 — Flere muligheder (collapsed by default)
-                                         Afsender på pakken + separat faktureringsadresse.
-                                         ────────────────────────────────────────────────────────────── */}
-                                    <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
-                                        <button
-                                            type="button"
-                                            className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50/60"
-                                            onClick={() => setMoreOptionsOpen(!moreOptionsOpen)}
-                                        >
-                                            <div className="flex items-center gap-3 min-w-0">
-                                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 shrink-0">
-                                                    <span className="text-xs font-bold">3</span>
-                                                </div>
-                                                <div className="text-left">
-                                                    <p className="text-sm font-semibold text-slate-900">Flere muligheder</p>
-                                                    <p className="text-xs text-muted-foreground">Afsender, blind forsendelse, separat fakturering</p>
-                                                </div>
-                                            </div>
-                                            <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${moreOptionsOpen ? "rotate-180" : ""}`} />
-                                        </button>
-                                        {moreOptionsOpen && (
-                                            <div className="px-4 pb-4 pt-1 space-y-4 border-t border-slate-100">
-                                                <div className="space-y-2">
-                                                    <p className="text-xs font-semibold text-slate-700">Afsender på pakken</p>
-                                                    <RadioGroup
-                                                        value={senderMode}
-                                                        onValueChange={(value) => {
-                                                            const nextValue = value as CheckoutSenderMode;
-                                                            setSenderMode(nextValue);
-                                                            if (nextValue === "custom" && !senderName.trim()) {
-                                                                setSenderName(customerCompany.trim() || customerName.trim());
-                                                            }
-                                                        }}
-                                                        className="space-y-1.5"
-                                                    >
-                                                        <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5">
-                                                            <RadioGroupItem value="standard" id="sender-standard" className="mt-0.5" />
-                                                            <div>
-                                                                <p className="text-sm font-medium text-slate-900">Standard</p>
-                                                                <p className="text-xs text-muted-foreground">WebPrinter står som normal afsender.</p>
-                                                            </div>
-                                                        </label>
-                                                        <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5">
-                                                            <RadioGroupItem value="blind" id="sender-blind" className="mt-0.5" />
-                                                            <div>
-                                                                <p className="text-sm font-medium text-slate-900">Blind forsendelse</p>
-                                                                <p className="text-xs text-muted-foreground">Modtageren ser ikke WebPrinter som afsender.</p>
-                                                            </div>
-                                                        </label>
-                                                        <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5">
-                                                            <RadioGroupItem value="custom" id="sender-custom" className="mt-0.5" />
-                                                            <div>
-                                                                <p className="text-sm font-medium text-slate-900">Brug eget navn/firma</p>
-                                                                <p className="text-xs text-muted-foreground">Pakken sendes med dit navn eller firmanavn som afsender.</p>
-                                                            </div>
-                                                        </label>
-                                                    </RadioGroup>
-                                                    {senderMode === "custom" && (
-                                                        <div className="space-y-1.5">
-                                                            <Label htmlFor="sender-name" className="text-xs">Afsendernavn</Label>
-                                                            <Input
-                                                                id="sender-name"
-                                                                value={senderName}
-                                                                onChange={(event) => setSenderName(event.target.value)}
-                                                                placeholder="Dit navn eller firmanavn"
-                                                            />
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-slate-50/60 px-3 py-2.5">
-                                                    <input
-                                                        type="checkbox"
-                                                        className="mt-1 h-4 w-4 rounded border-slate-300"
-                                                        checked={useSeparateBillingAddress}
-                                                        onChange={(event) => setUseSeparateBillingAddress(event.target.checked)}
-                                                    />
-                                                    <div>
-                                                        <p className="text-sm font-medium text-slate-900">Brug separat faktureringsadresse</p>
-                                                        <p className="text-xs text-muted-foreground">Hvis fakturaen skal gå til en anden adresse end leveringen.</p>
-                                                    </div>
-                                                </label>
-
-                                                {useSeparateBillingAddress && (
-                                                    <div className="space-y-3 pl-7">
-                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                            <div className="space-y-1.5">
-                                                                <Label htmlFor="billing-name" className="text-xs">Faktura navn</Label>
-                                                                <Input id="billing-name" value={billingName} onChange={(event) => setBillingName(event.target.value)} />
-                                                            </div>
-                                                            <div className="space-y-1.5">
-                                                                <Label htmlFor="billing-company" className="text-xs">Faktura firma</Label>
-                                                                <Input id="billing-company" value={billingCompany} onChange={(event) => setBillingCompany(event.target.value)} />
-                                                            </div>
-                                                        </div>
-                                                        <div className="space-y-1.5">
-                                                            <Label htmlFor="billing-address" className="text-xs">Faktura adresse</Label>
-                                                            <Input id="billing-address" value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} />
-                                                        </div>
-                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                            <div className="space-y-1.5">
-                                                                <Label htmlFor="billing-zip" className="text-xs">Faktura postnr.</Label>
-                                                                <Input id="billing-zip" value={billingZip} onChange={(event) => setBillingZip(event.target.value)} />
-                                                            </div>
-                                                            <div className="space-y-1.5">
-                                                                <Label htmlFor="billing-city" className="text-xs">Faktura by</Label>
-                                                                <Input id="billing-city" value={billingCity} onChange={(event) => setBillingCity(event.target.value)} />
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
+                                    {checkoutDesign === 4 && advancedForm}
                                 </CardContent>
-                            </Card>
-
-                        </div>
-
-                        <div className="space-y-6">
-                            <Card className="overflow-hidden shadow-sm">
+                            </Card>);
+    const fileForm = (<Card data-branding-id="colors.card" className="order-file-card overflow-hidden shadow-sm">
                                 <CardHeader className="bg-primary/5">
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <CardTitle>Fil Upload</CardTitle>
-                                            <CardDescription>Trykklar PDF</CardDescription>
+                                            <CardTitle>{checkoutUploadTitle}</CardTitle>
+                                            <CardDescription>{checkoutUploadHelpText}</CardDescription>
                                         </div>
                                         {uploading ? (
                                             <Loader2 className="h-8 w-8 animate-spin text-primary/70" />
@@ -3292,7 +3552,84 @@ const FileUploadConfiguration = () => {
                                         )}
                                     </div>
                                 </CardHeader>
-                                <CardContent className="pt-6 space-y-6">
+                                <CardContent className="order-file-content pt-6 space-y-6">
+
+<details className="order-flow-help"><summary>Filkrav og skabelon</summary>                                    <div className={`rounded-lg border px-4 py-3 text-sm ${checkoutFlowNoticeClasses[checkoutFlowNotice.tone]}`}>
+                                        <div className="flex items-start gap-3">
+                                            <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+                                            <div className="min-w-0 flex-1">
+                                                <p className="font-semibold">{checkoutFlowNotice.title}</p>
+                                                <p className="mt-1 text-xs leading-5 opacity-80">{checkoutFlowNotice.body}</p>
+                                            </div>
+                                            <div className="hidden shrink-0 flex-col gap-2 md:flex">
+                                                {checkoutTemplatePdfUrl && (
+                                                    <Button
+                                                        asChild
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-9 bg-white/80"
+                                                    >
+                                                        <a
+                                                            href={checkoutTemplatePdfUrl}
+                                                            download={checkoutTemplateDownloadName}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            onClick={markTemplateDownloaded}
+                                                        >
+                                                            <Download className="mr-2 h-4 w-4" />
+                                                            Download skabelon
+                                                        </a>
+                                                    </Button>
+                                                )}
+                                                {checkoutFlowNotice.showDesignerAction && (
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-9 bg-white/80"
+                                                        onClick={handleOpenFullDesigner}
+                                                    >
+                                                        {checkoutFlowNotice.designerActionLabel}
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="mt-3 grid gap-2 md:hidden">
+                                            {checkoutTemplatePdfUrl && (
+                                                <Button
+                                                    asChild
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-10 w-full bg-white/80"
+                                                >
+                                                    <a
+                                                        href={checkoutTemplatePdfUrl}
+                                                        download={checkoutTemplateDownloadName}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        onClick={markTemplateDownloaded}
+                                                    >
+                                                        <Download className="mr-2 h-4 w-4" />
+                                                        Download skabelon
+                                                    </a>
+                                                </Button>
+                                            )}
+                                            {checkoutFlowNotice.showDesignerAction && (
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-10 w-full bg-white/80"
+                                                    onClick={handleOpenFullDesigner}
+                                                >
+                                                    {checkoutFlowNotice.designerActionLabel}
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </div></details>
+
                                     {!uploadedFile ? (
                                         <div
                                             className={`cursor-pointer rounded-xl border-2 border-dashed px-6 py-8 text-center transition-all group shadow-sm ${
@@ -3300,13 +3637,13 @@ const FileUploadConfiguration = () => {
                                                     ? "border-primary bg-primary/10 ring-2 ring-primary/20"
                                                     : "border-primary/20 hover:bg-primary/5"
                                             }`}
-                                            onClick={() => fileInputRef.current?.click()}
+                                            onClick={() => { if (!uploading) fileInputRef.current?.click(); }}
                                             onDragOver={handleUploadDragOver}
                                             onDragEnter={handleUploadDragOver}
                                             onDragLeave={handleUploadDragLeave}
                                             onDrop={handleUploadDrop}
                                         >
-                                            <div className="flex flex-col items-center">
+                                            {uploading ? <FileUploadProgress progress={uploadProgress} /> : <div className="flex flex-col items-center">
                                                 <div className={`mb-3 flex h-12 w-12 items-center justify-center rounded-full transition-transform ${
                                                     uploadDropActive ? "bg-primary/20 scale-110" : "bg-primary/10 group-hover:scale-110"
                                                 }`}>
@@ -3316,12 +3653,16 @@ const FileUploadConfiguration = () => {
                                                     {uploadDropActive ? "Slip filen her" : "Klik eller træk fil hertil"}
                                                 </h3>
                                                 <p className="mx-auto max-w-xs text-xs text-muted-foreground">
-                                                    PDF, JPG eller TIFF. Maksimal filstørrelse 50MB. Vi anbefaler 300 DPI for bedste resultat.
+                                                    PDF, JPG, PNG eller TIFF. Maksimal filstørrelse {CHECKOUT_UPLOAD_LIMIT_LABEL}. Brug PDF når produktet har foldelinjer, skabelon eller CutContour.
                                                 </p>
-                                            </div>
+                                                <StorefrontPrimaryButton type="button" disabled={uploading || exportingProof} className="mt-4" onClick={(event) => { event.stopPropagation(); fileInputRef.current?.click(); }}>Vælg fil</StorefrontPrimaryButton>
+                                                {checkoutFlowNotice.showDesignerAction && <Button type="button" disabled={uploading || exportingProof} variant="link" className="mt-1" onClick={(event) => { event.stopPropagation(); handleOpenFullDesigner(); }}>Design online</Button>}
+
+                                            </div>}
                                             <input
                                                 type="file"
                                                 ref={fileInputRef}
+                                                disabled={uploading || exportingProof}
                                                 className="hidden"
                                                 onChange={handleFileUpload}
                                                 accept=".pdf,.jpg,.jpeg,.png,.tiff"
@@ -3337,7 +3678,11 @@ const FileUploadConfiguration = () => {
                                                             {uploadedFile.name}
                                                         </p>
                                                         <p className="text-xs text-green-700">
-                                                            {proofingApproved ? "Godkendt til ordre" : "Klar til korrektur"}
+                                                            {activeDesignerProductionFile
+                                                                ? "Genereret i designeren og klar til ordre"
+                                                                : proofArtifactApproved
+                                                                    ? "Godkendt til ordre"
+                                                                    : "Klar til korrektur"}
                                                         </p>
                                                     </div>
                                                 </div>
@@ -3345,7 +3690,7 @@ const FileUploadConfiguration = () => {
                                                     <span className="font-medium text-green-900">
                                                         {proofingApprovalLabel}
                                                     </span>
-                                                    {proofingPreview && (
+                                                    {(proofingPreview || activeDesignerProductionFile) && (
                                                         <span className="text-slate-600">
                                                             {proofingFileKindLabel}
                                                         </span>
@@ -3353,6 +3698,7 @@ const FileUploadConfiguration = () => {
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
+                                                        disabled={uploading || exportingProof}
                                                         onClick={() => {
                                                             if (state?.productId) {
                                                                 clearSiteCheckoutDesignReady(state.productId);
@@ -3381,12 +3727,65 @@ const FileUploadConfiguration = () => {
 
                                             {previewUrl && (
                                                 <div className="border border-slate-200 bg-white p-4 shadow-inner">
+                                                    {approvedPrintModel && proofingPreview && uploadedFile && (
+                                                        <div className="mb-3">
+                                                            <PrintMockupButton key={currentProofIdentity || proofingPreview.previewUrl}
+                                                                model={approvedPrintModel} brandingOverride={branding}
+                                                                disabled={uploading || exportingProof}
+                                                                getArtwork={async () => {
+                                                                    const source = await readCheckoutUpload(supabase, uploadedFile.path);
+                                                                    if (await hashCheckoutArtifact(source) !== uploadedFile.sha256)
+                                                                        throw new Error('Trykfilen er ændret. Upload den aktuelle fil igen.');
+                                                                    if (approvedPrintModel.kind === 'flat' && proofingPreview.fileType === 'image') {
+                                                                        return { outside: await composeFolderArtwork(proofingPreview.previewUrl, {
+                                                                            physicalWidthMm: proofingPreview.physicalWidthMm,
+                                                                            physicalHeightMm: proofingPreview.physicalHeightMm,
+                                                                            scale: proofingScaleFactor, offsetXPercent: proofingOffset.x, offsetYPercent: proofingOffset.y,
+                                                                        }, approvedPrintModel.definition) };
+                                                                    }
+                                                                    const artwork = await preparePrintModelPdf(new File([source], uploadedFile.name, { type: source.type }), approvedPrintModel);
+                                                                    return placePrintArtwork(artwork, {
+                                                                        physicalWidthMm: proofingPreview.physicalWidthMm,
+                                                                        physicalHeightMm: proofingPreview.physicalHeightMm,
+                                                                        scale: proofingScaleFactor, offsetXPercent: proofingOffset.x, offsetYPercent: proofingOffset.y,
+                                                                    }, approvedPrintModel);
+                                                                }} />
+                                                        </div>
+                                                    )}
+                                                    {folderMockupDefinition && proofingPreview && (
+                                                        <div className="mb-3">
+                                                            <FolderMockupButton
+                                                                key={currentProofIdentity || proofingPreview.previewUrl}
+                                                                definition={folderMockupDefinition}
+                                                                disabled={uploading || exportingProof}
+                                                                getArtwork={() => composeFolderArtwork(proofingPreview.previewUrl, {
+                                                                    physicalWidthMm: proofingPreview.physicalWidthMm,
+                                                                    physicalHeightMm: proofingPreview.physicalHeightMm,
+                                                                    scale: proofingScaleFactor,
+                                                                    offsetXPercent: proofingOffset.x,
+                                                                    offsetYPercent: proofingOffset.y,
+                                                                }, folderMockupDefinition)}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                    <FileProofActions
+                                                        key={currentProofIdentity || 'empty'}
+                                                        approved={proofArtifactApproved}
+                                                        canApprove={canApproveHere}
+                                                        busy={exportingProof}
+                                                        issues={outsideProofIssues}
+                                                        canReview={proofAvailability.canReview}
+                                                        quickApproveAvailable={quickApproveAvailable}
+                                                        onApprove={handleApproveProofing}
+                                                        onReview={() => setProofingOpen(true)}
+                                                        onContinue={handleContinueToCheckout}
+                                                    />
                                                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[11px] uppercase tracking-[0.12em] text-slate-500">
                                                         <span className="font-semibold text-slate-700">
                                                             Visuel preview
                                                         </span>
                                                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                                            <span className={proofingApproved ? "text-green-700" : "text-amber-700"}>
+                                                            <span className={proofArtifactApproved ? "text-green-700" : "text-amber-700"}>
                                                                 {proofingApprovalLabel}
                                                             </span>
                                                             {proofingPreview && (
@@ -3469,16 +3868,6 @@ const FileUploadConfiguration = () => {
                                                             )}
                                                         </div>
                                                     </div>
-                                                    <div className="mt-4 flex flex-wrap justify-center gap-2 border-t border-slate-200 pt-4">
-                                                        {quickApproveAvailable && (
-                                                            <Button size="sm" onClick={handleApproveProofing}>
-                                                                Godkend fil
-                                                            </Button>
-                                                        )}
-                                                        <Button variant="outline" size="sm" onClick={() => setProofingOpen(true)}>
-                                                            Åbn korrektur
-                                                        </Button>
-                                                    </div>
                                                     {requiresCutContour && (proofingPreview?.fileType === "pdf" || proofingPreview?.fileType === "image") && (
                                                         <div className={`mt-4 rounded-lg border px-3 py-3 text-sm ${
                                                             proofingPreview?.fileType === "pdf"
@@ -3524,7 +3913,7 @@ const FileUploadConfiguration = () => {
                                                             <AlertCircle className="h-6 w-6 text-amber-600" />
                                                         )}
                                                         <h3 className="text-base font-semibold">
-                                                            {preflightResults.issues.length === 0 ? 'Perfekt! Din fil er klar til tryk' : 'Vi har fundet nogle potentielle problemer'}
+                                                            {preflightResults.issues.length === 0 ? 'Det automatiske filtjek er gennemført' : 'Din fil kræver gennemgang'}
                                                         </h3>
                                                     </div>
 
@@ -3562,7 +3951,7 @@ const FileUploadConfiguration = () => {
                                                                 variant="outline"
                                                                 size="sm"
                                                                 className="bg-white px-3 text-xs sm:text-sm"
-                                                                onClick={() => fileInputRef.current?.click()}
+                                                                onClick={() => { if (!uploading) fileInputRef.current?.click(); }}
                                                             >
                                                                 Upload ny fil
                                                             </Button>
@@ -3578,108 +3967,60 @@ const FileUploadConfiguration = () => {
                                                 Server-side preflight (pod2-pdf-preflight) still runs in the background
                                                 so its autoFix path can silently repair the uploaded PDF, but we no longer
                                                 surface its messages to the customer. All visible feedback comes from our
-                                                own local preflight (DPI, size, CMYK/RGB) above.
+                                                own local size checks above; source colour needs production preflight.
                                             */}
                                         </div>
                                     )}
-                                    <div className="border-t border-slate-200 pt-6">
-                                        <div className="mb-4 flex items-center gap-2">
-                                            <Info className="h-5 w-5 text-primary" />
-                                            <h3 className="text-base font-semibold text-slate-900">Tekniske Specifikationer</h3>
-                                        </div>
-                                        <div className="grid grid-cols-1 gap-3">
-                                            <div className="rounded-lg bg-muted/50 p-4 shadow-sm">
-                                                <h4 className="mb-2 text-sm font-semibold">Mål for valgt format ({resolvedFormatLabel})</h4>
-                                                <ul className="space-y-1 text-xs text-muted-foreground">
-                                                    <li>Nettoformat: {specs?.width_mm} x {specs?.height_mm} mm</li>
-                                                    <li>Bruttoformat (+beskæring): {targetWidth} x {targetHeight} mm</li>
-                                                    <li>Beskæring (Bleed): {specs?.bleed_mm} mm på alle sider</li>
-                                                    <li>Minimum opløsning: {specs?.min_dpi} DPI</li>
-                                                </ul>
-                                            </div>
-                                            <div className="rounded-lg bg-muted/50 p-4 shadow-sm">
-                                                <h4 className="mb-2 text-sm font-semibold">Download skabeloner</h4>
-                                                <div className="space-y-2">
-                                                    {product?.template_files?.map((template: TemplateFile, idx: number) => (
-                                                        <a
-                                                            key={idx}
-                                                            href={template.url}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="flex items-center gap-2 text-xs text-primary hover:underline"
-                                                        >
-                                                            <Download className="h-4 w-4" />
-                                                            {template.name} ({template.format || 'Standard'})
-                                                        </a>
-                                                    ))}
-                                                    {(!product?.template_files || product.template_files.length === 0) && (
-                                                        <p className="text-xs italic text-muted-foreground">Ingen skabeloner tilgængelige lige nu.</p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    {checkoutFormatGuideData ? (
+                                        <ProductFormatGuidePanel
+                                            data={checkoutFormatGuideData}
+                                            className="border-t border-slate-200 pt-6"
+                                        />
+                                    ) : null}
                                 </CardContent>
-                            </Card>
-
-                            {/* Best Deal Upgrades - Redesigned & Moved up */}
-                            {upsellOptions.length > 0 && (
-                                <div className="group relative overflow-hidden rounded-2xl border border-primary/20 bg-white/80 p-6 shadow-sm backdrop-blur-md transition-all">
-                                    <div className="flex flex-col gap-6">
-                                        <div className="max-w-none">
-                                            <div className="flex items-center gap-2 mb-2">
-                                                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                                                    <Sparkles className="h-4 w-4 text-primary" />
-                                                </div>
-                                                <Badge variant="secondary" className="bg-primary/10 text-primary border-none font-bold">SPAR MERE</Badge>
-                                            </div>
-                                            <h3 className="text-xl font-bold text-slate-900 mb-1">Få mere værdi</h3>
-                                            <p className="text-sm text-slate-600 leading-relaxed">Vi har fundet bedre priser ved at købe større ind.</p>
-                                        </div>
-
-                                        <div className="grid w-full grid-cols-1 gap-4">
-                                            {upsellOptions.map((opt, idx) => (
-                                                <div
-                                                    key={idx}
-                                                    className="bg-white border border-slate-100 rounded-xl p-4 flex flex-col justify-between items-stretch hover:border-primary/30 transition-colors shadow-sm"
-                                                >
-                                                    <div className="flex justify-between items-start mb-4">
-                                                        <div>
-                                                            <p className="text-sm font-medium text-slate-500">Mængde</p>
-                                                            <p className="text-2xl font-black text-slate-900">{opt.quantity.toLocaleString()} <span className="text-xs font-normal text-slate-400">stk</span></p>
-                                                            <Badge className="bg-green-500/10 text-green-600 hover:bg-green-500/15 border-none mt-1 text-[10px] font-bold">
-                                                                SPAR {opt.savingPercent}%
-                                                            </Badge>
-                                                        </div>
-                                                        <div className="text-right">
-                                                            <p className="text-[10px] text-slate-400 line-through">
-                                                                {orderQuantity > 0 ? (orderPrice * (opt.quantity / orderQuantity)).toFixed(0) : 0} kr
-                                                            </p>
-                                                            <p className="text-xl font-bold text-primary">{opt.price} kr</p>
-                                                            <p className="text-[9px] text-slate-400">ex. moms</p>
-                                                        </div>
-                                                    </div>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="w-full border-primary/20 text-primary hover:bg-primary hover:text-white transition-all font-bold group/btn"
-                                                        onClick={() => handleUpgrade(opt.quantity, opt.price)}
-                                                    >
-                                                        Vælg {opt.quantity.toLocaleString()} stk
-                                                        <ArrowRight className="ml-2 h-3 w-3 group-hover/btn:translate-x-0.5 transition-transform" />
-                                                    </Button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
+                            </Card>);
+    return (
+        <StorefrontThemeFrame
+            branding={branding}
+            orderDesign={checkoutDesign}
+            tenantName={tenantName}
+        >
+            <main
+                className="storefront-order-flow storefront-checkout-flow flex-1 container mx-auto px-4 py-12"
+                data-storefront-order-flow="checkout"
+                data-branding-id="colors.background"
+            >
+                <OrderDesignPreviewSwitch page="checkout" value={checkoutDesign} />
+                {!paymentSuccess && (orderPersistWarning || hasCheckoutRecovery || recoverablePaymentId || finalizingPayment) && (
+                    <div role="status" className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                        <p>{finalizingPayment ? "Kontrollerer betaling og gemt ordre…" : orderPersistWarning || "Du har en påbegyndt betaling. Kontrollér den, før du starter en ny."}</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            <Button type="button" variant="outline" disabled={finalizingPayment || paymentLoading} onClick={() => void handlePaymentSuccess()}>Kontrollér betaling og ordre</Button>
+                            <Button type="button" variant="outline" disabled={finalizingPayment || paymentLoading} onClick={() => void cancelPendingPayment()}>Annuller påbegyndt betaling</Button>
                         </div>
                     </div>
-                </div>
+                )}
+                <OrderCheckoutLayout design={checkoutDesign} onBack={handleBackToConfiguration}
+                    contactSummary={[customerName, customerEmail].filter(Boolean).join(' · ')}
+                    contact={contactForm} file={fileForm} summary={orderSummary}
+                    delivery={activeDeliveryMethods.length ? deliveryForm : null}
+                    deliverySummary={`${activeDeliveryMethods.find(method => method.id === shippingSelected)?.name || 'Levering'} · ${shippingCost} kr`}
+                    advanced={advancedForm}
+                    extras={<CheckoutProductValue name={displayProductName} imageUrl={product?.image_url}
+                        settings={String(state?.summary || '').split('•').map((part: string) => part.trim()).filter((part: string) => part && part !== displayProductName && !/^[\d., ]+\s*stk\.?$/i.test(part))}
+                        quantity={orderQuantity} price={orderPrice} tiers={quantityTiers}
+                        onEdit={handleEditProduct} onSelect={handleUpgrade} />}
+
+                />
             </main>
             <Dialog open={proofingOpen} onOpenChange={setProofingOpen}>
-                <DialogContent className="max-w-6xl p-0 overflow-hidden">
+                <PrintJourneyDialogContent className="order-proof-dialog max-w-6xl p-0 overflow-hidden" data-order-design={proofDesign}
+                    onCloseAutoFocus={event => {
+                        if (!returnToCheckoutAfterProofRef.current) return;
+                        event.preventDefault();
+                        returnToCheckoutAfterProofRef.current = false;
+                        handleContinueToCheckout();
+                    }}>
                     <DialogHeader className="border-b border-slate-200 px-6 py-4">
                         <DialogTitle>Filkorrektur</DialogTitle>
                         <DialogDescription>
@@ -3687,8 +4028,9 @@ const FileUploadConfiguration = () => {
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_320px]">
-                        <div className="bg-white p-6">
+                    <OrderDesignPreviewSwitch page="proof" value={proofDesign} />
+                    <ProofReviewLayout design={proofDesign}
+                        canvas={                        <div className="order-proof-canvas bg-white p-6">
                             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-white/80">
                                 <div>
                                     <p className="text-sm font-semibold text-slate-900">
@@ -3806,17 +4148,18 @@ const FileUploadConfiguration = () => {
                                     </div>
                                 </div>
                             </div>
-                        </div>
-
-                        <div className="space-y-5 bg-white p-6">
+                        </div>}
+                        status={<div className="order-proof-status space-y-5 bg-white p-6">
                             <div className="space-y-2">
                                 <p className="text-sm font-semibold text-slate-900">Filstatus</p>
-                                <div className={`rounded-lg border px-3 py-3 text-sm ${originalFilePrimaryIssue ? "border-amber-200 bg-amber-50 text-amber-900" : "border-green-200 bg-green-50 text-green-900"}`}>
+                                <div className={`rounded-lg border px-3 py-3 text-sm ${!preflightResults && !activeDesignerProductionFile ? "border-slate-200 bg-slate-50 text-slate-700" : originalFilePrimaryIssue ? "border-amber-200 bg-amber-50 text-amber-900" : "border-green-200 bg-green-50 text-green-900"}`}>
                                     <p className="font-medium">
-                                        {originalFilePrimaryIssue ? "Originalfil: tjek" : "Originalfil: ok"}
+                                        {!preflightResults && !activeDesignerProductionFile ? "Originalfil: ikke tjekket i denne session" : originalFilePrimaryIssue ? "Originalfil: tjek" : "Originalfil: ok"}
                                     </p>
                                     <p className="mt-1 text-xs">
-                                        {originalFilePrimaryIssue || `${proofingFileKindLabel}. Filformatet ser korrekt ud.`}
+                                        {!preflightResults && !activeDesignerProductionFile
+                                            ? "Kontrollér den gemte fil manuelt, eller upload den igen for et nyt filtjek."
+                                            : originalFilePrimaryIssue || `${proofingFileKindLabel}. Filformatet ser korrekt ud.`}
                                     </p>
                                 </div>
                                 {proofingDpiWarning && (
@@ -3904,69 +4247,64 @@ const FileUploadConfiguration = () => {
                                 </div>
                                 <div>
                                     <p className="text-xs text-slate-500">
-                                        Brug fuld designer for nøjagtig soft proof og finjustering. Denne korrektur viser størrelse, bleed og sikkerhedszone.
+                                        {checkoutUploadHelpText} Denne korrektur viser størrelse, bleed og sikkerhedszone.
                                     </p>
                                 </div>
                             </div>
 
+                            {proofNeedsExport && !canExportImageHere && proofAvailability.canReview && (
+                                <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                                    <p className="font-medium">Filen kræver klargøring før ordre</p>
+                                    <p className="mt-1">
+                                        Den viste størrelse eller placering er ikke gemt i trykfilen. Nulstil eventuelle justeringer,
+                                        eller upload en trykklar PDF i produktets mål inklusive bleed.
+                                        {checkoutFlowNotice.showDesignerAction && " Du kan også selv vælge designeren nedenfor."}
+                                    </p>
+                                </div>
+                            )}
                             <div className="flex flex-col gap-2 pt-2">
-                                <Button type="button" onClick={handleApproveProofing}>
-                                    Godkend fil og fortsæt
-                                </Button>
-                                <Button type="button" variant="outline" onClick={handleOpenFullDesigner}>
-                                    Åbn fuld designer
-                                </Button>
+                                {proofNeedsExport && !canExportImageHere && proofAvailability.canReview ? (
+                                    <Button type="button" variant="outline" onClick={() => { setProofingOpen(false); fileInputRef.current?.click(); }}>
+                                        Upload ny trykfil
+                                    </Button>
+                                ) : (
+                                    <StorefrontPrimaryButton type="button" disabled={!canApproveHere || exportingProof} onClick={handleApproveProofing}>
+                                        Godkend fil og fortsæt
+                                    </StorefrontPrimaryButton>
+                                )}
+                                {checkoutFlowNotice.showDesignerAction && (
+                                    <Button type="button" variant="outline" onClick={handleOpenFullDesigner}>
+                                        {checkoutFlowNotice.designerActionLabel}
+                                    </Button>
+                                )}
                                 <Button type="button" variant="outline" onClick={() => setProofingOpen(false)}>
                                     Luk korrektur
                                 </Button>
                             </div>
-                        </div>
-                    </div>
-                </DialogContent>
+                        </div>}
+                    />
+                </PrintJourneyDialogContent>
             </Dialog>
 
-            {/* Payment Modal Overlay */}
             {showPaymentModal && paymentClientSecret && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="relative w-full max-w-md animate-in fade-in zoom-in duration-200">
-                        <button
-                            onClick={handlePaymentCancel}
-                            className="absolute -top-12 right-0 text-white hover:text-white/80 transition-colors"
-                        >
-                            <X className="h-6 w-6" />
-                        </button>
-                        <StripePaymentForm
+                <OrderFlowDialog open onClose={handlePaymentCancel} title="Betaling" design={paymentDesign} shopName={tenantName}>
+                    <OrderPaymentLayout design={paymentDesign} receipt={receipt} onBack={handlePaymentCancel}
+                        form={                        <StripePaymentForm
                             clientSecret={paymentClientSecret}
                             amount={checkoutTotal}
                             currency="dkk"
                             onSuccess={handlePaymentSuccess}
                             onCancel={handlePaymentCancel}
                             connectedAccountId={paymentConnectedAccountId}
-                        />
-                    </div>
-                </div>
+                        />} />
+                </OrderFlowDialog>
             )}
-
-            {/* Payment Success Overlay */}
             {paymentSuccess && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <Card className="w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-                        <CardContent className="pt-8 pb-8 text-center">
-                            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                                <CheckCircle2 className="w-12 h-12 text-green-600" />
-                            </div>
-                            <h2 className="text-2xl font-bold text-green-800 mb-2">
-                                Tak for din ordre!
-                            </h2>
-                            <p className="text-muted-foreground mb-6">
-                                {orderSuccessMessage}
-                            </p>
-                            {createdOrderNumber && (
-                                <p className="text-sm font-medium text-slate-700 mb-3">
-                                    Ordrenummer: {createdOrderNumber}
-                                </p>
-                            )}
-                            {sizeDistributionSummary && (
+                <OrderFlowDialog open onClose={() => navigate('/')} title="Ordrebekræftelse" design={confirmationDesign} shopName={tenantName}>
+                    <OrderConfirmationLayout design={confirmationDesign} receipt={confirmedReceipt || receipt}
+                        orderNumber={createdOrderNumber} message={orderSuccessMessage}
+                        warning={Boolean(orderPersistWarning)} onHome={() => navigate('/')}
+                        notices={<>                            {!confirmedReceipt && sizeDistributionSummary && (
                                 <div className="mb-6 rounded-lg border border-primary/20 bg-primary/5 p-3 text-left">
                                     <p className="text-xs font-semibold text-primary">Størrelsesfordeling</p>
                                     <p className="text-sm text-muted-foreground">{sizeDistributionSummary}</p>
@@ -3984,12 +4322,8 @@ const FileUploadConfiguration = () => {
                                     <p className="text-sm text-amber-700">{orderNotificationWarning}</p>
                                 </div>
                             )}
-                            <Button onClick={() => navigate("/")} className="w-full">
-                                Tilbage til forsiden
-                            </Button>
-                        </CardContent>
-                    </Card>
-                </div>
+</>} />
+                </OrderFlowDialog>
             )}
         </StorefrontThemeFrame>
     );

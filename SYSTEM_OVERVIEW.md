@@ -1,5 +1,7 @@
 # Printmaker Web Craft - Complete System Overview
 
+Latest 17 September update (07:59 UTC): **all three production sites are LIVE with checkout, private uploads and live order-email processing enabled.** Thomas completed legacy API-key disable and signing-key migration, rotation and revocation. The old credential is rejected as both API key and bearer; modern credentials and signed artwork downloads pass. All 201 products, 357,913 generic price rows and 91 stored files remain. The scheduled email worker returns 200 with no messages sent. No credential approval remains. Fresh live authenticated acceptance and a real paid-order/production proof are still separate; no real payment was made. See [the current checkpoint](docs/PRODUCTION_ROLLOUT_CHECKPOINT_2026-09-17.md) before relying on historical notes below.
+
 > **Use this document to give AI assistants (like ChatGPT) full context about this project.**
 > Simply paste this entire document when starting a new conversation about the codebase.
 
@@ -13,6 +15,13 @@
 2. Let customers design print products online using a professional canvas editor
 3. Manage orders, products, pricing, and branding per tenant
 4. Provide a B2B Reorder Portal (Company Hub) for business clients to reorder customized products
+
+Latest non-destructive system review:
+- `docs/SYSTEM_REVIEW_RECOMMENDATIONS_2026-06-27.md`
+
+The main review guidance is to harden service-role Edge Functions, Stripe
+amount calculation, admin role verification, and PDF-service input ownership
+before adding more large product surfaces.
 
 ---
 
@@ -134,6 +143,40 @@ company_hub_items (id, company_id, product_id, design_id, title, thumbnail_url, 
 3. **CMYK Soft Proofing**: ICC profile simulation overlay
 4. **Design Save**: Saves to `designer_saved_designs` with thumbnail in `product-images` bucket
 5. **PDF Export**: High-DPI canvas export to PDF with bleed
+6. **Vector-Preserved PDF Import**: Imported PDFs keep original bytes for vector PDF export.
+
+### PDF Designer + Service Foundation
+
+Current implemented slice:
+- `src/components/designer/PDFImportModal.tsx`
+  - Imports PDF pages with PDF.js.
+  - Supports page selection, rotate, crop-to-document ratio, stamp text,
+    signature text, and text color.
+  - Rebuilds edited pages with `pdf-lib` and passes edited bytes through the
+    same vector-preserving import path.
+- `src/components/designer/PdfToolsPanel.tsx`
+  - Appears when a PDF background is selected.
+  - Supports center/fit, previous/next page switching, reopen/edit selected PDF,
+    replace selected PDF, CutContour extraction, vector export handoff, PDF
+    service scan, and a compact design-product-flow checklist.
+- `src/lib/designer/pdfService.ts`
+  - Shared browser/edge PDF service report model.
+  - Browser inspection fallback for page count, first-page size, file size, and
+    warnings.
+- `supabase/functions/designer-pdf-service/index.ts`
+  - Generic designer PDF Edge Function, separate from POD v2.
+  - Supports `inspect` now and reports future capability states for OCR,
+    compression, repair, PDF/A, true redaction, and form flattening.
+
+Remaining expansion points:
+- Deploy `designer-pdf-service` when server-side inspection is needed:
+  `supabase functions deploy designer-pdf-service`.
+- Connect a real external PDF processor before enabling OCR, compression,
+  repair, PDF/A conversion, true redaction, or form flattening.
+- Add deeper save/load/export regression tests for designs containing edited PDF
+  backgrounds.
+- Keep Stirling-PDF as architecture inspiration only unless licensing and
+  deployment/privacy review explicitly approve direct reuse.
 
 ### Document Specification
 ```typescript
@@ -169,7 +212,7 @@ interface DocumentSpec {
 ```
 Designer saves → designer_saved_designs table
                  + thumbnail → product-images bucket
-                 
+
 useDesignLibrary hook → fetches based on tab:
   - 'mine' → designer_saved_designs (user's own)
   - 'skabeloner' → designer_templates (active templates)
@@ -263,6 +306,16 @@ interface BrandingData {
 1. Changes saved to `branding_drafts` table
 2. Preview mode loads draft data
 3. Publish copies draft → `tenant_branding` (live)
+
+### Shopdesign
+
+Site Design V2 separates complete shop presentation recipes from visual themes.
+Ten versioned recipes control header, product menu, category navigation,
+catalogue, product cards, product page, checkout, footer and motion while
+preserving tenant products, prices, content and brand settings. Five product
+menu layouts can be selected independently. Architecture, compatibility rules
+and the template list are documented in
+`docs/SHOP_TEMPLATE_SYSTEM_2026-07-27.md`.
 
 ---
 
@@ -381,226 +434,37 @@ The soft proofing system simulates how colors will look when printed in CMYK, wh
 
 **CRITICAL**: The overlay is a **visual preview only**. It does NOT modify the Fabric canvas. When you save/export, you work with the original Fabric canvas, NOT the overlay.
 
-### File Architecture
+### Implementation (2026-09-09)
 
-```
-src/
-├── hooks/
-│   └── useColorProofing.ts          # 🔒 PROTECTED - Main hook (490 lines)
-│       • Creates Web Worker
-│       • Manages proofing state
-│       • Captures canvas → sends to worker → receives transformed data → renders overlay
-│       • Provides exportCMYK() for PDF export
-│
-├── workers/
-│   └── colorProofing.worker.ts      # 🔒 PROTECTED - Web Worker (381 lines)
-│       • Loads lcms-wasm (Little CMS compiled to WebAssembly)
-│       • Creates ICC transforms (sRGB → CMYK simulation)
-│       • Processes pixel data in batches
-│       • Returns transformed ImageData
-│
-├── lib/color/
-│   └── iccProofing.ts               # 🔒 PROTECTED - Configuration (126 lines)
-│       • ICC profile definitions
-│       • Settings storage (localStorage)
-│       • Type definitions
-│
-└── pages/
-    └── Designer.tsx                  # Uses useColorProofing hook
-        • proofingOverlayRef → HTML canvas overlay
-        • colorProofing.settings.enabled → shows/hides overlay
-```
+- `useColorProofing.ts` captures only the visible document intersection at device pixel density. `proofPreviewGeometry.ts` supplies viewport-relative CSS bounds and a 12-million-pixel / 8192-axis budget. The overlay uses those bounds directly; no intermediate logical-size resampling.
+- `colorProofing.worker.ts` uses the existing LittleCMS WASM wrapper. Keep the three-argument `cmsDoTransform(transform, input, count)` API. Profile revisions and request tickets discard stale frames after edits, zoom, or profile changes. During editing/pending refresh the original canvas remains visible.
+- The gray pasteboard and guides remain outside the simulated artwork. Proofing does not change original Fabric colors/geometry, imported PDF bytes, or selection behavior.
+- The optional green warning marks a large RGB color shift. It is an approximation, not a measured gamut boundary or contract proof.
 
-### ICC Profiles
+### Profile identity and storage
 
-**Location**: `/public/icc/`
+`src/lib/color/iccProofing.ts` lists FOGRA39 300%, FOGRA51 and FOGRA52 as output recipes and sRGB as the browser design input space. FOGRA39 and sRGB remain existing public assets. New ECI profiles are installed per shop from their official sources because their profile redistribution terms are separate from the engine's license. Developer copies live in ignored `tmp/local-color-profiles`; the dev-only Vite plugin never copies them to a production build.
 
-| File | Purpose |
-|------|---------|
-| `sRGB_IEC61966-2-1.icc` | Input profile (how screen displays colors) |
-| `ISOcoated_v2_300_eci.icc` | FOGRA39 - European coated paper standard |
+`profileResolver.ts` resolves the exact selected identity, validates ICC structure/class/channels/size and SHA-256, and enforces tenant-scoped lookup. Unknown, unavailable or changed profiles fail explicitly. There is no fallback from a failed selected profile to FOGRA39. `useProductColorProfile.ts` rejects stale product requests.
 
-**Custom Profiles**: Products can have custom ICC profiles stored in Supabase `icc-profiles` bucket. These are loaded via `useProductColorProfile` hook and passed to `useColorProofing`.
+Custom files use the existing **`color-profiles`** storage bucket and `color_profiles` table. New uploads use `<tenant>/<uuid>/<sha256>.icc`. Uploaded UUIDs remain in `products.output_color_profile_id`; standard recipe IDs and method guidance live in `technical_specs.color_management`. Saved design JSON contains `__webprinterColor` with version, ID, name and checksum, without ICC binary duplication. The stored hash is checked when reopening the profile.
 
-### How Proofing Works (Step by Step)
+### Print, proof and order files
 
-```
-1. User enables "Soft Proof" toggle
-   ↓
-2. useColorProofing captures Fabric canvas (document area only, excluding pasteboard):
-   fabricCanvas.toDataURL({ left: pasteboardOffset, top: pasteboardOffset, ... })
-   ↓
-3. ImageData extracted and sent to Web Worker:
-   worker.postMessage({ type: 'transform', imageData, ... })
-   ↓
-4. Worker creates proofing transform using lcms-wasm:
-   cmsCreateProofingTransform(sRGB, sRGB, CMYK_Profile, SOFTPROOFING_FLAG)
-   This means: Input RGB → Output RGB, but *simulating* what it would look like if converted to CMYK and back
-   ↓
-5. Worker transforms pixels in batches (4096 pixels at a time for memory management):
-   - Extract RGB from RGBA
-   - cmsDoTransform(transform, inputBatch, count) → returns transformed RGB
-   - If gamut warning enabled: calculate color delta, mark out-of-gamut pixels
-   ↓
-6. Worker returns transformed ImageData back to main thread
-   ↓
-7. Hook draws transformed ImageData to overlay canvas positioned over document area:
-   - overlay positioned at (pasteboardOffset, pasteboardOffset)
-   - size matches document dimensions (docWidth × docHeight)
-   - pointer-events: none - user interacts with Fabric canvas underneath
-```
+`src/lib/designer/export/createProductionPdf.ts` is the common production builder for downloads and order artwork. The implementation combines existing LittleCMS, jsPDF and pdf-lib with MIT-licensed svg2pdf.js and @pdf-lib/fontkit:
 
-### Overlay Positioning (CRITICAL)
+- Supported new shapes and text remain vector paths. Text uses actual font files; self-hosted Inter is supplied under OFL-1.1. Unsupported effects/fonts use bounded, physical-resolution raster fallback per object with an explicit warning.
+- CMYK mode transforms new artwork using the selected ICC bytes. Raster streams contain actual four-channel samples; generated vector paints use CMYK operators. Black vector text/line art stays K-only. A real embedded ICC OutputIntent describes the target.
+- sRGB mode tags new artwork as sRGB and avoids a CMYK conversion. Imported PDFs retain their existing colors; neither mode promises conversion of all imported content.
+- Imported PDF pages preserve vectors and available source profile context. Unsupported imports fail explicitly rather than silently drop content.
+- CutContour remains a named spot separation. Trim/bleed boxes and document crop are preserved, including on assembled template pages.
+- Apparel PNG uses original RGB artwork with alpha, never the proof simulation. Editor guides and page-border strokes are excluded; intentional document fill is retained (transparent for apparel).
 
-```tsx
-// In Designer.tsx
-<canvas
-    ref={proofingOverlayRef}
-    className="absolute pointer-events-none"
-    style={{
-        left: PASTEBOARD_PADDING,      // Start where document starts
-        top: PASTEBOARD_PADDING,
-        width: docWidth,               // Document size only (no pasteboard)
-        height: docHeight,
-        mixBlendMode: 'normal',
-        zIndex: 10,                    // Above Fabric, below guide lines (z-20+)
-    }}
-/>
-```
+`exportActions.ts` uses the production builder for print/vector exports and `buildProofPdfBytes` only for an explicitly selected proof PDF. Proof PDFs are raster RGB simulations and must not be sent as production CMYK files. Multi-page assembly preserves page boxes and receives the selected output intent for CMYK production.
 
-The overlay covers **only the document area** (the actual print area), not the gray pasteboard around it.
+This is not PDF/X certification, a full PDF color-conversion engine, or a calibrated physical print proof. Relative colorimetric intent with black-point compensation remains the current default. The optional Stirling adapter is not required for this path.
 
-### Settings Structure
-
-```typescript
-interface ProofingSettings {
-    enabled: boolean;               // Master toggle
-    outputProfileId: string;        // e.g., 'fogra39' or custom UUID
-    showGamutWarning: boolean;      // Show out-of-gamut areas in green
-    gamutWarningColor: string;      // Default: '#00ff00'
-    // Custom profile support (loaded per-product)
-    customProfileId?: string;
-    customProfileName?: string;
-    customProfileBytes?: ArrayBuffer | null;  // Never saved to localStorage!
-}
-```
-
-Settings (except `customProfileBytes`) persist to `localStorage` key: `designer_proofing_settings`
-
-### Export vs Preview: THE CRITICAL DIFFERENCE
-
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                           PREVIEW (Live Overlay)                          │
-├──────────────────────────────────────────────────────────────────────────┤
-│ • Uses proofing transform: RGB → RGB (simulating CMYK roundtrip)         │
-│ • Scaled down for performance (max 1000px dimension)                      │
-│ • Updates on every canvas change (debounced 200ms)                        │
-│ • Hides during interaction (mouse:down) for performance                   │
-│ • DOES NOT AFFECT the actual Fabric canvas data                           │
-└──────────────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────────────┐
-│                           EXPORT (PDF Generation)                         │
-├──────────────────────────────────────────────────────────────────────────┤
-│ • Uses exportCMYK() function from useColorProofing                        │
-│ • Captures HIGH RESOLUTION canvas (300 DPI by default)                    │
-│ • Creates TWO transforms in worker:                                       │
-│   1. RGB → CMYK: Actual CMYK data for print                               │
-│   2. RGB → RGB (proofed): For embedding in PDF as preview                 │
-│ • Returns { cmykData, proofedRgbDataUrl, width, height }                  │
-│ • Currently: PDF uses proofedRgbDataUrl (CMYK-simulated RGB image)        │
-│ • The cmykData is available but not yet used (future: CMYK PDF support)   │
-└──────────────────────────────────────────────────────────────────────────┘
-```
-
-### Export Flow in Designer.tsx
-
-```typescript
-// In handleSaveAsPDF():
-const cropOptions = {
-    left: PASTEBOARD_PADDING_PX,     // Capture from bleed start
-    top: PASTEBOARD_PADDING_PX,
-    width: (width_mm * MM_TO_PX) + (bleed * 2),   // Full bleed area
-    height: (height_mm * MM_TO_PX) + (bleed * 2)
-};
-
-const { cmykData, proofedRgbDataUrl, width, height } = await colorProofing.exportCMYK(
-    SRGB_PROFILE_URL,           // Input profile
-    profile.url,                // Output profile (FOGRA39 or custom)
-    productProfile.profileBytes, // Custom profile data if available
-    cropOptions                 // What area to capture
-);
-
-// Create PDF at full bleed size
-const doc = new jsPDF({ format: [pdfWidth, pdfHeight] });
-doc.addImage(proofedRgbDataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
-```
-
-### Worker Message Protocol
-
-```typescript
-// INIT - Load ICC profiles into worker
-{ type: 'init', id: string, inputProfileData: ArrayBuffer, outputProfileData: ArrayBuffer }
-→ { type: 'ready', id }
-
-// TRANSFORM - Live preview proofing
-{ type: 'transform', id, imageData: ImageData, showGamutWarning, gamutWarningColor }
-→ { type: 'transformed', id, imageData: ImageData, gamutMask?: ImageData }
-
-// EXPORT - High-res CMYK + proofed RGB
-{ type: 'transform-to-cmyk', id, imageData, inputProfileData, outputProfileData }
-→ { type: 'cmyk-transformed', id, cmykData, proofedImageData, width, height }
-
-// ERROR
-→ { type: 'error', id, error: string }
-```
-
-### Performance Optimizations
-
-1. **Web Worker**: All color transforms run off main thread
-2. **Batch Processing**: Pixels processed in 4096-pixel batches to manage memory
-3. **Preview Scaling**: Live preview limited to 1000px max dimension
-4. **Debouncing**: Canvas changes debounced (200ms) before re-processing
-5. **Interaction Hiding**: Overlay hidden during drag/move operations
-6. **Transferable Objects**: ImageData buffers transferred (not copied) between threads
-
-### Gamut Warning System
-
-When `showGamutWarning` is enabled:
-- Worker compares original RGB to transformed RGB
-- If `delta > 35` (color shift threshold), pixel is marked as out-of-gamut
-- Gamut mask rendered as semi-transparent overlay (green by default, alpha 150)
-- Helps users identify colors that will shift significantly in print
-
-### ⚠️ CRITICAL WARNINGS FOR DEVELOPERS
-
-1. **NEVER modify the Fabric canvas based on proofing data**
-   - The overlay is preview-only
-   - Users must be able to toggle proof off and see their true RGB colors
-
-2. **NEVER include the overlay in exports**
-   - Export captures from Fabric canvas directly using `toDataURL`
-   - Overlay is positioned with CSS, not part of Fabric layer
-
-3. **The proofedRgbDataUrl is NOT the same as cmykData**
-   - `proofedRgbDataUrl`: RGB image that LOOKS like what CMYK will print (for preview/PDF)
-   - `cmykData`: Actual CMYK pixel values (for future true CMYK PDF support)
-
-4. **Profile loading must complete before transform works**
-   - Check `isWorkerReady` before attempting transforms
-   - Profiles are loaded async; UI should show loading state
-
-5. **Custom profiles are NOT saved to localStorage**
-   - ArrayBuffer too large and can't be JSON serialized
-   - Must be re-loaded each session from Supabase
-
-### Future Considerations
-
-- **True CMYK PDF**: Currently exports RGB image with CMYK simulation. Future: embed actual CMYK data
-- **ICC Profile Editor**: Allow admins to manage/upload custom profiles
-- **Paper Simulation**: Add paper white point simulation (not just ink gamut)
-- **Multiple Render Intents**: Currently uses Relative Colorimetric; could add Perceptual option
+See `docs/COLOR_MANAGEMENT_IMPLEMENTATION_2026-09-09.md` for verification, setup, limits and rollback.
 
 ---
 
@@ -612,9 +476,24 @@ When `showGamutWarning` is enabled:
 4. **Tenant ID format**: UUID, master tenant is all zeros
 5. **Check workflows** in `.agent/workflows/` for specific procedures
 6. **Soft proofing overlay is VISUAL ONLY** - never affects Fabric canvas data
-7. **Export uses `exportCMYK()` function**, not the overlay canvas
+7. **Production export uses `createProductionPdf()`**; `exportCMYK()` is for explicit proof output, never the overlay canvas
 8. **Worker uses lcms-wasm** - the API returns output, not modifies input
 9. **Company Hub uses RLS** - admins of matching `tenant_id` can manage companies; members can see `hub_items`.
+
+## Designer PDF Processing
+
+The online designer keeps Fabric and vector PDF export as its production
+authoring path. Optional heavy PDF operations go through the authenticated
+`designer-pdf-service` Edge Function and a private Stirling-PDF provider.
+
+- Inputs are downloaded with the caller's Supabase RLS context.
+- Provider credentials remain server-side.
+- Results are stored immutably under the authenticated user's ID.
+- Redaction is intentionally rasterized; form flattening is forms-only.
+- PDF/A is archival and does not replace PDF/X or print preflight.
+- The provider is disabled until its enablement and license secrets are set.
+
+See `docs/STIRLING_PDF_INTEGRATION.md` for deployment and rollback.
 
 ---
 
@@ -628,6 +507,31 @@ A whitelabel portal where business clients can log in and find their "pre-approv
 - **User Portal**: Located in `/company`. Uses `CompanyHub` page and `CompanyHubGrid`.
 - **Data Hook**: `useCompanyHub(tenantId)` handles all Supabase interactions.
 
+### V2 Foundation (2026-07-13)
+
+Company Hub V2 is additive and remains behind the existing `company-hub`
+module boundary. The prepared foundation migration adds offices, company-owned
+addresses, office-scoped members and catalogue items, visual categories,
+versioned controlled-template bindings and fields, private asset metadata,
+order requests, consultant requests, and activity events. Every new record is
+scoped by both `tenant_id` and `company_id`, with explicit Data API grants and
+RLS policies.
+
+Focused application boundaries now live in `src/lib/company-hub/`:
+
+- `types.ts` defines V2 roles and entities while preserving legacy rows.
+- `access.ts` maps `company_user` to `company_buyer` and centralizes role
+  capabilities.
+- `repository.ts` isolates Company Hub reads from UI components.
+- `checkout.ts` rejects zero, missing, stale, or mismatched quote handoffs before
+  adding Company Hub context to the existing checkout state.
+
+The V2 migration is prepared locally but is not active in the linked Supabase
+project until its remote migration history is reconciled and the migration is
+applied. Existing V1 screens continue to operate during the staged rollout.
+Company Hub catalogue rows continue to reference current tenant products; they
+never copy or recalculate pricing.
+
 ### Features
 1. **User Discovery**: Admin can search for users by name/email within their tenant to add them to a company.
 2. **Design Linkage**: A Hub Item can point to a `design_id`. Clicking "Order" in the portal will load that specific design directly into the checkout/designer.
@@ -637,3 +541,6 @@ A whitelabel portal where business clients can log in and find their "pre-approv
 
 *Last updated: January 6, 2026*
 
+## Connection repair checkpoint — 2026-09-08
+
+Local repairs cover truthful/conflict-checked branding persistence, atomic server-verified checkout order/files, approved-byte hashes, customer replacement/read-receipt authorization, checkout address integrity and Designer save/login safeguards. The follow-up adds server STORFORMAT quotes using the existing formula, verified per-area option dimensions, and `storefront_order_email_outbox` queued in the finalizer transaction. `storefront-order-email-dispatch` claims frozen messages with scoped test/live modes and bounded retries. Read `docs/SYSTEM_CONNECTION_REPAIRS_2026-09-08.md` for the six-migration matched packet. Nothing here is deployed; missing stored prices, optional operational follow-ups and hosted two-shop/two-account acceptance remain open. Preserve the dirty worktree, existing pricing formulas/POD behavior and selected designs.

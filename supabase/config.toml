@@ -9,6 +9,9 @@ verify_jwt = true
 [functions.create-admin-user]
 verify_jwt = true
 
+[functions.company-hub-invite-member]
+verify_jwt = true
+
 [functions.designer-pdf-service]
 verify_jwt = true
 
@@ -61,7 +64,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.pod2-printcom-sync-status]
-verify_jwt = true
+verify_jwt = false
 
 [functions.pod2-submit-to-printcom]
 verify_jwt = true
@@ -88,10 +91,10 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.pricing-read]
-verify_jwt = true
+verify_jwt = false
 
 [functions.product-detail-read]
-verify_jwt = true
+verify_jwt = false
 
 [functions.search-console]
 verify_jwt = true
@@ -111,6 +114,11 @@ verify_jwt = false
 [functions.send-order-email]
 verify_jwt = true
 
+# Dedicated scheduler bearer secret is verified by the worker; browser JWTs
+# cannot drain this service-only outbox. Dispatch defaults to disabled.
+[functions.storefront-order-email-dispatch]
+verify_jwt = false
+
 [functions.send-quote-emails]
 verify_jwt = true
 
@@ -129,6 +137,9 @@ verify_jwt = true
 [functions.supplier-bank-create-delta-review]
 verify_jwt = true
 
+[functions.supplier-bank-url-import]
+verify_jwt = true
+
 [functions.stripe-connect-create-or-get]
 verify_jwt = true
 
@@ -140,6 +151,15 @@ verify_jwt = true
 
 [functions.stripe-create-payment-intent]
 verify_jwt = true
+
+[functions.storefront-file-access]
+verify_jwt = true
+
+[functions.stripe-finalize-checkout]
+verify_jwt = true
+
+[functions.stripe-storefront-webhook]
+verify_jwt = false
 
 [functions.stripe-subscription-create-checkout]
 verify_jwt = true
@@ -157,4 +177,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.verify-admin]
+verify_jwt = true
+
+[functions.erp-shadow-dispatch]
 verify_jwt = true

@@ -1,0 +1,147 @@
+/* Presets 6–9 share their visual language across the existing shopping flow. */
+[data-print-journey] {
+  --journey-radius:6px; --journey-panel:24px;
+  --journey-line:color-mix(in srgb,var(--journey-ink) 16%,var(--journey-paper));
+  color:var(--journey-ink); font-family:var(--journey-body-font);
+}
+[data-print-journey="print-atelier"] { --journey-radius:22px; --journey-panel:28px; }
+[data-print-journey="print-signal"], [data-print-journey="print-form"] { --journey-radius:0px; }
+[data-print-journey="print-partner"] { --journey-panel:20px; }
+body [data-print-journey], body [data-print-journey] [data-order-design] {
+  --flow-ink:var(--journey-ink); --flow-muted:var(--journey-muted);
+  --flow-blue:var(--journey-primary); --flow-tint:var(--journey-surface); --flow-line:var(--journey-line);
+  font-family:var(--journey-body-font); color:var(--journey-ink);
+}
+body [data-print-journey] .storefront-order-flow { background:var(--journey-paper) !important; }
+body [data-print-journey] :is(.storefront-order-flow,.order-payment-page,.order-confirmation-page) {
+  font-family:var(--journey-body-font);
+}
+body [data-print-journey] :is(.storefront-order-flow,.order-payment-page,.order-confirmation-page,.print-catalog) :is(h1,h2,h3,h4) {
+  font-family:var(--journey-heading-font); color:var(--journey-ink); overflow-wrap:anywhere;
+}
+body [data-print-journey] :is(.order-checkout-content,.order-checkout-summary,.order-calculator-left,.order-calculator-right,.print-catalog-results) { min-width:0; }
+body [data-print-journey] :is(.order-page-heading,.order-receipt,.order-flow-steps,.print-catalog-heading) :is(p,span,strong,dt,dd,button) { overflow-wrap:anywhere; }
+body [data-print-journey] .order-receipt dd,
+body [data-print-journey] .price-panel-price { font-family:var(--journey-pricing-font); font-variant-numeric:tabular-nums; }
+body [data-print-journey] .storefront-order-flow { max-width:1488px; }
+body [data-print-journey] .print-shop > .storefront-order-flow { padding-top:var(--ui-space-8) !important; }
+body [data-print-journey] .storefront-order-product-image { background:var(--journey-surface); border-radius:var(--journey-radius); overflow:hidden; }
+body [data-print-journey] :is(.workspace-product-media,.workspace-product-media-empty) { background:var(--journey-surface); border-radius:var(--journey-radius); }
+body [data-print-journey] :is(.order-calculator-summary,.order-checkout-summary,.order-confirmation-next,.order-payment-grid > aside) {
+  padding:var(--journey-panel); background:var(--journey-surface); border:1px solid var(--journey-line); border-radius:var(--journey-radius);
+}
+body [data-print-journey] :is(.order-guided-section,.order-contact-card,.order-file-card) { border-color:var(--journey-line); border-radius:var(--journey-radius); background:var(--journey-card); }
+body [data-print-journey] .order-guided-section > summary { padding:20px var(--journey-panel); }
+body [data-print-journey] .order-guided-section > :is(.order-contact-card,.order-file-card) { border:0; border-radius:0 0 var(--journey-radius) var(--journey-radius); }
+body [data-print-journey] .order-guided-section > :is(.order-contact-card,.order-file-card) > div:last-child { padding-inline:var(--journey-panel); }
+body [data-print-journey] :is(.order-contact-card,.order-file-card) > div:first-child { background:transparent; }
+body [data-print-journey] :is(.order-receipt-total,.order-receipt-file,.order-checkout-summary) { border-color:var(--journey-line); }
+body [data-print-journey] .order-step-number { background:var(--journey-surface); }
+body [data-print-journey] [aria-current="step"] .order-step-number { background:var(--journey-primary); }
+body [data-print-journey] :is(.order-flow-dialog-header) { background:var(--journey-header-bg); color:var(--journey-header-text); border-color:var(--journey-line); }
+body [data-print-journey] .order-dialog-brand { font-family:var(--journey-logo-font); }
+body .order-flow-dialog[data-print-journey], body [data-print-journey] .order-flow-dialog { background:var(--journey-paper); }
+/* Full-screen dialogs cover the sticky shop header and resize without interpolation. */
+body :is(.order-flow-dialog,.order-proof-dialog)[data-print-journey] { z-index:1400; transition:none; }
+body .order-flow-dialog[data-print-journey] > button { color:var(--journey-header-text); }
+body [data-print-journey] .order-proof-status { background:var(--journey-paper); }
+body [data-print-journey] :is(.storefront-order-flow,.order-payment-content) :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { font-family:var(--journey-body-font); }
+/* Keep authored CTA/selection styles, including shared-button locks, in control. */
+body [data-print-journey] .storefront-order-flow button:not([data-shared-button]):not([data-product-option-styled]):not(.storefront-primary-action):not(.order-primary-button) { border-radius:min(var(--journey-radius),10px); }
+
+/* Catalogue: same real product cards, with presentation specific to each shop. */
+[data-print-journey] .print-catalog { color:var(--journey-ink); }
+[data-print-journey] .print-catalog :is(.storefront-product-title,.storefront-product-body) { display:block; -webkit-line-clamp:unset; overflow:visible; overflow-wrap:anywhere; }
+[data-print-journey] .print-catalog-filters a { border-radius:var(--journey-radius); }
+[data-print-journey] .print-catalog .storefront-product-card { min-width:0; max-width:none; border-color:var(--journey-line); border-radius:var(--journey-radius); }
+[data-print-journey] .print-catalog .storefront-product-image { background:var(--journey-surface); overflow:hidden; border-radius:var(--journey-radius); }
+[data-print-journey] .print-catalog .storefront-product-card-footer { margin-top:auto; }
+[data-print-journey] .print-catalog .storefront-product-card-footer a { height:auto; min-height:44px; white-space:normal; overflow-wrap:anywhere; }
+[data-print-journey] .print-catalog-heading .print-search { background:var(--journey-card); }
+
+/* Everyday Gifts: the homepage's soft, generous surfaces continue into ordering. */
+[data-print-journey="print-atelier"] .print-catalog-heading { padding:32px; border-radius:24px; background:var(--journey-surface); }
+[data-print-journey="print-atelier"] .print-catalog-heading h1 { font-weight:550; }
+[data-print-journey="print-atelier"] .print-catalog-filters { border:0; justify-content:center; gap:12px; }
+[data-print-journey="print-atelier"] .print-catalog-filters a { border-radius:999px; padding-inline:22px; }
+[data-print-journey="print-atelier"] .print-catalog .storefront-product-card { background:transparent; border:0; }
+[data-print-journey="print-atelier"] .print-catalog .storefront-product-card-header { padding:0 0 16px; }
+[data-print-journey="print-atelier"] .print-catalog .storefront-product-image { height:auto; aspect-ratio:1.12; }
+[data-print-journey="print-atelier"] .print-catalog .storefront-product-card-content,
+[data-print-journey="print-atelier"] .print-catalog .storefront-product-card-footer { padding-inline:0; }
+body [data-print-journey="print-atelier"] :is(.order-page-heading h1,.storefront-order-hero h1,.order-payment-content h1) { font-weight:550; letter-spacing:-.04em; }
+body [data-print-journey="print-atelier"] .order-flow-steps { border:0; padding:18px 22px; border-radius:999px; background:var(--journey-surface); }
+body [data-print-journey="print-atelier"] .order-step-number { background:var(--journey-card); }
+body [data-print-journey="print-atelier"] .order-calculator-summary { border:0; }
+
+/* Format / Signage: numbered categories, strong rules and broad product rows. */
+[data-print-journey="print-signal"] .print-catalog-heading { padding-block:28px; border-block:3px solid var(--journey-ink); }
+[data-print-journey="print-signal"] .print-catalog-heading h1 { font-weight:800; }
+[data-print-journey="print-signal"] .print-catalog-filters { counter-reset:solution; gap:0; }
+[data-print-journey="print-signal"] .print-catalog-filters a { gap:12px; border-width:0 1px 1px 0; padding:16px; background:var(--journey-surface); }
+[data-print-journey="print-signal"] .print-catalog-filters a::before { counter-increment:solution; content:counter(solution,decimal-leading-zero); font-size:11px; opacity:.7; }
+[data-print-journey="print-signal"] .print-catalog-filters a[aria-current="page"] { background:var(--journey-primary); }
+body [data-print-journey="print-signal"] :is(.order-calculator-summary,.order-checkout-summary,.order-payment-grid > aside) { border-top:4px solid var(--journey-primary); }
+body [data-print-journey="print-signal"] :is(.order-page-heading,.storefront-order-hero) { padding-bottom:22px; border-bottom:2px solid var(--journey-ink); }
+body [data-print-journey="print-signal"] :is(.order-page-heading h1,.storefront-order-hero h1) { font-weight:800; }
+body [data-print-journey="print-signal"] .order-step-number { border-radius:0; }
+
+/* Merch Studio: image-led, sharp edges and the homepage's editorial hierarchy. */
+[data-print-journey="print-form"] .print-catalog-heading { align-items:end; padding-block:20px; }
+[data-print-journey="print-form"] .print-catalog-heading h1 { font-size:clamp(36px,4.5vw,68px); font-weight:800; letter-spacing:-.05em; }
+[data-print-journey="print-form"] .print-catalog-filters { border-block:1px solid var(--journey-line); padding-block:12px; }
+[data-print-journey="print-form"] .print-catalog-filters a { border:0; background:transparent; border-bottom:2px solid transparent; }
+[data-print-journey="print-form"] .print-catalog-filters a[aria-current="page"] { border-bottom-color:var(--journey-ink); color:var(--journey-ink) !important; }
+[data-print-journey="print-form"] .print-catalog .storefront-product-card { border:0; background:transparent; }
+[data-print-journey="print-form"] .print-catalog .storefront-product-card-header { padding:0 0 16px; }
+[data-print-journey="print-form"] .print-catalog .storefront-product-image { height:auto; aspect-ratio:.8; }
+[data-print-journey="print-form"] .print-catalog .storefront-product-card-content,
+[data-print-journey="print-form"] .print-catalog .storefront-product-card-footer { padding-inline:0; }
+[data-print-journey="print-form"] .print-catalog .storefront-product-card-footer { border-top:1px solid var(--journey-line); padding-top:16px; }
+body [data-print-journey="print-form"] :is(.order-page-heading h1,.storefront-order-hero h1,.order-payment-content h1) { font-weight:800; letter-spacing:-.05em; }
+body [data-print-journey="print-form"] :is(.order-checkout-summary,.order-calculator-summary) { background:var(--journey-paper); border-width:2px 0 0; border-color:var(--journey-ink); padding-inline:0; }
+body [data-print-journey="print-form"] .order-guided-section { border-width:0 0 1px; }
+body [data-print-journey="print-form"] .order-guided-section > summary { padding-inline:0; }
+body [data-print-journey="print-form"] .order-step-number { border-radius:0; }
+
+/* Print Partner: a category directory and compact, clearly bounded order panels. */
+[data-print-journey="print-partner"] .print-catalog-heading h1 { font-size:clamp(30px,3.2vw,46px); }
+[data-print-journey="print-partner"] .print-catalog-body { display:grid; grid-template-columns:210px minmax(0,1fr); gap:36px; }
+[data-print-journey="print-partner"] .print-catalog-navigation { padding-right:24px; border-right:1px solid var(--journey-line); }
+[data-print-journey="print-partner"] .print-catalog-filters { flex-direction:column; border:0; }
+[data-print-journey="print-partner"] .print-catalog-filters a { border:0; font-weight:500; }
+[data-print-journey="print-partner"] .print-catalog-count { margin-top:0; padding:14px 16px; background:var(--journey-surface); }
+body [data-print-journey="print-partner"] .order-checkout-grid { gap:32px; }
+body [data-print-journey="print-partner"] .order-guided-section > summary { padding-block:16px; }
+body [data-print-journey="print-partner"] .order-page-heading h1 { font-size:clamp(28px,3vw,40px); }
+
+@media (min-width:901px) {
+  [data-print-journey="print-signal"] .print-catalog .storefront-product-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
+  [data-print-journey="print-partner"] .print-catalog .storefront-product-grid { grid-template-columns:minmax(0,1fr) !important; gap:0 !important; }
+  [data-print-journey="print-partner"] .print-catalog .storefront-product-card { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) 132px; gap:20px; align-items:center; border-width:0 0 1px; border-radius:0; padding-block:20px; }
+  [data-print-journey="print-partner"] .print-catalog .storefront-product-card-header { display:grid; grid-template-columns:80px minmax(0,1fr); gap:6px 16px; padding:0; }
+  [data-print-journey="print-partner"] .print-catalog .storefront-product-image { grid-row:span 2; width:80px; height:80px; margin:0; }
+  [data-print-journey="print-partner"] .print-catalog .storefront-product-kicker { align-self:end; margin:0; }
+  [data-print-journey="print-partner"] .print-catalog :is(.storefront-product-card-content,.storefront-product-card-footer) { padding:0; margin:0; }
+  [data-print-journey="print-partner"] .print-catalog .storefront-product-title { font-size:17px; }
+  [data-print-journey="print-partner"] .print-catalog .storefront-product-price { font-size:18px; }
+}
+@media (max-width:900px) {
+  [data-print-journey="print-partner"] .print-catalog-body { display:block; }
+  [data-print-journey="print-partner"] .print-catalog-navigation { border:0; padding:0; }
+  [data-print-journey="print-partner"] .print-catalog-filters { flex-direction:row; }
+  [data-print-journey="print-partner"] .print-catalog-filters a { border:1px solid var(--journey-line); }
+  [data-print-journey="print-form"] .print-catalog-heading { align-items:stretch; }
+}
+@media (max-width:700px) {
+  [data-print-journey] { --journey-panel:18px; }
+  [data-print-journey="print-atelier"] .print-catalog-heading { padding:24px 18px; }
+  body [data-print-journey="print-atelier"] .order-flow-steps { border-radius:16px; padding:16px 12px; }
+  body [data-print-journey] .order-flow-steps ol { gap:12px; }
+  body [data-print-journey] .order-flow-steps li { min-width:0; gap:6px; }
+  body [data-print-journey] .order-flow-steps li:not(:last-child)::after { display:none; }
+  body [data-print-journey] .order-checkout-summary { padding:20px; }
+  body [data-print-journey] .order-calculator-summary { margin:16px 0 0; padding:20px; }
+  body [data-print-journey] .order-page-heading p { font-size:15px; line-height:1.6; }
+  [data-print-journey] .print-catalog-filters a { overflow-wrap:anywhere; max-width:100%; }
+}

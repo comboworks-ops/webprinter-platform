@@ -1,6 +1,7 @@
+import { BUTTON_EFFECTS, type ButtonEffect } from '@/lib/branding/sharedButtons';
 /**
  * ProductOptionButtonEditor - Contextual editor for a single product option button
- * 
+ *
  * Shows only the specific settings for one button:
  * - Button color (background)
  * - Hover color
@@ -8,7 +9,7 @@
  * - Text color
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -19,8 +20,19 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches";
 import { Switch } from "@/components/ui/switch";
+import { updateProductOptionValueSetting } from "@/lib/pricing/productOptionSettings";
+import { persistProductStylingPatches, removeSavedStylingPatches, valueStylingPatches, type ProductStylingChange, type ProductStylingPreview, type ProductStylingPatch } from "@/lib/preview/productStylingSave";
+import {
+    THUMBNAIL_CUSTOM_PX_MAX,
+    THUMBNAIL_CUSTOM_PX_MIN,
+    THUMBNAIL_CUSTOM_PX_STEP,
+    normalizeThumbnailCustomPx,
+} from "@/lib/pricing/thumbnailSizes";
 
 interface ProductOptionButtonEditorProps {
+    tenantId: string;
+    pricingPreview?: ProductStylingPreview | null;
+    persistedStyling?: ProductStylingChange | null;
     productId: string;
     sectionId: string;
     valueId: string;
@@ -28,10 +40,16 @@ interface ProductOptionButtonEditorProps {
     savedSwatches: string[];
     onSaveSwatch: (color: string) => void;
     onRemoveSwatch: (color: string) => void;
+    onPricingStructureChange?: (change: ProductStylingChange) => void;
     onBack: () => void;
 }
 
 interface ButtonSettings {
+    lockFromSharedButtons: boolean;
+    selectedBackgroundColor: string;
+    selectedTextColor: string;
+    buttonEffect: ButtonEffect;
+    idleMotion: boolean;
     // Appearance
     backgroundColor: string;
     hoverBackgroundColor: string;
@@ -55,6 +73,8 @@ interface ButtonSettings {
 }
 
 const DEFAULT_SETTINGS: ButtonSettings = {
+    lockFromSharedButtons: false,
+    selectedBackgroundColor: "#087FC5", selectedTextColor: "#FFFFFF", buttonEffect: "none", idleMotion: false,
     backgroundColor: "#FFFFFF",
     hoverBackgroundColor: "#F1F5F9",
     borderColor: "#E2E8F0",
@@ -73,7 +93,34 @@ const DEFAULT_SETTINGS: ButtonSettings = {
     imageSizePx: 48,
 };
 
+const buildValueSettingUpdate = (
+    settings: ButtonSettings,
+    includeImageSize: boolean,
+): Record<string, unknown> => ({
+    lockFromSharedButtons: settings.lockFromSharedButtons,
+    selectedBackgroundColor: settings.selectedBackgroundColor, selectedTextColor: settings.selectedTextColor, buttonEffect: settings.buttonEffect, idleMotion: settings.idleMotion,
+    displayName: settings.displayName,
+    backgroundColor: settings.backgroundColor,
+    hoverBackgroundColor: settings.hoverBackgroundColor,
+    borderColor: settings.borderColor,
+    hoverBorderColor: settings.hoverBorderColor,
+    borderRadiusPx: settings.borderRadiusPx,
+    borderWidthPx: settings.borderWidthPx,
+    textColor: settings.textColor,
+    hoverTextColor: settings.hoverTextColor,
+    fontSizePx: settings.fontSizePx,
+    paddingPx: settings.paddingPx,
+    minHeightPx: settings.minHeightPx,
+    showThumbnail: settings.showThumbnail,
+    customImage: settings.customImage,
+    hoverImage: settings.hoverImage,
+    ...(includeImageSize ? { imageSizePx: settings.imageSizePx } : {}),
+});
+
 export function ProductOptionButtonEditor({
+    tenantId,
+    pricingPreview,
+    persistedStyling,
     productId,
     sectionId,
     valueId,
@@ -81,6 +128,7 @@ export function ProductOptionButtonEditor({
     savedSwatches,
     onSaveSwatch,
     onRemoveSwatch,
+    onPricingStructureChange,
     onBack,
 }: ProductOptionButtonEditorProps) {
     const [loading, setLoading] = useState(true);
@@ -90,37 +138,62 @@ export function ProductOptionButtonEditor({
     const [uploading, setUploading] = useState(false);
     const [uploadTarget, setUploadTarget] = useState<"customImage" | "hoverImage" | null>(null);
     const [previewHovered, setPreviewHovered] = useState(false);
+    const [productPricingStructure, setProductPricingStructure] = useState<Record<string, unknown> | null>(null);
+    const [hasImageSizeChange, setHasImageSizeChange] = useState(false);
+
+    const pricingPreviewRef = useRef(pricingPreview);
+    pricingPreviewRef.current = pricingPreview;
+    const settingsRef = useRef(settings);
+    settingsRef.current = settings;
+
+    const emittedSettingsRef = useRef<ButtonSettings>(DEFAULT_SETTINGS);
+    const pendingPatchesRef = useRef<ProductStylingPatch[]>([]);
+    const acknowledgePersistedStyling = useCallback((saved: ProductStylingChange | null | undefined) => {
+        if (saved?.productId !== productId) return;
+        pendingPatchesRef.current = removeSavedStylingPatches(pendingPatchesRef.current, saved.patches);
+    }, [productId]);
+
+    useEffect(() => {
+        acknowledgePersistedStyling(persistedStyling);
+    }, [acknowledgePersistedStyling, persistedStyling]);
 
     // Load current settings
     useEffect(() => {
+        let cancelled = false;
         async function loadSettings() {
             setLoading(true);
-            
+
             // Load product info
             const { data: product } = await supabase
                 .from('products')
                 .select('name, pricing_structure')
                 .eq('id', productId)
+                .eq('tenant_id', tenantId)
                 .single();
-            
+
+            if (cancelled) return;
             if (product) {
                 setProductName(product.name);
-                
+                const rawStructure = pricingPreviewRef.current?.productId === productId
+                    ? pricingPreviewRef.current.pricingStructure : product.pricing_structure;
+                const structure = (rawStructure && typeof rawStructure === 'object' && !Array.isArray(rawStructure)
+                    ? rawStructure : {}) as { vertical_axis?: { sectionId?: string; valueSettings?: Record<string, Partial<ButtonSettings>> }; layout_rows?: Array<{ columns?: Array<{ id?: string; valueSettings?: Record<string, Partial<ButtonSettings>> }> }> };
+                setProductPricingStructure(structure);
+
                 // Extract value settings from pricing_structure
-                const structure = product.pricing_structure || {};
                 const layoutRows = structure.layout_rows || [];
                 const verticalAxis = structure.vertical_axis;
-                
+
                 // Find the section and value settings
                 let valueSettings: any = {};
                 let foundValueSettings = false;
-                
+
                 // Check the clicked section only.
                 if (verticalAxis?.sectionId === sectionId && verticalAxis?.valueSettings?.[valueId]) {
                     valueSettings = verticalAxis.valueSettings[valueId];
                     foundValueSettings = true;
                 }
-                
+
                 // Check layout rows
                 for (const row of layoutRows) {
                     for (const col of row.columns || []) {
@@ -134,7 +207,7 @@ export function ProductOptionButtonEditor({
 
                 if (!foundValueSettings) {
                     const { data: storformatConfig } = await supabase
-                        .from("storformat_configs" as any)
+                        .from("storformat_configs")
                         .select("vertical_axis, layout_rows")
                         .eq("product_id", productId)
                         .maybeSingle();
@@ -155,9 +228,15 @@ export function ProductOptionButtonEditor({
                         }
                     }
                 }
-                
-                setSettings({
+
+                if (cancelled) return;
+                const loadedSettings: ButtonSettings = {
                     ...DEFAULT_SETTINGS,
+                    lockFromSharedButtons: valueSettings.lockFromSharedButtons === true,
+                    selectedBackgroundColor: valueSettings.selectedBackgroundColor || DEFAULT_SETTINGS.selectedBackgroundColor,
+                    selectedTextColor: valueSettings.selectedTextColor || DEFAULT_SETTINGS.selectedTextColor,
+                    buttonEffect: BUTTON_EFFECTS.some(effect => effect.id === valueSettings.buttonEffect) ? valueSettings.buttonEffect : 'none',
+                    idleMotion: valueSettings.idleMotion === true,
                     displayName: valueSettings.displayName || valueName,
                     backgroundColor: valueSettings.backgroundColor || DEFAULT_SETTINGS.backgroundColor,
                     hoverBackgroundColor: valueSettings.hoverBackgroundColor || DEFAULT_SETTINGS.hoverBackgroundColor,
@@ -173,86 +252,88 @@ export function ProductOptionButtonEditor({
                     showThumbnail: valueSettings.showThumbnail || false,
                     customImage: valueSettings.customImage || null,
                     hoverImage: valueSettings.hoverImage || null,
-                    imageSizePx: valueSettings.imageSizePx ?? DEFAULT_SETTINGS.imageSizePx,
-                });
+                    imageSizePx: normalizeThumbnailCustomPx(valueSettings.imageSizePx) ?? DEFAULT_SETTINGS.imageSizePx,
+                };
+                setSettings(loadedSettings);
+                emittedSettingsRef.current = loadedSettings;
+                pendingPatchesRef.current = pricingPreviewRef.current?.productId === productId
+                    ? pricingPreviewRef.current.patches.filter(patch => patch.sectionId === sectionId && patch.path[0] === 'valueSettings' && patch.path[1] === valueId) : [];
+                setHasImageSizeChange(false);
             }
-            
+
             setLoading(false);
         }
-        
-        loadSettings();
-    }, [productId, sectionId, valueId, valueName]);
+
+        void loadSettings();
+        return () => { cancelled = true; };
+    }, [productId, sectionId, tenantId, valueId, valueName]);
+
+    const emitPricingPreview = useCallback((
+        nextSettings: ButtonSettings,
+        includeImageSize: boolean,
+    ) => {
+        const previous = buildValueSettingUpdate(emittedSettingsRef.current, true);
+        const changed = Object.fromEntries(Object.entries(buildValueSettingUpdate(nextSettings, includeImageSize))
+            .filter(([key, value]) => JSON.stringify(previous[key]) !== JSON.stringify(value)));
+        emittedSettingsRef.current = nextSettings;
+        const patches = valueStylingPatches(sectionId, valueId, changed);
+        pendingPatchesRef.current = [...new Map([...pendingPatchesRef.current, ...patches].map(patch => [JSON.stringify(patch.path), patch])).values()];
+        if (!productPricingStructure || !onPricingStructureChange || !patches.length) return;
+        const previewUpdate = updateProductOptionValueSetting(
+            productPricingStructure,
+            sectionId,
+            valueId,
+            buildValueSettingUpdate(nextSettings, includeImageSize),
+        );
+        if (!previewUpdate.updated) return;
+
+        onPricingStructureChange({
+            productId,
+            pricingStructure: previewUpdate.pricingStructure,
+            patches,
+            isDirty: true,
+        });
+    }, [
+        onPricingStructureChange,
+        productId,
+        productPricingStructure,
+        sectionId,
+        valueId,
+    ]);
 
     const handleSave = useCallback(async () => {
         setSaving(true);
-        
+        const submittedPatches = [...pendingPatchesRef.current];
+
         // Get current pricing_structure
-        const { data: product } = await supabase
+        const { data: product, error: productLoadError } = await supabase
             .from('products')
             .select('pricing_structure')
             .eq('id', productId)
+            .eq('tenant_id', tenantId)
             .single();
-        
-        const structure = product?.pricing_structure || { mode: 'matrix_layout_v1', version: 1 };
-        
-        // Update valueSettings in the appropriate location
-        const valueSettingUpdate = {
-            displayName: settings.displayName,
-            backgroundColor: settings.backgroundColor,
-            hoverBackgroundColor: settings.hoverBackgroundColor,
-            borderColor: settings.borderColor,
-            hoverBorderColor: settings.hoverBorderColor,
-            borderRadiusPx: settings.borderRadiusPx,
-            borderWidthPx: settings.borderWidthPx,
-            textColor: settings.textColor,
-            hoverTextColor: settings.hoverTextColor,
-            fontSizePx: settings.fontSizePx,
-            paddingPx: settings.paddingPx,
-            minHeightPx: settings.minHeightPx,
-            showThumbnail: settings.showThumbnail,
-            customImage: settings.customImage,
-            hoverImage: settings.hoverImage,
-            imageSizePx: settings.imageSizePx,
-        };
-        
-        const updatedStructure = { ...structure };
-        let updatedProductPricingStructure = false;
-        
-        // Update only the clicked section so identical value ids in other sections are not affected.
-        if (updatedStructure.vertical_axis?.sectionId === sectionId) {
-            updatedStructure.vertical_axis.valueSettings = updatedStructure.vertical_axis.valueSettings || {};
-            updatedStructure.vertical_axis.valueSettings[valueId] = {
-                ...updatedStructure.vertical_axis.valueSettings[valueId],
-                ...valueSettingUpdate,
-            };
-            updatedProductPricingStructure = true;
-        }
-        
-        // Update in layout rows
-        if (updatedStructure.layout_rows) {
-            for (const row of updatedStructure.layout_rows) {
-                for (const col of row.columns || []) {
-                    if (col.id !== sectionId) continue;
-                    col.valueSettings = col.valueSettings || {};
-                    col.valueSettings[valueId] = {
-                        ...col.valueSettings[valueId],
-                        ...valueSettingUpdate,
-                    };
-                    updatedProductPricingStructure = true;
-                }
-            }
+
+        if (productLoadError || !product) {
+            console.error('Error loading tenant-owned product button settings:', productLoadError);
+            toast.error('Kunne ikke finde produktet i denne shop');
+            setSaving(false);
+            return;
         }
 
+        const structure = (product?.pricing_structure || { mode: 'matrix_layout_v1', version: 1 }) as Record<string, unknown>;
+        const valueSettingUpdate = Object.fromEntries(submittedPatches.map(patch => [patch.path[patch.path.length - 1], patch.value]));
+        const productUpdate = updateProductOptionValueSetting(structure, sectionId, valueId, valueSettingUpdate);
+
         let error: any = null;
-        if (updatedProductPricingStructure) {
-            const result = await supabase
-                .from('products')
-                .update({ pricing_structure: updatedStructure })
-                .eq('id', productId);
-            error = result.error;
+        let savedProductPricingStructure: Record<string, unknown> | null = null;
+        const patches = submittedPatches;
+        if (productUpdate.updated) {
+            try {
+                savedProductPricingStructure = await persistProductStylingPatches(supabase, tenantId, productId, patches);
+            } catch (saveError) { error = saveError; }
         } else {
             const { data: storformatConfig, error: loadError } = await supabase
-                .from("storformat_configs" as any)
+                .from("storformat_configs")
                 .select("vertical_axis, layout_rows")
                 .eq("product_id", productId)
                 .maybeSingle();
@@ -292,59 +373,78 @@ export function ProductOptionButtonEditor({
                     error = new Error("Kunne ikke finde den valgte knap i produktets konfiguration");
                 } else {
                     const result = await supabase
-                        .from("storformat_configs" as any)
+                        .from("storformat_configs")
                         .update({
                             vertical_axis: updatedVerticalAxis,
                             layout_rows: updatedLayoutRows,
                         } as any)
-                        .eq("product_id", productId);
-                    error = result.error;
+                        .eq("product_id", productId)
+                        .select('product_id').maybeSingle();
+                    error = result.error || (!result.data ? new Error('Storformat-indstillingerne blev ikke opdateret') : null);
                 }
             }
         }
-        
+
         if (error) {
             console.error('Error saving button settings:', error);
             toast.error('Kunne ikke gemme indstillinger');
         } else {
+            pendingPatchesRef.current = pendingPatchesRef.current.filter(patch => !patches.some(saved =>
+                JSON.stringify(saved.path) === JSON.stringify(patch.path) && JSON.stringify(saved.value) === JSON.stringify(patch.value)));
+            if (savedProductPricingStructure) {
+                setProductPricingStructure(savedProductPricingStructure);
+                if (settingsRef.current === settings) setHasImageSizeChange(false);
+                onPricingStructureChange?.({
+                    productId,
+                    pricingStructure: savedProductPricingStructure,
+                    patches,
+                    isDirty: false,
+                });
+            }
             toast.success('Knap-indstillinger gemt');
         }
-        
+
         setSaving(false);
-    }, [productId, sectionId, valueId, settings]);
+    }, [hasImageSizeChange, onPricingStructureChange, productId, sectionId, settings, tenantId, valueId]);
 
     const handleImageUpload = useCallback(async (file: File, target: "customImage" | "hoverImage") => {
         setUploading(true);
         setUploadTarget(target);
-        
+
         try {
             const fileExt = file.name.split('.').pop();
             const suffix = target === "hoverImage" ? "hover" : "primary";
             const fileName = `product-option-${productId}-${sectionId}-${valueId}-${suffix}-${Date.now()}.${fileExt}`;
-            
+
             const { error: uploadError } = await supabase.storage
                 .from('product-images')
                 .upload(fileName, file);
-            
+
             if (uploadError) throw uploadError;
-            
+
             const { data: { publicUrl } } = supabase.storage
                 .from('product-images')
                 .getPublicUrl(fileName);
-            
-            setSettings(prev => ({ ...prev, [target]: publicUrl, showThumbnail: true }));
+
+            const nextSettings = { ...settings, [target]: publicUrl, showThumbnail: true };
+            setSettings(nextSettings);
+            emitPricingPreview(nextSettings, hasImageSizeChange);
             toast.success('Billede uploadet');
         } catch (error) {
             console.error('Upload error:', error);
             toast.error('Kunne ikke uploade billede');
         }
-        
+
         setUploading(false);
         setUploadTarget(null);
-    }, [productId, sectionId, valueId]);
+    }, [emitPricingPreview, hasImageSizeChange, productId, sectionId, settings, valueId]);
 
     const updateSetting = <K extends keyof ButtonSettings>(key: K, value: ButtonSettings[K]) => {
-        setSettings(prev => ({ ...prev, [key]: value }));
+        const nextSettings = { ...settings, [key]: value };
+        const nextHasImageSizeChange = hasImageSizeChange || key === "imageSizePx";
+        setSettings(nextSettings);
+        setHasImageSizeChange(nextHasImageSizeChange);
+        emitPricingPreview(nextSettings, nextHasImageSizeChange);
     };
 
     if (loading) {
@@ -374,6 +474,16 @@ export function ProductOptionButtonEditor({
                 </div>
             </div>
 
+            <label className="flex items-start gap-3 rounded-lg border bg-slate-50 p-3 text-sm">
+                <input type="checkbox" className="mt-1" checked={settings.lockFromSharedButtons} onChange={event => updateSetting('lockFromSharedButtons', event.target.checked)} />
+                <span><strong>Lås fra Fælles knapper</strong><span className="mt-1 block text-xs text-muted-foreground">Bevar og brug denne knaps lokale farver og form. Uden lås gælder Fælles knapper, når valgknapper er aktiveret der.</span></span>
+            </label>
+            {settings.lockFromSharedButtons && <div className="grid gap-3 rounded-lg border p-3">
+                <label className="text-xs">Baggrund når valgt<input aria-label="Lokal baggrund når valgt" type="color" className="ml-3" value={settings.selectedBackgroundColor} onChange={event => updateSetting('selectedBackgroundColor', event.target.value)} /></label>
+                <label className="text-xs">Tekst når valgt<input aria-label="Lokal tekst når valgt" type="color" className="ml-3" value={settings.selectedTextColor} onChange={event => updateSetting('selectedTextColor', event.target.value)} /></label>
+                <label className="grid gap-2 text-xs">Særlig effekt<select className="h-10 rounded-md border px-2" value={settings.buttonEffect} onChange={event => updateSetting('buttonEffect', event.target.value as ButtonEffect)}>{BUTTON_EFFECTS.map(effect => <option value={effect.id} key={effect.id}>{effect.name}</option>)}</select></label>
+                <label className="flex gap-2 text-xs"><input type="checkbox" checked={settings.idleMotion} onChange={event => updateSetting('idleMotion', event.target.checked)} />Diskret bevægelse uden hover for lysstrejf, nordlys, lyskreds og åndedrag</label>
+            </div>}
             {/* Text / Label */}
             <Card>
                 <CardHeader className="space-y-1 pb-3">
@@ -535,9 +645,9 @@ export function ProductOptionButtonEditor({
                                     <span className="text-xs text-muted-foreground">{settings.imageSizePx}px</span>
                                 </div>
                                 <Slider
-                                    min={24}
-                                    max={160}
-                                    step={4}
+                                    min={THUMBNAIL_CUSTOM_PX_MIN}
+                                    max={THUMBNAIL_CUSTOM_PX_MAX}
+                                    step={THUMBNAIL_CUSTOM_PX_STEP}
                                     value={[settings.imageSizePx]}
                                     onValueChange={([value]) => updateSetting('imageSizePx', value)}
                                 />

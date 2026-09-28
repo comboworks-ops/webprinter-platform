@@ -1,3 +1,9 @@
+import { WorkspacePreviewEditor } from '@/components/product-price-page/WorkspacePreviewEditor';
+import ProductPrice from '@/pages/ProductPrice';
+import { useOrderFlowDesign } from "@/hooks/useOrderFlowDesign";
+import { getOrderFlowPreviewPage } from "@/lib/preview/orderFlowPreview";
+import { resolvePrintJourney } from '@/lib/branding/printJourney';
+import { SiteDesignOrderFlowPreview } from "@/components/preview/SiteDesignOrderFlowPreview";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,7 +18,6 @@ import { resolveAdminTenant, MASTER_TENANT_ID } from "@/lib/adminTenant";
 import { GrafiskVejledningContent } from "@/components/content/GrafiskVejledningContent";
 import { ContactContent } from "@/components/content/ContactContent";
 import { AboutContent } from "@/components/content/AboutContent";
-import { ProductPriceContent } from "@/components/content/ProductPriceContent";
 import { TermsContent } from "@/components/content/TermsContent";
 import { CookiePolicyContent } from "@/components/content/CookiePolicyContent";
 import { PrivacyPolicyContent } from "@/components/content/PrivacyPolicyContent";
@@ -20,7 +25,12 @@ import { SitePackagePreview } from "@/components/sites/SitePackagePreview";
 import { StorefrontHomeContent } from "@/components/storefront/StorefrontHomeContent";
 import { StorefrontSeo } from "@/components/storefront/StorefrontSeo";
 import { StorefrontThemeFrame } from "@/components/storefront/StorefrontThemeFrame";
-import { getSiteDesignTargetLabel } from "@/lib/siteDesignTargets";
+import { getSiteDesignTargetLabel, SITE_DESIGN_SELECTION_EVENT } from "@/lib/siteDesignTargets";
+import {
+    getSiteDesignPreviewPathname,
+    getSiteDesignPreviewProductSlug,
+    normalizeSiteDesignPreviewPath,
+} from "@/lib/preview/siteDesignPreviewNavigation";
 
 // List of ALLOWED customer-visible routes in preview mode
 // This prevents navigation to admin/backend routes
@@ -35,6 +45,7 @@ const ALLOWED_PREVIEW_ROUTES = [
     '/cookiepolitik',
     '/privatliv',
     '/vilkaar',
+    '/checkout',
 ];
 
 // Routes that should be blocked in preview mode
@@ -46,6 +57,14 @@ const BLOCKED_ROUTE_PREFIXES = [
     '/preview-shop', // Prevent infinite loop
     '/preview-storefront',
 ];
+
+function resolvePreviewPageQuery(rawPath?: unknown): string {
+    const normalizedPath = normalizeSiteDesignPreviewPath(rawPath);
+    const pathname = getSiteDesignPreviewPathname(normalizedPath);
+    const isBlocked = BLOCKED_ROUTE_PREFIXES.some(prefix => pathname.startsWith(prefix));
+
+    return isBlocked ? '/' : normalizedPath;
+}
 
 const USP_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
     truck: Truck,
@@ -200,27 +219,36 @@ function PreviewNavigationGuard({ children }: { children: React.ReactNode }) {
  * Uses the same themed storefront frame as live routes while still supporting
  * virtual page switching inside the preview iframe.
  */
-function PreviewShopContent({ currentPage }: { currentPage: string }) {
+function PreviewShopContent({ currentPage, onNavigate }: { currentPage: string; onNavigate: (path: string) => void }) {
     const { branding, tenantName } = usePreviewBranding();
+    const [workspaceParams] = useSearchParams();
+    const workspaceMode = workspaceParams.get("productWorkspace");
     const resolvedBranding = mergeBrandingWithDefaults(branding || {});
     const resolvedTenantName = String(
         resolvedBranding.shop_name || tenantName || "Din Shop",
     ).trim() || "Din Shop";
+    const currentPathname = getSiteDesignPreviewPathname(currentPage);
+    const orderPage = getOrderFlowPreviewPage(currentPage);
+    const orderDesign = useOrderFlowDesign(orderPage || "calculator", resolvedBranding);
 
     // Render page content based on virtual navigation
     const renderPageContent = () => {
+        if (orderPage && orderPage !== 'calculator') {
+            return <SiteDesignOrderFlowPreview page={orderPage} shopName={resolvedTenantName} onNavigate={onNavigate} />;
+        }
+
         // Specific product page
-        if (currentPage.startsWith('/produkt/')) {
-            const slug = currentPage.split('/').pop();
+        if (currentPathname.startsWith('/produkt/')) {
+            const slug = getSiteDesignPreviewProductSlug(currentPage) || undefined;
             return (
-                <main className="flex-1 py-8">
-                    <ProductPriceContent slug={slug} />
+                <main className="storefront-order-flow storefront-product-flow flex-1" data-storefront-order-flow="product">
+                    <ProductPrice previewSlug={slug} />
                 </main>
             );
         }
 
         // Contact page
-        if (currentPage === '/kontakt') {
+        if (currentPathname === '/kontakt') {
             return (
                 <main className="flex-1 py-16">
                     <ContactContent />
@@ -229,7 +257,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         }
 
         // About page
-        if (currentPage === '/om-os') {
+        if (currentPathname === '/om-os') {
             return (
                 <main className="flex-1">
                     <AboutContent />
@@ -238,7 +266,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         }
 
         // Grafisk Vejledning
-        if (currentPage === '/grafisk-vejledning') {
+        if (currentPathname === '/grafisk-vejledning') {
             return (
                 <main className="flex-1 py-12">
                     <GrafiskVejledningContent />
@@ -247,7 +275,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         }
 
         // Terms / Conditions pages
-        if (currentPage === '/vilkaar' || currentPage === '/betingelser') {
+        if (currentPathname === '/vilkaar' || currentPathname === '/betingelser') {
             return (
                 <main className="flex-1 py-16 pt-24">
                     <TermsContent />
@@ -257,7 +285,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
 
 
         // Privacy Policy
-        if (currentPage === '/privatliv') {
+        if (currentPathname === '/privatliv') {
             return (
                 <main className="flex-1 py-16 pt-24">
                     <PrivacyPolicyContent />
@@ -266,7 +294,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         }
 
         // Cookie Policy
-        if (currentPage === '/cookies' || currentPage === '/cookiepolitik') {
+        if (currentPathname === '/cookies' || currentPathname === '/cookiepolitik') {
             return (
                 <main className="flex-1 py-16 pt-24">
                     <CookiePolicyContent />
@@ -284,9 +312,22 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
         );
     };
 
+    if (currentPathname.startsWith('/produkt/')) {
+        return <ProductPrice workspacePreview={Boolean(workspaceMode)} previewSlug={getSiteDesignPreviewProductSlug(currentPage) || undefined} cardPreview={workspaceMode === 'card'} />;
+    }
+
+    // The customer designer and proof/payment/receipt surfaces occupy the screen.
+    // Keep the same presentation here, without a second shop header or footer.
+    if (orderPage && orderPage !== 'calculator' && orderPage !== 'checkout') {
+        if (!resolvePrintJourney(resolvedBranding)) return renderPageContent();
+        return <StorefrontThemeFrame branding={resolvedBranding} orderDesign={orderDesign}
+            tenantName={resolvedTenantName} contentOnly isPreviewMode>{renderPageContent()}</StorefrontThemeFrame>;
+    }
+
     return (
         <StorefrontThemeFrame
             branding={resolvedBranding}
+            orderDesign={orderPage ? orderDesign : undefined}
             tenantName={resolvedTenantName}
             isPreviewMode
             topSlot={<StorefrontSeo />}
@@ -299,7 +340,7 @@ function PreviewShopContent({ currentPage }: { currentPage: string }) {
 /**
  * Preview Shop Page - Renders the REAL shop page with draft branding for admin preview.
  * Protected route - requires admin access.
- * 
+ *
  * Key Features:
  * - Shows actual ProductGrid with real tenant products and their icons
  * - Applies draft branding (fonts, colors) via CSS variables
@@ -315,7 +356,8 @@ export default function PreviewShop() {
     const [initialBranding, setInitialBranding] = useState<BrandingData | null>(null);
     const [tenantName, setTenantName] = useState("Dit Trykkeri");
     const [isLoading, setIsLoading] = useState(true);
-    const [currentPage, setCurrentPage] = useState('/');
+    const previewPageParam = searchParams.get("page");
+    const [currentPage, setCurrentPage] = useState(() => resolvePreviewPageQuery(previewPageParam));
     const [firstProductSlug, setFirstProductSlug] = useState<string | null>(null);
 
     const isDraft = searchParams.get("draft") === "1";
@@ -325,6 +367,12 @@ export default function PreviewShop() {
     const isPreviewContext = isDraft || searchParams.get("preview_mode") === "1" || window.self !== window.top;
 
     useEffect(() => {
+        const nextPage = resolvePreviewPageQuery(previewPageParam);
+        setCurrentPage(previousPage => previousPage === nextPage ? previousPage : nextPage);
+    }, [previewPageParam]);
+
+    useEffect(() => {
+        window.dispatchEvent(new CustomEvent('STOREFRONT_TOOLTIP_PAGE', {detail: currentPage}));
         if (!isPreviewContext) return;
         window.parent.postMessage({ type: 'PREVIEW_NAVIGATION', path: currentPage }, '*');
         // Backwards-compatible event name used by older editor controls
@@ -344,7 +392,7 @@ export default function PreviewShop() {
                 if (!user) return;
 
                 let query = supabase
-                    .from('tenants' as any)
+                    .from('tenants')
                     .select('id, name, settings');
 
                 if (tenantIdParam) {
@@ -381,7 +429,10 @@ export default function PreviewShop() {
     }, [isDraft, roleLoading, tenantIdParam, isSitePreview]);
 
     useEffect(() => {
-        if (isSitePreview) return;
+        // The canonical editor supplies its selected tenant explicitly. The
+        // legacy owner fallback must not replace the master preview with an
+        // arbitrary shop owned by the same operator. RLS still governs reads.
+        if (isSitePreview || searchParams.get('editor') === 'site-design-v2') return;
         if (roleLoading || !isAdmin) return;
         if (!tenantIdParam || tenantIdParam !== MASTER_TENANT_ID) return;
 
@@ -390,7 +441,7 @@ export default function PreviewShop() {
             if (!user) return;
 
             const { data: owned } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('id')
                 .eq('owner_id', user.id)
                 .maybeSingle();
@@ -448,6 +499,13 @@ export default function PreviewShop() {
     // Listen for Edit Mode toggle from parent AND screenshot capture requests
     useEffect(() => {
         const handleMessage = async (event: MessageEvent) => {
+            if (event.source !== window.parent || event.origin !== window.location.origin) return;
+            if (event.data?.type === 'PREVIEW_FOCUS_SECTION') {
+                if (typeof event.data.target !== 'string') return;
+                const element = Array.from(document.querySelectorAll('[data-branding-id]')).find(item => item.getAttribute('data-branding-id') === event.data.target);
+                if (element) window.scrollTo({ top: window.scrollY + element.getBoundingClientRect().top - 88, behavior: 'auto' });
+                return;
+            }
             if (event.data?.type === 'SET_EDIT_MODE') {
                 setEditMode((prev) => {
                     const next = Boolean(event.data.enabled);
@@ -459,7 +517,7 @@ export default function PreviewShop() {
             }
 
             if (event.data?.type === 'NAVIGATE_TO') {
-                const path = typeof event.data.path === 'string' ? event.data.path : '/';
+                const path = normalizeSiteDesignPreviewPath(event.data.path);
                 setCurrentPage(path);
                 window.scrollTo(0, 0);
             }
@@ -480,7 +538,7 @@ export default function PreviewShop() {
                     // Find the main content container
                     const container = document.querySelector('.min-h-screen');
                     if (!container) {
-                        window.parent.postMessage({ type: 'SCREENSHOT_ERROR', error: 'Container not found' }, '*');
+                        window.parent.postMessage({ type: 'SCREENSHOT_ERROR', error: 'Container not found', requestId: event.data.requestId }, window.location.origin);
                         return;
                     }
 
@@ -504,14 +562,14 @@ export default function PreviewShop() {
                         type: 'SCREENSHOT_CAPTURED',
                         dataUrl,
                         requestId: event.data.requestId
-                    }, '*');
+                    }, window.location.origin);
                 } catch (error) {
                     console.error('Screenshot capture error:', error);
                     window.parent.postMessage({
                         type: 'SCREENSHOT_ERROR',
                         error: String(error),
                         requestId: event.data.requestId
-                    }, '*');
+                    }, window.location.origin);
                 }
             }
         };
@@ -523,25 +581,26 @@ export default function PreviewShop() {
     // Global click interceptor for virtual navigation AND visual editing
     useEffect(() => {
         const handleClick = (e: MouseEvent) => {
+            // Canvas toolbar events must reach their own controls.
+            if ((e.target as HTMLElement).closest('[data-workspace-editor-control]')) return;
             // Priority 1: Visual Editing
             if (editMode) {
                 const target = e.target as HTMLElement;
                 const brandingElement = resolveSiteDesignPreviewElement(target);
 
                 if (brandingElement) {
-                    e.preventDefault();
-                    e.stopPropagation();
+                    // Disclosure headings both select their editor and keep native open/close behavior.
+                    if (!target.closest('[data-workspace-disclosure]')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
                     const sectionId = brandingElement.getAttribute('data-site-design-target')
                         || brandingElement.getAttribute('data-branding-id')
                         || brandingElement.getAttribute('data-click-to-edit');
 
                     // Send message to parent editor
                     window.parent.postMessage({
-                        type: 'EDIT_SECTION',
-                        sectionId
-                    }, '*');
-                    window.parent.postMessage({
-                        type: 'ELEMENT_CLICKED',
+                        type: SITE_DESIGN_SELECTION_EVENT,
                         sectionId
                     }, '*');
 
@@ -554,6 +613,7 @@ export default function PreviewShop() {
             const link = target.closest('a');
 
             if (!link) return;
+            if (link.dataset.previewExit === 'true') return;
 
             const href = link.getAttribute('href');
             if (!href) return;
@@ -575,7 +635,7 @@ export default function PreviewShop() {
                 e.stopPropagation();
 
                 // Normalize the path
-                const path = href === '/' ? '/' : href;
+                const path = normalizeSiteDesignPreviewPath(href);
                 setCurrentPage(path);
 
                 // Scroll to top on navigation
@@ -589,7 +649,7 @@ export default function PreviewShop() {
         return () => {
             document.removeEventListener('click', handleClick, true);
         };
-    }, [editMode]);
+    }, [editMode, currentPage]);
 
     useEffect(() => {
         if (!editMode) {
@@ -638,7 +698,10 @@ export default function PreviewShop() {
             window.removeEventListener('blur', clearHoveredElement);
             clearHoveredElement();
         };
-    }, [editMode]);
+    }, [editMode, currentPage]);
+
+    // Product workspace preview can include unpublished products and requires admin access.
+    if (searchParams.has('productWorkspace') && !roleLoading && !isAdmin) return <Navigate to="/auth" replace />;
 
     // Require admin access
     if (!roleLoading && !isAdmin && !isPreviewContext) {
@@ -658,7 +721,7 @@ export default function PreviewShop() {
     }
 
     return (
-        <div data-site-design-edit-mode={editMode ? "true" : "false"} className="relative min-h-screen">
+        <div data-product-workspace-preview={searchParams.has("productWorkspace") || undefined} data-tooltip-page={currentPage} data-site-design-edit-mode={editMode ? "true" : "false"} className="relative min-h-screen">
             <style>{`
                 [data-site-design-edit-mode="true"] [data-branding-id],
                 [data-site-design-edit-mode="true"] [data-site-design-target] {
@@ -671,6 +734,12 @@ export default function PreviewShop() {
                     outline-offset: 4px;
                     box-shadow: 0 0 0 6px rgba(14, 165, 233, 0.12);
                 }
+                [data-product-workspace-preview="true"][data-site-design-edit-mode="true"] [data-site-design-target][data-branding-hovered="true"],
+                [data-product-workspace-preview="true"][data-site-design-edit-mode="true"] :is([data-site-design-target]:hover, [data-branding-id]:hover, [data-click-to-edit]:hover, [data-selected="true"]) {
+                    outline: 1px solid rgba(14, 165, 233, 0.5);
+                    outline-offset: 2px;
+                    box-shadow: none;
+                }
             `}</style>
 
             <PreviewBrandingProvider
@@ -678,10 +747,10 @@ export default function PreviewShop() {
                 initialTenantName={tenantName}
                 previewPath={currentPage}
             >
-                <PreviewShopContent currentPage={currentPage} />
+                <WorkspacePreviewEditor enabled={editMode && searchParams.has("productWorkspace")}><PreviewShopContent currentPage={currentPage} onNavigate={setCurrentPage} /></WorkspacePreviewEditor>
             </PreviewBrandingProvider>
 
-            {editMode && (
+            {editMode && !searchParams.has("productWorkspace") && (
                 <div className="pointer-events-none fixed bottom-4 left-4 z-[2000] rounded-full bg-slate-950/90 px-4 py-2 text-sm text-white shadow-xl backdrop-blur">
                     {hoveredTargetId
                         ? `Klik for at redigere: ${getSiteDesignTargetLabel(hoveredTargetId)}`

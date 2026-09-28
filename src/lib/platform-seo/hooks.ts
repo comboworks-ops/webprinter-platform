@@ -1,6 +1,6 @@
 /**
  * Platform SEO Hooks
- * 
+ *
  * React hooks for fetching and managing platform SEO data.
  * Master-admin only access via RLS.
  */
@@ -132,12 +132,14 @@ export function useUpsertPlatformSeoPage() {
 
     return useMutation({
         mutationFn: async (page: Partial<PlatformSeoPage> & { path: string }) => {
-            const { data: existing } = await supabase
+            const existingQuery = supabase
                 .from('platform_seo_pages')
                 .select('id')
-                .eq('path', page.path)
-                .is('locale', page.locale ?? null)
-                .single();
+                .eq('path', page.path);
+            const { data: existing } = await (page.locale == null
+                ? existingQuery.is('locale', null)
+                : existingQuery.eq('locale', page.locale)
+            ).single();
 
             if (existing) {
                 const { data, error } = await supabase

@@ -1,0 +1,23 @@
+name: Supabase Data API grants
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/check-supabase-migration-grants.js"
+      - "docs/SUPABASE_DATA_API_GRANTS.md"
+      - "package.json"
+
+jobs:
+  check-supabase-data-api-grants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm run check:supabase-grants

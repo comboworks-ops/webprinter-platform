@@ -1,0 +1,13 @@
+/* Scoped to the consolidated editor; legacy callers keep their layout. */
+.admin-matrix-context[data-editor-surface="prices"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-6, 24px);
+}
+.admin-matrix-context[data-editor-surface="prices"] > * { width: 100%; min-width: 0; margin-top: 0 !important; }
+.admin-storformat-workspace[data-editor-surface="prices"] { grid-template-columns: minmax(0, 1fr); }
+.product-layout-board > * { min-width: 0; }
+.product-section-columns > * { min-width: 0; }
+@media (max-width: 639px) {
+  .admin-matrix-context[data-editor-surface] > details { padding: 12px; }
+}

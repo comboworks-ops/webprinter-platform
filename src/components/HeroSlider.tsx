@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useSharedButtonStyles } from '@/components/storefront/SharedButtonContext';
+import { useState, useEffect, useRef, type ImgHTMLAttributes } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
@@ -66,6 +67,14 @@ const DEFAULT_SLIDES = [
 ];
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+type ImageFetchPriority = "high" | "low" | "auto";
+type PriorityImageProps = ImgHTMLAttributes<HTMLImageElement> & { fetchpriority: ImageFetchPriority };
+
+const getHeroImageLoadingProps = (isPriority: boolean): PriorityImageProps => ({
+  loading: isPriority ? "eager" : "lazy",
+  decoding: "async",
+  fetchpriority: isPriority ? "high" : "auto",
+});
 
 // Helper to get button link
 function getButtonLink(button: BannerButton): string {
@@ -143,9 +152,11 @@ function darkenColor(hex: string, percent: number): string {
 interface HeroSliderProps {
   /** Optional hero settings override (for preview mode) */
   heroSettings?: HeroSettings;
+  presentation?: 'classic' | 'print';
 }
 
-const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
+const HeroSlider = ({ heroSettings, presentation = 'classic' }: HeroSliderProps) => {
+  const isPrint = presentation === 'print';
   const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
   const shopSettings = useShopSettings();
   const branding = (isPreviewMode && previewBranding)
@@ -153,7 +164,9 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
     : shopSettings.data?.branding;
   const [currentSlide, setCurrentSlide] = useState(0);
   const [scrollY, setScrollY] = useState(0);
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
+    typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  );
   const videoRef = useRef<HTMLVideoElement>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -241,6 +254,9 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
   const mediaItems = isVideoMode ? videos : images;
   const totalSlides = useDefaults ? DEFAULT_SLIDES.length : mediaItems.length;
 
+  // Removing a slide or switching media must not leave the active index out of range.
+  useEffect(() => { setCurrentSlide(previous => Math.min(previous, Math.max(0, totalSlides - 1))); }, [totalSlides]);
+
   // Parallax scroll handler
   useEffect(() => {
     if (prefersReducedMotion || (!hero.parallax && !hero.videoSettings?.parallaxEnabled)) return;
@@ -264,7 +280,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
       clearInterval(intervalRef.current);
     }
 
-    if (hero.slideshow?.autoplay && totalSlides > 1) {
+    if (hero.slideshow?.enabled && hero.slideshow?.autoplay && !prefersReducedMotion && totalSlides > 1) {
       intervalRef.current = setInterval(() => {
         setCurrentSlide((prev) => (prev + 1) % totalSlides);
       }, hero.slideshow.intervalMs || 5000);
@@ -275,16 +291,15 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
         clearInterval(intervalRef.current);
       }
     };
-  }, [hero.slideshow?.autoplay, hero.slideshow?.intervalMs, totalSlides]);
+  }, [hero.slideshow?.enabled, hero.slideshow?.autoplay, hero.slideshow?.intervalMs, totalSlides, prefersReducedMotion]);
 
   // Handle video autoplay
   useEffect(() => {
-    if (isVideoMode && videoRef.current) {
-      videoRef.current.play().catch(() => {
-        // Autoplay blocked - this is fine
-      });
-    }
-  }, [isVideoMode, currentSlide]);
+    containerRef.current?.querySelectorAll('video').forEach(video => {
+      if (!isVideoMode || prefersReducedMotion || video !== videoRef.current) video.pause();
+      else video.play().catch(() => { /* The browser may require user interaction. */ });
+    });
+  }, [isVideoMode, currentSlide, prefersReducedMotion]);
 
   const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % totalSlides);
   const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + totalSlides) % totalSlides);
@@ -358,12 +373,12 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
   // Global styling (used when per-banner is OFF or as fallback)
   const globalTitleColor = extendedOverlay.titleColor || '#FFFFFF';
   const globalSubtitleColor = extendedOverlay.subtitleColor || 'rgba(255, 255, 255, 0.9)';
-  const globalTitleFontId = extendedOverlay.titleFontId || 'Poppins';
-  const globalSubtitleFontId = extendedOverlay.subtitleFontId || 'Inter';
+  const globalTitleFontId = extendedOverlay.titleFontId || (isPrint ? branding?.fonts?.heading : null) || 'Poppins';
+  const globalSubtitleFontId = extendedOverlay.subtitleFontId || branding?.fonts?.body || 'Inter';
 
   // Helper functions to get per-slide or global styling
   const getSlideStyles = (slideIndex: number) => {
-    const slide = images[slideIndex] as any;
+    const slide = images[slideIndex];
     if (usePerBannerStyling && slide) {
       return {
         titleColor: slide.titleColor || globalTitleColor,
@@ -430,6 +445,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
   };
 
   // Render button with custom colors
+  const getSharedButton = useSharedButtonStyles();
   const renderButton = (btn: BannerButton, isDefault = false, defaultCta?: string, defaultLink?: string) => {
     const bgColor = btn.bgColor || '#0EA5E9';
     const bgHoverColor = btn.bgHoverColor || (btn.bgColor ? darkenColor(btn.bgColor, 15) : '#0284C7');
@@ -444,6 +460,10 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
       '--btn-bg': btn.bgColor ? hexToRgba(btn.bgColor, btn.bgOpacity ?? 1) : undefined,
       '--btn-hover-bg': bgHoverColor,
       color: readableTextColor,
+      ...(isPrint && btn.variant !== 'secondary' ? { borderRadius: branding?.productPage?.orderButtons?.radiusPx,
+        fontSize: branding?.productPage?.orderButtons?.fontSizePx,
+        paddingTop: branding?.productPage?.orderButtons?.paddingYPx,
+        paddingBottom: branding?.productPage?.orderButtons?.paddingYPx, height: 'auto', minHeight: 44 } : {}),
     } as React.CSSProperties;
 
     if (btn.bgColor) {
@@ -472,12 +492,14 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
       }
     };
 
+    const sharedButton = btn.variant === 'secondary' ? {} : getSharedButton('cta', `hero:${btn.id}`);
     const ButtonContent = (
       <Button
         size="lg"
         variant={btn.variant === 'secondary' ? 'outline' : 'default'}
+        {...sharedButton}
         data-branding-id="forside.hero.button"
-        style={buttonStyle}
+        style={{ ...buttonStyle, ...sharedButton.style }}
         className={btn.variant === 'secondary' && !btn.bgColor ? 'hover:bg-white/20' : ''}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
@@ -510,10 +532,10 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
   };
 
   // Overlay rendering logic
-  const usePerBannerOverlay = (hero as any).usePerBannerOverlay || false;
+  const usePerBannerOverlay = hero.usePerBannerOverlay || false;
 
   const getSlideOverlayStyles = (slideIndex: number) => {
-    const slide = images[slideIndex] as any;
+    const slide = images[slideIndex];
     if (usePerBannerOverlay && slide) {
       return {
         backgroundColor: slide.overlayColor || hero.overlay_color || '#000',
@@ -539,18 +561,24 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
   return (
     <section
       ref={containerRef}
+      data-hero-has-slides={totalSlides > 1}
+      data-hero-copy-mode={!useDefaults && !images.some(image => image.headline || image.subline) ? 'shared' : 'slides'}
       data-branding-id="forside.hero.media"
-      className="relative h-[500px] md:h-[600px] overflow-hidden"
+      className={isPrint ? "print-hero print-hero-connected relative overflow-hidden" : "relative h-[420px] overflow-hidden sm:h-[500px] md:h-[600px]"}
       style={{
         backgroundColor: hero.overlay_color || '#000',
+        ...(hero.heightPx ? (isPrint ? { minHeight: `${Math.min(900, Math.max(280, hero.heightPx))}px` } : { height: `${Math.min(900, Math.max(280, hero.heightPx))}px`, minHeight: 0 }) : {}),
       }}
     >
       {/* Default slides (fallback) */}
       {useDefaults && DEFAULT_SLIDES.map((slide, index) => (
         <div
           key={`default-${index}`}
+          data-hero-slide
           className={`absolute inset-0 ${getTransitionClass(index)}`}
           style={getSlideTransitionStyle(index)}
+          aria-hidden={index !== currentSlide}
+          {...(index !== currentSlide ? { inert: '' } as Record<string, string> : {})}
         >
           <div
             data-branding-id="forside.hero.overlay"
@@ -568,30 +596,30 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
             <img
               src={slide.image}
               alt={slide.headline}
+              width={1920}
+              height={600}
+              sizes="100vw"
               className="w-full h-full object-cover"
               style={{
-                objectFit: 'cover',
+                objectFit: hero.fitMode || 'cover',
                 objectPosition: 'center',
               }}
-              loading={index === 0 ? "eager" : "lazy"}
+              {...getHeroImageLoadingProps(index === 0)}
             />
           </div>
           {/* Per-slide content with entrance animations */}
-          <div className="absolute inset-0 z-20 flex items-center">
-            <div className="container mx-auto px-4 md:px-8 lg:px-16">
+          <div data-hero-copy-layer className="absolute inset-0 z-20 flex items-center">
+            <div className={isPrint ? "print-container print-hero-inner" : "container mx-auto px-4 sm:px-6 md:px-8 lg:px-16"}>
               {/* Content wrapper with margin for spacing from edges */}
-              <div className="max-w-2xl ml-4 md:ml-8 lg:ml-12 mt-16 md:mt-20">
+              <div className={isPrint ? "print-hero-copy" : "mt-14 max-w-[min(42rem,calc(100vw-2rem))] sm:ml-4 md:ml-8 md:mt-20 lg:ml-12"}>
                 {/* Title with fade-up animation */}
                 <h1
                   data-branding-id="forside.hero.title"
-                  className={`text-4xl md:text-5xl lg:text-6xl font-extrabold mb-4 transition-all duration-700 ${index === currentSlide
-                    ? 'opacity-100 translate-y-0'
-                    : 'opacity-0 translate-y-8'
-                    }`}
+                  className={`mb-3 text-3xl font-extrabold leading-tight sm:text-4xl md:mb-4 md:text-5xl lg:text-6xl ${getTextAnimationClass('slide-up', index === currentSlide)}`}
                   style={{
                     color: getSlideStyles(index).titleColor,
                     fontFamily: `'${getSlideStyles(index).titleFontId}', sans-serif`,
-                    transitionDelay: index === currentSlide ? '200ms' : '0ms'
+                    transitionDelay: !prefersReducedMotion && index === currentSlide ? '200ms' : '0ms'
                   }}
                 >
                   {slide.headline}
@@ -599,25 +627,19 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
                 {/* Subtitle with fade-up animation (delayed) */}
                 <p
                   data-branding-id="forside.hero.subtitle"
-                  className={`text-xl md:text-2xl mb-8 transition-all duration-700 ${index === currentSlide
-                    ? 'opacity-100 translate-y-0'
-                    : 'opacity-0 translate-y-8'
-                    }`}
+                  className={`mb-6 text-base leading-relaxed sm:text-lg md:mb-8 md:text-2xl ${getTextAnimationClass('slide-up', index === currentSlide)}`}
                   style={{
                     color: getSlideStyles(index).subtitleColor,
                     fontFamily: `'${getSlideStyles(index).subtitleFontId}', sans-serif`,
-                    transitionDelay: index === currentSlide ? '400ms' : '0ms'
+                    transitionDelay: !prefersReducedMotion && index === currentSlide ? '400ms' : '0ms'
                   }}
                 >
                   {slide.subline}
                 </p>
                 {/* CTA Button with fade-up animation (more delayed) */}
                 <div
-                  className={`flex flex-wrap gap-4 transition-all duration-700 ${index === currentSlide
-                    ? 'opacity-100 translate-y-0'
-                    : 'opacity-0 translate-y-8'
-                    }`}
-                  style={{ transitionDelay: index === currentSlide ? '600ms' : '0ms' }}
+                  className={`flex flex-wrap gap-3 sm:gap-4 ${getTextAnimationClass('slide-up', index === currentSlide)}`}
+                  style={{ transitionDelay: !prefersReducedMotion && index === currentSlide ? '600ms' : '0ms' }}
                 >
                   {renderButton(
                     { id: 'default', label: slide.cta, variant: 'primary', linkType: 'INTERNAL_PAGE', target: {} } as BannerButton,
@@ -636,8 +658,11 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
       {!isVideoMode && !useDefaults && images.map((image, index) => (
         <div
           key={image.id}
+          data-hero-slide
           className={`absolute inset-0 ${getTransitionClass(index)}`}
           style={getSlideTransitionStyle(index)}
+          aria-hidden={index !== currentSlide}
+          {...(index !== currentSlide ? { inert: '' } as Record<string, string> : {})}
         >
           <div
             data-branding-id="forside.hero.overlay"
@@ -652,31 +677,34 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
             <img
               src={image.url}
               alt={image.alt || `Slide ${index + 1}`}
+              width={1920}
+              height={600}
+              sizes="100vw"
               className="w-full h-full"
               style={{
-                objectFit: 'cover',
+                objectFit: hero.fitMode || 'cover',
                 objectPosition: 'center',
                 width: '100%',
                 height: '100%',
               }}
-              loading={index === 0 ? "eager" : "lazy"}
+              {...getHeroImageLoadingProps(index === 0)}
             />
           </div>
           {/* Per-slide text content with animations */}
           {(image.headline || image.subline) && (
-            <div className="absolute inset-0 z-20 flex items-center">
-              <div className="container mx-auto px-4 md:px-8 lg:px-16">
-                <div className="max-w-2xl ml-4 md:ml-8 lg:ml-12 mt-16 md:mt-20">
+            <div data-hero-copy-layer className="absolute inset-0 z-20 flex items-center">
+              <div className={isPrint ? "print-container print-hero-inner" : "container mx-auto px-4 sm:px-6 md:px-8 lg:px-16"}>
+                <div className={isPrint ? "print-hero-copy" : "mt-14 max-w-[min(42rem,calc(100vw-2rem))] sm:ml-4 md:ml-8 md:mt-20 lg:ml-12"}>
                   {/* Title with animation */}
                   {image.headline && (
                     <h1
                       data-branding-id="forside.hero.title"
-                      className={`text-4xl md:text-5xl lg:text-6xl font-extrabold mb-4 ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
+                      className={`mb-3 text-3xl font-extrabold leading-tight sm:text-4xl md:mb-4 md:text-5xl lg:text-6xl ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
                         }`}
                       style={{
                         color: getSlideStyles(index).titleColor,
                         fontFamily: `'${getSlideStyles(index).titleFontId}', sans-serif`,
-                        transitionDelay: index === currentSlide ? '200ms' : '0ms'
+                        transitionDelay: !prefersReducedMotion && index === currentSlide ? '200ms' : '0ms'
                       }}
                     >
                       {image.headline}
@@ -686,12 +714,12 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
                   {image.subline && (
                     <p
                       data-branding-id="forside.hero.subtitle"
-                      className={`text-xl md:text-2xl mb-8 ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
+                      className={`mb-6 text-base leading-relaxed sm:text-lg md:mb-8 md:text-2xl ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
                         }`}
                       style={{
                         color: getSlideStyles(index).subtitleColor,
                         fontFamily: `'${getSlideStyles(index).subtitleFontId}', sans-serif`,
-                        transitionDelay: index === currentSlide ? '400ms' : '0ms'
+                        transitionDelay: !prefersReducedMotion && index === currentSlide ? '400ms' : '0ms'
                       }}
                     >
                       {image.subline}
@@ -700,9 +728,9 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
                   {/* CTA Buttons with animation (more delayed) */}
                   {showButtons && (image.buttons !== undefined ? image.buttons.length > 0 : image.ctaText) && (
                     <div
-                      className={`flex flex-wrap gap-4 ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
+                      className={`flex flex-wrap gap-3 sm:gap-4 ${getTextAnimationClass(image.textAnimation || 'slide-up', index === currentSlide)
                         }`}
-                      style={{ transitionDelay: index === currentSlide ? '600ms' : '0ms' }}
+                      style={{ transitionDelay: !prefersReducedMotion && index === currentSlide ? '600ms' : '0ms' }}
                     >
                       {/* Render buttons array if it exists (even if empty, don't fallback) */}
 	                      {image.buttons !== undefined ? (
@@ -720,7 +748,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
 	                            bgColor: primaryHeroButton?.bgColor,
 	                            bgHoverColor: primaryHeroButton?.bgHoverColor,
 	                            bgOpacity: primaryHeroButton?.bgOpacity,
-	                          } as any,
+	                          },
 	                          true,
 	                          image.ctaText,
 	                          image.ctaLink
@@ -739,8 +767,11 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
       {isVideoMode && videos.map((video, index) => (
         <div
           key={video.id}
+          data-hero-slide
           className={`absolute inset-0 ${getTransitionClass(index)}`}
           style={getSlideTransitionStyle(index)}
+          aria-hidden={index !== currentSlide}
+          {...(index !== currentSlide ? { inert: '' } as Record<string, string> : {})}
         >
           <div
             className="absolute inset-0 z-10"
@@ -765,7 +796,7 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
               muted={hero.videoSettings?.muted ?? true}
               loop={hero.videoSettings?.loop ?? true}
               playsInline
-              autoPlay
+              autoPlay={!prefersReducedMotion && index === currentSlide}
             />
           </div>
         </div>
@@ -774,14 +805,14 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
       {/* Overlay content (only when using configured media WITHOUT per-slide text) */}
       {/* This allows for a global overlay when images don't have individual headlines */}
       {!useDefaults && !images.some(img => img.headline || img.subline) && (overlayTitle || overlaySubtitle || buttons.length > 0) && (
-        <div className="absolute inset-0 z-20 flex items-center">
-          <div className="container mx-auto px-4 md:px-8 lg:px-16">
+        <div data-hero-copy-layer className="absolute inset-0 z-20 flex items-center">
+          <div className={isPrint ? "print-container print-hero-inner" : "container mx-auto px-4 sm:px-6 md:px-8 lg:px-16"}>
             {/* Content wrapper with margin for spacing from edges */}
-            <div className="max-w-2xl ml-4 md:ml-8 lg:ml-12 mt-16 md:mt-20">
+            <div className={isPrint ? "print-hero-copy" : "mt-14 max-w-[min(42rem,calc(100vw-2rem))] sm:ml-4 md:ml-8 md:mt-20 lg:ml-12"}>
               {overlayTitle && (
                 <h1
                   data-branding-id="forside.hero.title"
-                  className="text-4xl md:text-5xl lg:text-6xl font-extrabold mb-4"
+                  className="mb-3 text-3xl font-extrabold leading-tight sm:text-4xl md:mb-4 md:text-5xl lg:text-6xl"
                   style={{ color: globalTitleColor, fontFamily: `'${globalTitleFontId}', sans-serif` }}
                 >
                   {overlayTitle}
@@ -790,14 +821,14 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
               {overlaySubtitle && (
                 <p
                   data-branding-id="forside.hero.subtitle"
-                  className="text-xl md:text-2xl mb-8"
+                  className="mb-6 text-base leading-relaxed sm:text-lg md:mb-8 md:text-2xl"
                   style={{ color: globalSubtitleColor, fontFamily: `'${globalSubtitleFontId}', sans-serif` }}
                 >
                   {overlaySubtitle}
                 </p>
               )}
               {showButtons && buttons.length > 0 && (
-                <div className="flex flex-wrap gap-4">
+                <div className="flex flex-wrap gap-3 sm:gap-4">
                   {buttons.map((btn) => renderButton(btn))}
                 </div>
               )}
@@ -811,14 +842,14 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
         <>
           <button
             onClick={prevSlide}
-            className="absolute left-4 top-1/2 -translate-y-1/2 z-30 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full p-2 transition-colors"
+            className="absolute left-2 top-1/2 z-30 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm transition-colors hover:bg-white/30 sm:left-4"
             aria-label="Previous slide"
           >
             <ChevronLeft className="h-6 w-6 text-white" />
           </button>
           <button
             onClick={nextSlide}
-            className="absolute right-4 top-1/2 -translate-y-1/2 z-30 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full p-2 transition-colors"
+            className="absolute right-2 top-1/2 z-30 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm transition-colors hover:bg-white/30 sm:right-4"
             aria-label="Next slide"
           >
             <ChevronRight className="h-6 w-6 text-white" />
@@ -828,15 +859,19 @@ const HeroSlider = ({ heroSettings }: HeroSliderProps) => {
 
       {/* Dots */}
       {totalSlides > 1 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex gap-2">
+        <div className="absolute bottom-4 left-1/2 z-30 flex -translate-x-1/2 gap-1 sm:bottom-6">
           {Array.from({ length: totalSlides }).map((_, index) => (
             <button
               key={index}
               onClick={() => setCurrentSlide(index)}
-              className={`w-2 h-2 rounded-full transition-all ${index === currentSlide ? "bg-white w-8" : "bg-white/50"
-                }`}
+              className="flex h-11 min-w-11 touch-manipulation items-center justify-center rounded-full transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black/30"
               aria-label={`Go to slide ${index + 1}`}
-            />
+            >
+              <span
+                className={`h-2 rounded-full transition-all duration-300 ${index === currentSlide ? "w-8 bg-white" : "w-2 bg-white/50"
+                  }`}
+              />
+            </button>
           ))}
         </div>
       )}

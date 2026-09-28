@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Loader2, ExternalLink, MessageCircle, Plus } from "lucide-react";
 import { format } from "date-fns";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { withAdminWorkspaceContext } from "@/lib/admin/workspaceNavigation";
 import {
     Dialog,
     DialogContent,
@@ -38,8 +39,11 @@ type TenantCreatePayload = {
 };
 
 export function TenantOverview() {
+    const location = useLocation();
     const [tenants, setTenants] = useState<Tenant[]>([]);
     const [loading, setLoading] = useState(true);
+    const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
+    const [tenantSearch, setTenantSearch] = useState("");
     const [createOpen, setCreateOpen] = useState(false);
     const [createName, setCreateName] = useState("");
     const [createDomain, setCreateDomain] = useState("");
@@ -118,15 +122,18 @@ export function TenantOverview() {
         }
     };
 
+    const visibleTenants = tenants.filter((tenant) => `${tenant.name} ${tenant.domain || ""}`.toLowerCase().includes(tenantSearch.toLowerCase()));
+    const selectedTenant = visibleTenants.find((tenant) => tenant.id === selectedTenantId) || visibleTenants[0];
+
     if (loading) {
         return <div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin" /></div>;
     }
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <h2 className="text-3xl font-bold tracking-tight">Lejere (Tenants)</h2>
-                <div className="flex items-center gap-2">
+            <div className="flex flex-wrap justify-between items-center gap-4">
+                <h1 className="text-3xl font-bold tracking-tight">Lejere</h1>
+                <div className="flex flex-wrap items-center gap-2">
                     <Button variant="outline" onClick={() => fetchTenants()}>Opdater Liste</Button>
                     <Button onClick={() => setCreateOpen(true)}>
                         <Plus className="h-4 w-4 mr-2" />
@@ -135,6 +142,8 @@ export function TenantOverview() {
                 </div>
             </div>
 
+            <Input aria-label="Søg efter shop eller domæne" placeholder="Søg efter shop eller domæne" value={tenantSearch} onChange={(event) => setTenantSearch(event.target.value)} className="max-w-md" />
+            <div className="workspace-split workspace-tenants">
             <Card>
                 <CardHeader>
                     <CardTitle>Aktive Shops</CardTitle>
@@ -151,10 +160,10 @@ export function TenantOverview() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {tenants.map((tenant) => (
-                                <TableRow key={tenant.id}>
+                            {visibleTenants.map((tenant) => (
+                                <TableRow key={tenant.id} className={selectedTenant?.id === tenant.id ? "workspace-selected-row" : undefined}>
                                     <TableCell className="font-medium">
-                                        {tenant.name}
+                                        <button type="button" className="workspace-row-title" onClick={() => setSelectedTenantId(tenant.id)}>{tenant.name}</button>
                                         {tenant.id === '00000000-0000-0000-0000-000000000000' && <Badge className="ml-2" variant="secondary">Master</Badge>}
                                     </TableCell>
                                     <TableCell>{tenant.domain || '-'}</TableCell>
@@ -164,7 +173,7 @@ export function TenantOverview() {
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <Button variant="ghost" size="sm" asChild>
-                                            <Link to={`/admin/beskeder?tab=support&tenantId=${tenant.id}`}>
+                                            <Link to={withAdminWorkspaceContext(`/admin/beskeder?tab=support&tenantId=${tenant.id}`, location.search)}>
                                                 <MessageCircle className="h-4 w-4 mr-2" />
                                                 Besked
                                             </Link>
@@ -180,7 +189,7 @@ export function TenantOverview() {
                                     </TableCell>
                                 </TableRow>
                             ))}
-                            {tenants.length === 0 && (
+                            {visibleTenants.length === 0 && (
                                 <TableRow>
                                     <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                                         Ingen lejere fundet.
@@ -191,6 +200,20 @@ export function TenantOverview() {
                     </Table>
                 </CardContent>
             </Card>
+            <aside className="workspace-inline-detail">
+                {selectedTenant ? <>
+                    <h3>{selectedTenant.name}</h3>
+                    <p className="text-muted-foreground">{selectedTenant.domain || "Domæne ikke tilføjet"}</p>
+                    <dl className="workspace-key-values">
+                        <div><dt>Shop ID</dt><dd className="break-all">{selectedTenant.id}</dd></div>
+                        <div><dt>Oprettet</dt><dd>{format(new Date(selectedTenant.created_at), 'dd/MM/yyyy')}</dd></div>
+                        <div><dt>Rolle</dt><dd>{selectedTenant.id === '00000000-0000-0000-0000-000000000000' ? 'Master' : 'Tenant'}</dd></div>
+                    </dl>
+                    <Button variant="outline" asChild><Link to={withAdminWorkspaceContext(`/admin/beskeder?tab=support&tenantId=${selectedTenant.id}`, location.search)}><MessageCircle className="mr-2 h-4 w-4" />Besked til shop</Link></Button>
+                    {selectedTenant.domain && <Button variant="ghost" asChild><a href={`https://${selectedTenant.domain}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="mr-2 h-4 w-4" />Besøg webshop</a></Button>}
+                </> : <p className="text-muted-foreground">Ingen shops matcher din søgning.</p>}
+            </aside>
+            </div>
 
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogContent className="sm:max-w-md">

@@ -36,7 +36,7 @@ export function useBrandingHistory(tenantId: string | null): UseBrandingHistoryR
 
         try {
             const { data, error } = await supabase
-                .from('branding_versions' as any)
+                .from('branding_versions')
                 .select('*')
                 .eq('tenant_id', tenantId)
                 .order('created_at', { ascending: false })
@@ -72,7 +72,7 @@ export function useBrandingHistory(tenantId: string | null): UseBrandingHistoryR
 
             // 1. Create snapshot of current state before restore
             const { data: tenant } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .select('settings')
                 .eq('id', tenantId)
                 .single();
@@ -85,7 +85,7 @@ export function useBrandingHistory(tenantId: string | null): UseBrandingHistoryR
 
             // Save current as snapshot
             await supabase
-                .from('branding_versions' as any)
+                .from('branding_versions')
                 .insert({
                     tenant_id: tenantId,
                     data: currentPublished,
@@ -104,7 +104,7 @@ export function useBrandingHistory(tenantId: string | null): UseBrandingHistoryR
             };
 
             const { error } = await supabase
-                .from('tenants' as any)
+                .from('tenants')
                 .update({ settings: newSettings })
                 .eq('id', tenantId);
 
@@ -127,7 +127,7 @@ export function useBrandingHistory(tenantId: string | null): UseBrandingHistoryR
     const deleteVersion = useCallback(async (versionId: string) => {
         try {
             const { error } = await supabase
-                .from('branding_versions' as any)
+                .from('branding_versions')
                 .delete()
                 .eq('id', versionId);
 

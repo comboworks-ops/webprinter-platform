@@ -1,12 +1,12 @@
 /**
  * Pricing Hub - Main Page
- * 
+ *
  * A dedicated section for managing CSV price imports with:
  * - Folders/categories for organization
  * - Drag-and-drop file uploads
  * - Project workspaces for combining imports
  * - Preview and publish to products
- * 
+ *
  * STANDALONE MODULE: Does not modify any existing pricing logic
  */
 
@@ -691,7 +691,7 @@ A4,120g Gloss,,100,169.00`;
                                                             if (!confirm("Slet alle importerede data og start forfra?")) return;
                                                             // Clear the project data
                                                             const { error } = await supabase
-                                                                .from("pricing_hub_projects" as any)
+                                                                .from("pricing_hub_projects")
                                                                 .update({
                                                                     combined_data: [],
                                                                     detected_attributes: {},

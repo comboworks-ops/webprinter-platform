@@ -196,21 +196,21 @@ export function AdminSidebar() {
         // 1. Order Messages (Customer Support)
         // 1. Customer Messages (Unread)
         const { count: customerCount } = await supabase
-          .from('order_messages' as any)
+          .from('order_messages')
           .select('*', { count: 'exact', head: true })
           .eq('is_read', false)
           .eq('sender_type', 'customer');
 
         // 2. Support Messages (Unread)
         const { count: supportCount } = await supabase
-          .from('platform_messages' as any)
+          .from('platform_messages')
           .select('*', { count: 'exact', head: true })
           .eq('is_read', false)
           .eq('sender_role', isMasterAdmin ? 'tenant' : 'master');
 
         const { count: platformLeadCount } = isMasterAdmin
           ? await supabase
-            .from('platform_messages' as any)
+            .from('platform_messages')
             .select('*', { count: 'exact', head: true })
             .eq('tenant_id', MASTER_TENANT_ID)
             .eq('is_read', false)
@@ -226,7 +226,7 @@ export function AdminSidebar() {
 
           if (tenantId && tenantId !== '00000000-0000-0000-0000-000000000000') {
             const { data: notiRows } = await supabase
-              .from('tenant_notifications' as any)
+              .from('tenant_notifications')
               .select('id, type, data, is_read')
               .eq('tenant_id', tenantId)
               .eq('is_read', false);
@@ -303,11 +303,11 @@ export function AdminSidebar() {
     .admin-sidebar {
       backdrop-filter: blur(8px);
     }
-    
+
     .admin-sidebar .admin-nav-link {
       position: relative;
     }
-    
+
     .admin-sidebar .admin-nav-link:hover {
       background-color: ${sidebarStyles.bgHover} !important;
     }
@@ -317,34 +317,34 @@ export function AdminSidebar() {
       outline: 2px solid ${sidebarStyles.accentBorder};
       outline-offset: 2px;
     }
-    
+
     .admin-sidebar .admin-nav-link:active {
       transform: scale(0.995);
     }
-    
+
     .admin-sidebar .admin-nav-link svg {
       transition: transform 0.2s ease;
     }
-    
+
     .admin-sidebar .admin-nav-link:hover svg {
       transform: scale(1.04);
     }
-    
+
     .admin-sidebar .admin-section-header {
       color: ${sidebarStyles.textDefault};
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       font-weight: 500;
       letter-spacing: 0.01em;
     }
-    
+
     .admin-sidebar .admin-section-header:hover {
       background-color: ${sidebarStyles.bgHover};
     }
-    
+
     .admin-sidebar .admin-section-header svg {
       transition: transform 0.2s ease;
     }
-    
+
     .admin-sidebar .admin-section-header:hover svg:first-child {
       transform: scale(1.04);
     }
@@ -490,16 +490,9 @@ export function AdminSidebar() {
 
                   {/* Site Design */}
                   <SidebarMenuItem>
-                    <AdminNavLink to="/admin/branding-v2">
-                      <Palette className="h-4 w-4" />
-                      {!collapsed && <span>Site Design</span>}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
-
-                  <SidebarMenuItem>
                     <AdminNavLink to="/admin/site-design-v2">
                       <Palette className="h-4 w-4" />
-                      {!collapsed && <span>Site Design V2</span>}
+                      {!collapsed && <span>Site Design</span>}
                     </AdminNavLink>
                   </SidebarMenuItem>
 
@@ -507,7 +500,7 @@ export function AdminSidebar() {
                     <SidebarMenuItem>
                       <AdminNavLink to="/admin/icon-studio">
                         <Sparkles className="h-4 w-4" />
-                        {!collapsed && <span>Icon Studio</span>}
+                      {!collapsed && <span>Produktbilleder</span>}
                       </AdminNavLink>
                     </SidebarMenuItem>
                   )}
@@ -525,14 +518,6 @@ export function AdminSidebar() {
                     <AdminNavLink to="/admin/machine-pricing">
                       <Cpu className="h-4 w-4" />
                       {!collapsed && <span>Maskin-beregning</span>}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
-
-                  {/* Print on Demand */}
-                  <SidebarMenuItem>
-                    <AdminNavLink to="/admin/pod-katalog">
-                      <Printer className="h-4 w-4" />
-                      {!collapsed && <span>Print on Demand</span>}
                     </AdminNavLink>
                   </SidebarMenuItem>
 
@@ -756,7 +741,7 @@ export function AdminSidebar() {
                     <SidebarMenuItem>
                       <AdminNavLink to="/admin/branding-template">
                         <Palette className="h-4 w-4" />
-                        {!collapsed && <span>Platform Master Design</span>}
+                        {!collapsed && <span>Designskabeloner</span>}
                       </AdminNavLink>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
@@ -784,27 +769,9 @@ export function AdminSidebar() {
                       </AdminNavLink>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <AdminNavLink to="/admin/pod">
+                      <AdminNavLink to="/admin/printproduktion">
                         <Printer className="h-4 w-4" />
-                        {!collapsed && <span>Print on Demand</span>}
-                      </AdminNavLink>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <AdminNavLink to="/admin/pod2">
-                        <Printer className="h-4 w-4" />
-                        {!collapsed && <span>Print on Demand v2</span>}
-                      </AdminNavLink>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <AdminNavLink to="/admin/pod3">
-                        <Printer className="h-4 w-4" />
-                        {!collapsed && <span>Flyer Alarm (POD3)</span>}
-                      </AdminNavLink>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <AdminNavLink to="/admin/pod2-ordrer">
-                        <ShoppingCart className="h-4 w-4" />
-                        {!collapsed && <span>POD v2 Ordrer</span>}
+                        {!collapsed && <span>Printproduktion</span>}
                       </AdminNavLink>
                     </SidebarMenuItem>
                   </SidebarMenu>
@@ -831,24 +798,6 @@ export function AdminSidebar() {
                           {unreadSystemCount > 9 ? '9+' : unreadSystemCount}
                         </span>
                       )}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <AdminNavLink to="/admin/pod2-ordrer">
-                      <ShoppingCart className="h-4 w-4" />
-                      {!collapsed && <span>POD v2 Ordrer</span>}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <AdminNavLink to="/admin/pod2-betaling">
-                      <CreditCard className="h-4 w-4" />
-                      {!collapsed && <span>POD v2 Betaling</span>}
-                    </AdminNavLink>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <AdminNavLink to="/admin/pod3">
-                      <Printer className="h-4 w-4" />
-                      {!collapsed && <span>Flyer Alarm (POD3)</span>}
                     </AdminNavLink>
                   </SidebarMenuItem>
                 </SidebarMenu>

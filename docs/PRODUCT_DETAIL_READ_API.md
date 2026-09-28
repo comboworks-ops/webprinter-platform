@@ -24,6 +24,11 @@ Frontend helper:
 Supabase function:
 - `product-detail-read`
 
+Deployment config:
+- `[functions.product-detail-read] verify_jwt = false`
+- The function is public read-only and must answer browser `OPTIONS` preflight
+  with CORS headers before storefront product pages call it.
+
 ## Request Body
 
 ```json
@@ -84,6 +89,8 @@ At least one of `slug` or `productId` is required.
 - `product_info_v2` is derived from `technical_specs.product_page_info_v2`
 - `optionGroups` includes normalized option labels and display metadata
 - this endpoint is read-only and does not mutate product, pricing, or publish state
+- `scripts/check-supabase-function-exposure.js` verifies the public-read JWT/CORS
+  guardrails for this function before deployment.
 
 ## Rollback
 

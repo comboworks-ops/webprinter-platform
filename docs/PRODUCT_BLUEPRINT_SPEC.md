@@ -99,9 +99,9 @@ pricing_import:
 ## `ul_prices` Extraction + Transform
 
 ### Extraction order
-1. Firecrawl scrape (primary)
-2. Playwright browser fallback (if Firecrawl fails / empty selector result / dynamic page)
-3. Static HTML fallback for public non-interactive pages (only if both above fail)
+1. Playwright browser extraction (primary for dynamic supplier pages)
+2. Static HTML extraction for public non-interactive pages
+3. Firecrawl as a low-credit fallback when both local paths fail
 
 ### UL parsing
 - Collect text from all `<li>` under `ul_selector`.

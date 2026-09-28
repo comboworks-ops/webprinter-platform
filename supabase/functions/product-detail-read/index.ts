@@ -1,13 +1,19 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { readProductInfoV2 } from "./productInfoV2.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Max-Age": "86400",
 };
 
 const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
 const ROOT_DOMAIN = Deno.env.get("ROOT_DOMAIN") || Deno.env.get("VITE_ROOT_DOMAIN") || "webprinter.dk";
+
+type SupabaseServiceClient = ReturnType<typeof createClient<any>>;
 
 type TenantRow = {
   id: string;
@@ -126,51 +132,6 @@ function isUuid(value: string | null | undefined): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ""));
 }
 
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function readProductInfoV2(technicalSpecs: unknown) {
-  if (!isObjectRecord(technicalSpecs)) {
-    return { useSections: false, imagePosition: "above", blocks: [] };
-  }
-
-  const raw = technicalSpecs.product_page_info_v2;
-  if (!isObjectRecord(raw)) {
-    return { useSections: false, imagePosition: "above", blocks: [] };
-  }
-
-  const rawBlocks = Array.isArray(raw.blocks) ? raw.blocks : [];
-  const blocks = rawBlocks
-    .map((item, index) => {
-      if (!isObjectRecord(item)) return null;
-      const type = item.type;
-      if (type !== "text" && type !== "image" && type !== "gallery") return null;
-      return {
-        id: typeof item.id === "string" && item.id ? item.id : `block-${index + 1}`,
-        type,
-        title: typeof item.title === "string" ? item.title : "",
-        text: typeof item.text === "string" ? item.text : "",
-        imageUrl: typeof item.imageUrl === "string" ? item.imageUrl : "",
-        caption: typeof item.caption === "string" ? item.caption : "",
-        images: Array.isArray(item.images)
-          ? item.images.filter((url): url is string => typeof url === "string" && url.length > 0)
-          : [],
-        effect: item.effect === "fade-zoom" || item.effect === "fade-up" ? item.effect : "fade",
-        intervalMs: typeof item.intervalMs === "number" && Number.isFinite(item.intervalMs)
-          ? Math.max(2000, Math.min(12000, Math.round(item.intervalMs)))
-          : 4500,
-      };
-    })
-    .filter(Boolean);
-
-  return {
-    useSections: raw.useSections === true,
-    imagePosition: raw.imagePosition === "below" ? "below" : "above",
-    blocks,
-  };
-}
-
 function pickRequestInput(req: Request, url: URL, body: RequestInput): Required<RequestInput> {
   const headerHost = normalizeHostname(
     req.headers.get("x-forwarded-host")
@@ -202,7 +163,7 @@ async function parseRequestBody(req: Request): Promise<RequestInput> {
   }
 }
 
-async function findTenantById(serviceClient: ReturnType<typeof createClient>, tenantId: string | null | undefined): Promise<TenantRow | null> {
+async function findTenantById(serviceClient: SupabaseServiceClient, tenantId: string | null | undefined): Promise<TenantRow | null> {
   const id = String(tenantId || "").trim();
   if (!id) return null;
   const { data } = await serviceClient
@@ -213,7 +174,7 @@ async function findTenantById(serviceClient: ReturnType<typeof createClient>, te
   return (data as TenantRow | null) ?? null;
 }
 
-async function findTenantByDomain(serviceClient: ReturnType<typeof createClient>, domain: string | null | undefined): Promise<TenantRow | null> {
+async function findTenantByDomain(serviceClient: SupabaseServiceClient, domain: string | null | undefined): Promise<TenantRow | null> {
   const variants = getDomainVariants(domain);
   if (!variants.length) return null;
   const { data } = await serviceClient
@@ -237,7 +198,7 @@ async function findTenantByDomain(serviceClient: ReturnType<typeof createClient>
   return null;
 }
 
-async function resolveTenant(serviceClient: ReturnType<typeof createClient>, input: Required<RequestInput>): Promise<{ tenant: TenantRow | null; source: string }> {
+async function resolveTenant(serviceClient: SupabaseServiceClient, input: Required<RequestInput>): Promise<{ tenant: TenantRow | null; source: string }> {
   const explicitTenantId = input.tenantId || input.tenant_id;
   if (explicitTenantId) {
     const tenant = await findTenantById(serviceClient, explicitTenantId);
@@ -259,7 +220,7 @@ async function resolveTenant(serviceClient: ReturnType<typeof createClient>, inp
 }
 
 async function fetchProduct(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseServiceClient,
   tenantId: string,
   identifier: { slug: string; productId: string },
 ): Promise<{ product: ProductRow | null; source: string }> {
@@ -275,6 +236,7 @@ async function fetchProduct(
     .select(productSelect)
     .eq(lookupBy.field, lookupBy.value)
     .eq("tenant_id", tenantId)
+    .eq("is_published", true)
     .limit(1);
   const { data: tenantRows, error: tenantError } = await tenantScopedQuery;
   if (tenantError) throw tenantError;
@@ -287,6 +249,7 @@ async function fetchProduct(
       .select(productSelect)
       .eq(lookupBy.field, lookupBy.value)
       .eq("tenant_id", MASTER_TENANT_ID)
+      .eq("is_published", true)
       .limit(1);
     const { data: masterRows, error: masterError } = await masterQuery;
     if (masterError) throw masterError;
@@ -298,6 +261,7 @@ async function fetchProduct(
     .from("products")
     .select(productSelect)
     .eq(lookupBy.field, lookupBy.value)
+    .eq("tenant_id", MASTER_TENANT_ID)
     .eq("is_published", true)
     .limit(1);
   const { data: publishedRows, error: publishedError } = await publishedQuery;
@@ -308,7 +272,7 @@ async function fetchProduct(
   return { product: null, source: "not_found" };
 }
 
-async function fetchOptionGroups(serviceClient: ReturnType<typeof createClient>, productId: string) {
+async function fetchOptionGroups(serviceClient: SupabaseServiceClient, productId: string) {
   const { data: assignments, error: assignmentError } = await serviceClient
     .from("product_option_group_assignments")
     .select("option_group_id, sort_order")
@@ -368,7 +332,7 @@ async function fetchOptionGroups(serviceClient: ReturnType<typeof createClient>,
     })));
 }
 
-async function fetchCustomFields(serviceClient: ReturnType<typeof createClient>, productId: string) {
+async function fetchCustomFields(serviceClient: SupabaseServiceClient, productId: string) {
   const { data, error } = await serviceClient
     .from("custom_fields")
     .select("id, field_name, field_label, field_type, default_value, is_required, product_id")
@@ -390,7 +354,7 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const serviceKey = readSupabaseKey((name) => Deno.env.get(name), "secret") ?? "";
 
     if (!supabaseUrl || !serviceKey) {
       return jsonResponse(500, { error: "Missing Supabase environment configuration" });
@@ -400,8 +364,8 @@ serve(async (req) => {
     const body = await parseRequestBody(req);
     const input = pickRequestInput(req, url, body);
     const identifier = {
-      slug: input.slug,
-      productId: input.productId || input.product_id,
+      slug: String(input.slug || ""),
+      productId: String(input.productId || input.product_id || ""),
     };
 
     if (!identifier.slug && !isUuid(identifier.productId)) {

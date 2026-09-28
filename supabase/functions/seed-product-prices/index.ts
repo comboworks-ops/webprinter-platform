@@ -1,9 +1,10 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { optionsResponse } from '../_shared/http.ts';
 import { requireLocalOnly } from '../_shared/localOnly.ts';
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const supabaseServiceKey = readSupabaseKey((name) => Deno.env.get(name), "secret")!;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {

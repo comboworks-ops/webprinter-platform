@@ -53,7 +53,7 @@ export function usePageTracking(enabled: boolean) {
             try {
                 const visitorId = getVisitorId();
 
-                await supabase.from('page_views' as any).insert({
+                await supabase.from('page_views').insert({
                     page_path: location.pathname,
                     visitor_id: visitorId,
                     user_agent: navigator.userAgent,

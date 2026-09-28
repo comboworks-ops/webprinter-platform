@@ -212,7 +212,7 @@ export default function TenantPaymentSettings() {
   }
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
+    <div className="space-y-6 workspace-payment">
       <div>
         <h1 className="text-3xl font-bold">Betaling</h1>
         <p className="text-muted-foreground">
@@ -233,7 +233,7 @@ export default function TenantPaymentSettings() {
             {statusMeta.label}
           </Badge>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 workspace-payment-status">
           <div className="grid gap-3 sm:grid-cols-3 text-sm">
             <div className="flex items-center gap-2">
               {data?.charges_enabled ? (

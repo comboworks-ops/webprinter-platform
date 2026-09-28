@@ -1,3 +1,4 @@
+import { hasFeaturedProducts, hiddenFeaturedProductIds as getHiddenFeaturedProductIds } from '@/lib/branding/featuredProductPresentation';
 /**
  * Classic Theme - ProductsSection Component
  *
@@ -21,10 +22,8 @@ export function ClassicProductsSection({
 }: ProductsSectionProps) {
     if (!showProducts) return null;
 
-    const hasFeaturedProduct = featuredProductConfig?.enabled && featuredProductConfig?.productId;
-    const hiddenFeaturedProductIds = hasFeaturedProduct && featuredProductConfig?.showInProductList === false
-        ? [featuredProductConfig.productId as string]
-        : [];
+    const hasFeaturedProduct = hasFeaturedProducts(featuredProductConfig);
+    const hiddenFeaturedProductIds = getHiddenFeaturedProductIds(featuredProductConfig);
     const featuredAboveCategories = (featuredProductConfig?.position || 'above') === 'above';
     const categoryTabsConfig = branding?.forside?.productsSection?.categoryTabs;
 
@@ -43,7 +42,7 @@ export function ClassicProductsSection({
                 {hasFeaturedProduct && featuredAboveCategories && (
                     <div className="mb-8 relative z-10">
                         <FeaturedProductConfigurator
-                            config={featuredProductConfig}
+                            config={featuredProductConfig!}
                             branding={branding}
                         />
                     </div>
@@ -62,7 +61,7 @@ export function ClassicProductsSection({
                 {hasFeaturedProduct && !featuredAboveCategories && (
                     <div className="mt-8">
                         <FeaturedProductConfigurator
-                            config={featuredProductConfig}
+                            config={featuredProductConfig!}
                             branding={branding}
                         />
                     </div>

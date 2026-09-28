@@ -1,3 +1,4 @@
+import type { FooterSettings } from "@/hooks/useBrandingDraft";
 /**
  * Glassmorphism Theme - Footer Component
  *
@@ -10,10 +11,10 @@ import type { ThemeComponentProps } from '@/lib/themes/types';
 import { cn } from '@/lib/utils';
 
 export function GlassFooter({ branding, tenantName }: ThemeComponentProps) {
-    const footerSettings = branding?.footer || {};
+    const footerSettings: Partial<FooterSettings> = branding?.footer || {};
     const primaryColor = branding?.colors?.primary || '#0EA5E9';
     const links = footerSettings.links?.filter((link: any) => link.isVisible) || [];
-    const social = footerSettings.social || {};
+    const social: Partial<FooterSettings['social']> = footerSettings.social || {};
 
     const currentYear = new Date().getFullYear();
     const copyrightText = (footerSettings.copyrightText || '© {year} {shopName}. Alle rettigheder forbeholdes.')

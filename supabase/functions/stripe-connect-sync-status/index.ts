@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 // Stripe Connect: sync account status
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -42,8 +43,8 @@ serve(async (req) => {
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const supabaseAnonKey = readSupabaseKey((name) => Deno.env.get(name), "publishable") ?? "";
+    const supabaseServiceKey = readSupabaseKey((name) => Deno.env.get(name), "secret") ?? "";
 
     const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },

@@ -89,7 +89,7 @@ export async function generateIconStudioDraftsViaEdge(input: IconStudioGenerateD
 
   const response = data as IconStudioEdgeSuccessResponse | IconStudioEdgeErrorResponse | null;
   if (!response || response.success !== true) {
-    throw new Error(response?.error || "Icon Studio provider request failed.");
+    throw new Error((response && "error" in response ? response.error : null) || "Icon Studio provider request failed.");
   }
 
   const drafts = await Promise.all(

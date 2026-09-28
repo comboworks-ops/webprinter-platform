@@ -1,5 +1,6 @@
 import { Component, type PropsWithChildren, useEffect, useState } from "react";
 import { AlertTriangle, Home, Mail, RefreshCw } from "lucide-react";
+import { isBrowserExtensionRuntimeError, isResizeObserverDeliveryNotification } from "@/lib/runtime/runtimeErrorPolicy";
 
 type CrashFallbackProps = {
   source: "render" | "runtime";
@@ -135,6 +136,11 @@ export const AppRuntimeGuard = ({ children }: PropsWithChildren) => {
 
   useEffect(() => {
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      if (isBrowserExtensionRuntimeError(event.reason)) {
+        event.preventDefault();
+        return;
+      }
+
       if (shouldSuppressUnhandledReason(event.reason)) {
         event.preventDefault();
         console.warn("[Auth] Suppressed unhandled Supabase rejection:", event.reason);
@@ -150,6 +156,17 @@ export const AppRuntimeGuard = ({ children }: PropsWithChildren) => {
     };
 
     const handleWindowError = (event: ErrorEvent) => {
+      if (isBrowserExtensionRuntimeError(event.error || event.message, event.filename)) {
+        event.preventDefault();
+        return;
+      }
+
+      if (isResizeObserverDeliveryNotification(event)) {
+        event.preventDefault();
+        console.warn("[Layout] ResizeObserver delivery deferred until the next rendering loop.");
+        return;
+      }
+
       if (shouldSuppressUnhandledReason(event.error)) {
         return;
       }

@@ -45,10 +45,12 @@ export function ClassicLowerInfo({ branding, lowerInfo }: LowerInfoProps) {
                         return (
                             <div
                                 key={item.id}
+                                data-branding-id={`lower-info.item.${item.id}`}
                                 className={`rounded-xl p-6 ${cardClass}`}
                             >
                                 {IconComponent && (
                                     <div
+                                        data-branding-id={`lower-info.item.${item.id}.image`}
                                         className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
                                         style={{
                                             backgroundColor: lowerInfoConfig?.iconBgColor || branding?.colors?.primary || '#0EA5E9',
@@ -60,8 +62,8 @@ export function ClassicLowerInfo({ branding, lowerInfo }: LowerInfoProps) {
                                         />
                                     </div>
                                 )}
-                                <h3 className="text-lg font-semibold mb-2">{item.title}</h3>
-                                <p className="text-gray-600">{item.description}</p>
+                                <h3 data-branding-id={`lower-info.item.${item.id}.title`} className="text-lg font-semibold mb-2">{item.title}</h3>
+                                <p data-branding-id={`lower-info.item.${item.id}.description`} className="text-gray-600">{item.description}</p>
                             </div>
                         );
                     })}

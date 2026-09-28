@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { jsonResponse, optionsResponse } from "../_shared/http.ts";
 import { requireRole } from "../_shared/auth.ts";
@@ -6,7 +7,7 @@ import { requireLocalOnly } from "../_shared/localOnly.ts";
 console.log("Create Admin User Function Invoked");
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const supabaseServiceKey = readSupabaseKey((name) => Deno.env.get(name), "secret") ?? "";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return optionsResponse();

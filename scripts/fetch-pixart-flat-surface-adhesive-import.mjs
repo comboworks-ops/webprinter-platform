@@ -16,6 +16,7 @@ import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 import { chromium } from "playwright";
 import { applyConversionRule } from "./product-import/shared/conversion.js";
+import { assertNewPixartImportTarget, assertPixartEurSourceUrl, assertPixartSettledDimensions, bindPixartSourceQuoteModel, buildPixartSourceQuotePlan, normalizePixartLamination, summarizePixartSourceQuotePlan, REGULAR_PRICE_BASIS } from "./product-import/shared/pixart-source-quotes.js";
 
 const PROFILE_FLAT = "flat-surface-adhesive";
 const PROFILE_RIGIDS = "rigids";
@@ -105,7 +106,7 @@ function usage() {
     "Usage:",
     "  node scripts/fetch-pixart-flat-surface-adhesive-import.mjs probe [--profile flat-surface-adhesive|rigids] [--url <url>] [--categories <csv>] [--headful|--headless]",
     "  node scripts/fetch-pixart-flat-surface-adhesive-import.mjs extract [--profile flat-surface-adhesive|rigids] [--url <url>] [--headful|--headless] [--materials <csv>] [--laminations <csv>] [--categories <csv>] [--areas <csv>] [--quantities <csv>] [--width-cm <n>] [--limit-materials <n>] [--limit-laminations <n>] [--limit-areas <n>] [--limit-quantities <n>] [--out-dir <path>]",
-    "  node scripts/fetch-pixart-flat-surface-adhesive-import.mjs import [--profile flat-surface-adhesive|rigids] [--input <json>] [--dry-run] [--tenant-id <uuid>] [--product-name <name>] [--product-slug <slug>] [--product-prefix <name>] [--product-slug-prefix <slug>] [--category <name>] [--description <text>] [--categories <csv>] [--quantities <csv>] [--eur-to-dkk <number>] [--markup-pct <number>] [--rounding-step <number>] [--price-column cheapest|fastest] [--publish]",
+    "  node scripts/fetch-pixart-flat-surface-adhesive-import.mjs import [--profile flat-surface-adhesive|rigids] [--input <json>] [--dry-run] [--pricing-mode per-piece-quotes|legacy-m2] [--source-currency EUR] [--tenant-id <uuid>] [--product-name <name>] [--product-slug <slug>] [--product-prefix <name>] [--product-slug-prefix <slug>] [--category <name>] [--description <text>] [--categories <csv>] [--quantities <csv>] [--eur-to-dkk <number>] [--markup-pct <number>] [--rounding-step <number>] [--price-column cheapest|fastest] [--publish]",
   ].join("\n");
 }
 
@@ -178,6 +179,8 @@ function parseArgs(argv) {
   );
   const roundingStep = Number(getArgValue(argv, "--rounding-step") || DEFAULT_ROUNDING_STEP);
   const priceColumn = normalizeKey(getArgValue(argv, "--price-column") || DEFAULT_PRICE_COLUMN);
+  const pricingMode = normalizeKey(getArgValue(argv, "--pricing-mode") || (profileRaw === PROFILE_FLAT ? "per-piece-quotes" : "legacy-m2"));
+  const sourceCurrency = getArgValue(argv, "--source-currency") || undefined;
   const publish = argv.includes("--publish");
 
   if (widthCm !== null && (!Number.isFinite(widthCm) || widthCm <= 0)) {
@@ -195,6 +198,11 @@ function parseArgs(argv) {
   if (!["cheapest", "fastest"].includes(priceColumn)) {
     throw new Error("--price-column must be either 'cheapest' or 'fastest'");
   }
+  if (!["per-piece-quotes", "legacy-m2"].includes(pricingMode)) throw new Error("--pricing-mode must be per-piece-quotes or legacy-m2");
+  if (profileRaw === PROFILE_RIGIDS && pricingMode !== "legacy-m2") throw new Error("Rigids retains its existing pricing mode; per-piece quotes currently supports flat-surface adhesive only");
+  if (pricingMode === "per-piece-quotes" && priceColumn !== "cheapest") throw new Error("Per-piece quote mode includes both Standard and Fast full quotes; leave --price-column cheapest. Use explicit legacy-m2 only to review a legacy transformation.");
+  if (sourceCurrency && sourceCurrency !== "EUR") throw new Error("--source-currency must be EUR");
+  if (profileRaw === PROFILE_FLAT && (command === "extract" || command === "import" && pricingMode === "per-piece-quotes")) assertPixartEurSourceUrl(url);
 
   return {
     profile: profileRaw,
@@ -237,6 +245,8 @@ function parseArgs(argv) {
     markupPct,
     roundingStep,
     priceColumn,
+    pricingMode,
+    sourceCurrency,
     publish,
     importFilePrefix: profileDefaults.importFilePrefix,
   };
@@ -434,22 +444,7 @@ function toFiniteNumber(value) {
 }
 
 function normalizeLaminationKey(value) {
-  const normalized = normalizeKey(value)
-    .replace(/lamination/g, "")
-    .replace(/[()]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!normalized) return NONE_LAMINATION_KEY;
-  if (
-    normalized === "none" ||
-    normalized === "without" ||
-    normalized === "without lam" ||
-    normalized === "no"
-  ) {
-    return NONE_LAMINATION_KEY;
-  }
-  return normalized;
+  return normalizePixartLamination(value);
 }
 
 function finishDisplayNameFromLamination(value) {
@@ -954,6 +949,31 @@ function dimensionsDiffer(left, right) {
     || heightDelta > Math.max(0.5, Math.abs(Number(right.heightCm)) * 0.02);
 }
 
+async function readFlatDimensionValidation(page) {
+  const dimensions = await readCurrentFlatDimensions(page);
+  const errors = await page.evaluate(() => {
+    const visible = node => node instanceof HTMLElement && getComputedStyle(node).display !== "none"
+      && getComputedStyle(node).visibility !== "hidden" && node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0;
+    const inputs = [...document.querySelectorAll("input")].filter(input => visible(input)
+      && /Width|Height|custom-width|custom-height/.test(`${input.id} ${input.name} ${input.getAttribute("data-test") || ""}`));
+    const found = [];
+    for (const input of inputs) {
+      if (!input.validity.valid || input.getAttribute("aria-invalid") === "true") found.push(input.validationMessage || `Invalid dimension: ${input.name || input.id}`);
+      const value = Number(input.value.replace(",", "."));
+      const max = input.getAttribute("max"), min = input.getAttribute("min");
+      if (max != null && Number.isFinite(Number(max)) && value > Number(max)) found.push(`Dimension ${value} exceeds maximum ${max}`);
+      if (min != null && Number.isFinite(Number(min)) && value < Number(min)) found.push(`Dimension ${value} is below minimum ${min}`);
+      const described = (input.getAttribute("aria-describedby") || "").split(/\s+/).map(id => document.getElementById(id))
+        .filter(node => node && (/error|invalid/i.test(`${node.id} ${node.className}`) || node.getAttribute("role") === "alert"));
+      const container = input.closest(".form-group, .form-field, [data-test*='field']") || input.parentElement;
+      const messages = [...described, ...(container?.querySelectorAll("[role='alert'], .invalid-feedback, .field-validation-error, .error-message, [data-test*='error']") || [])];
+      for (const message of messages) if (visible(message) && /error|invalid|maximum|minimum|max\.?|min\.?|between|exceed|must|too (?:large|small)|not valid/i.test(message.textContent || "")) found.push((message.textContent || "").replace(/\s+/g, " ").trim());
+    }
+    return [...new Set(found)];
+  });
+  return { ...dimensions, errors };
+}
+
 async function setCustomQuantity(page, quantity) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const input = page.locator("[data-test='custom-quantity-item']").first();
@@ -1212,7 +1232,7 @@ function gridRowsSignature(rows) {
     .join("|");
 }
 
-async function waitForGridStability(page, timeoutMs = 22000, pollMs = 600, stableReads = 2) {
+async function waitForGridStability(page, timeoutMs = 22000, pollMs = 600, stableReads = 2, requireStable = false) {
   const started = Date.now();
   let lastSignature = "";
   let stableCount = 0;
@@ -1236,6 +1256,7 @@ async function waitForGridStability(page, timeoutMs = 22000, pollMs = 600, stabl
     await page.waitForTimeout(pollMs);
   }
 
+  if (requireStable) throw new Error("price-grid-not-stable-before-timeout");
   return lastRows;
 }
 
@@ -1673,6 +1694,7 @@ async function runExtract(args) {
               Boolean(previousGridSignature) &&
               dimensionsDiffer(previousDimensions, { widthCm, heightCm });
             const appliedDimensions = await setDimensions(page, widthCm, heightCm);
+            assertPixartSettledDimensions(await readFlatDimensionValidation(page), { widthCm, heightCm });
             const appliedAreaM2 = Number(
               ((Number(appliedDimensions.widthCm) * Number(appliedDimensions.heightCm)) / 10000).toFixed(6)
             );
@@ -1688,7 +1710,8 @@ async function runExtract(args) {
               }
             }
 
-            const visibleGridRows = await waitForGridStability(page, 22000, 600, 2);
+            const visibleGridRows = await waitForGridStability(page, 22000, 600, 2, true);
+            assertPixartSettledDimensions(await readFlatDimensionValidation(page), { widthCm, heightCm });
             const visibleRowByQuantity = new Map(
               visibleGridRows.map((gridRow) => [Number(gridRow.quantity), gridRow])
             );
@@ -1702,6 +1725,7 @@ async function runExtract(args) {
               const row = {
                 material,
                 lamination,
+                requested_area_m2: areaM2,
                 area_m2: Number.isFinite(appliedAreaM2) ? appliedAreaM2 : areaM2,
                 width_cm: Number.isFinite(appliedDimensions.widthCm) ? appliedDimensions.widthCm : widthCm,
                 height_cm: Number.isFinite(appliedDimensions.heightCm) ? appliedDimensions.heightCm : heightCm,
@@ -1724,7 +1748,7 @@ async function runExtract(args) {
                 let gridRow = visibleRowByQuantity.get(Number(quantity)) || null;
                 if (!gridRow) {
                   await setCustomQuantity(page, quantity);
-                  const stabilizedRows = await waitForGridStability(page, 20000, 600, 1);
+                  const stabilizedRows = await waitForGridStability(page, 20000, 600, 1, true);
                   gridRow =
                     stabilizedRows.find((candidate) => Number(candidate.quantity) === Number(quantity)) ||
                     (await waitForQuantityRow(page, quantity, 15000));
@@ -1734,6 +1758,7 @@ async function runExtract(args) {
                   row.error = "quantity-row-not-found";
                   console.log("failed (quantity-row-not-found)");
                 } else {
+                  assertPixartSettledDimensions(await readFlatDimensionValidation(page), { widthCm, heightCm });
                   const normalizedAreaM2 = Number.isFinite(row.area_m2) ? row.area_m2 : areaM2;
                   const totalAreaM2 = normalizedAreaM2 * quantity;
                   row.fastest_quote_eur = Number(gridRow.fastest_price_eur.toFixed(4));
@@ -1804,6 +1829,12 @@ async function runExtract(args) {
       meta: {
         extracted_at: new Date().toISOString(),
         url: args.url,
+        profile: PROFILE_FLAT,
+        currency: "EUR",
+        price_basis: REGULAR_PRICE_BASIS,
+        price_basis_note: "First numeric price in each delivery cell: regular list price before temporary promotions; not the current discounted payable quote. Recheck supplier DOM when markup changes.",
+        temporary_promotions_included: false,
+        areas_used_m2: areas,
         materials_requested: args.materials,
         laminations_requested: args.laminations,
         areas_requested_m2: args.areas,
@@ -2464,6 +2495,15 @@ function buildDeliveryVariantModels(parsedRows, args) {
 async function runImport(args) {
   const inputPath = resolveInputPath(args);
   const payload = readJsonFile(inputPath);
+  let sourceQuotePlan = null;
+  if (args.pricingMode === "per-piece-quotes") {
+    try {
+      sourceQuotePlan = buildPixartSourceQuotePlan(payload, { eurToDkk: args.eurToDkk, markupPct: args.markupPct, sourceCurrency: args.sourceCurrency, sourceUrl: args.url });
+    } catch (error) {
+      if (args.dryRun && error.report) console.log(JSON.stringify({ input: inputPath, area_pricing_basis: "per_piece_quotes", ...error.report }, null, 2));
+      throw error;
+    }
+  }
   const parsedRows = parseImportRows(payload, args);
 
   if (!parsedRows.length) {
@@ -2472,13 +2512,18 @@ async function runImport(args) {
     );
   }
 
-  const quantities = ensureQuantityList(args, payload, parsedRows);
-  const materialModels = buildMaterialModels(parsedRows, payload, args);
+  const quantities = sourceQuotePlan && !args.quantitiesExplicit ? sourceQuotePlan.quantities : ensureQuantityList(args, payload, parsedRows);
+  if (sourceQuotePlan && quantities.some(quantity => !sourceQuotePlan.quantities.includes(quantity))) throw new Error("Configured quantities include a quantity with no source quote; refusing to interpolate or invent it");
+  const materialModels = sourceQuotePlan ? sourceQuotePlan.materials.map(name => ({ name, group_label: materialGroupLabel(name), tiers: [] })) : buildMaterialModels(parsedRows, payload, args);
   if (!materialModels.length) {
     throw new Error("No material tiers could be built from extracted rows.");
   }
-  const finishModels = buildFinishModels(parsedRows, payload, args);
-  const variantModels = buildDeliveryVariantModels(parsedRows, args);
+  const finishModels = sourceQuotePlan ? sourceQuotePlan.laminations.filter(name => normalizeLaminationKey(name) !== NONE_LAMINATION_KEY)
+    .map(name => ({ key: normalizeLaminationKey(name), name: finishDisplayNameFromLamination(name), tiers: [] })) : buildFinishModels(parsedRows, payload, args);
+  const variantModels = sourceQuotePlan ? [
+    { key: "standard-delivery", name: "Standard delivery", pricing_mode: "fixed", tiers: [] },
+    { key: "fast-delivery", name: "Fast delivery", pricing_mode: "per_m2", tiers: [] },
+  ] : buildDeliveryVariantModels(parsedRows, args);
 
   const flatDefaults = getProfileDefaults(PROFILE_FLAT);
   const productName = normalizeLabel(args.productName) || flatDefaults.productName;
@@ -2489,6 +2534,8 @@ async function runImport(args) {
 
   const summary = {
     input: inputPath,
+    area_pricing_basis: sourceQuotePlan ? "per_piece_quotes" : "total_area_legacy",
+    source_quote_review: sourceQuotePlan ? summarizePixartSourceQuotePlan(sourceQuotePlan) : null,
     tenant_id: args.tenantId,
     product: {
       name: productName,
@@ -2507,6 +2554,9 @@ async function runImport(args) {
       price_column: args.priceColumn,
       eur_to_dkk: args.eurToDkk,
       markup_pct: args.markupPct,
+      area_pricing_basis: sourceQuotePlan ? "per_piece_quotes" : "total_area_legacy",
+      price_basis: sourceQuotePlan ? "regular" : undefined,
+      temporary_promotions_included: sourceQuotePlan ? false : undefined,
       factor: Number((args.eurToDkk * (1 + args.markupPct / 100)).toFixed(4)),
     },
   };
@@ -2528,6 +2578,10 @@ async function runImport(args) {
     const message = error?.message || "";
     return message.includes("Could not find the table");
   };
+  if (sourceQuotePlan) {
+    const { error } = await client.from("storformat_configs").select("area_pricing_basis,source_quote_model").limit(1);
+    assertNoError(error, "Quote-mode migration preflight failed before any product writes");
+  }
 
   const productPayload = {
     tenant_id: args.tenantId,
@@ -2537,12 +2591,13 @@ async function runImport(args) {
     description: productDescription,
     category: normalizeLabel(args.category) || DEFAULT_CATEGORY,
     pricing_type: "STORFORMAT",
-    is_published: !!args.publish,
+    is_published: sourceQuotePlan ? false : !!args.publish,
     preset_key: "custom",
     technical_specs: {
       source: "pixart",
       import_type: "wide-format",
       import_script: "fetch-pixart-flat-surface-adhesive-import.mjs",
+      ...(sourceQuotePlan ? { area_pricing_basis: "per_piece_quotes", price_basis: "regular", temporary_promotions_included: false } : {}),
       price_column: args.priceColumn,
       eur_to_dkk: args.eurToDkk,
       markup_pct: args.markupPct,
@@ -2556,6 +2611,8 @@ async function runImport(args) {
     .eq("slug", productSlug)
     .maybeSingle();
   assertNoError(existingProductError, "Fetch existing product");
+  // The former delete/recreate update path loses stable option IDs and original pricing. Never use it for an existing flat product.
+  assertNewPixartImportTarget(existingProduct);
 
   let productId = existingProduct?.id || null;
 
@@ -2645,6 +2702,7 @@ async function runImport(args) {
     id: crypto.randomUUID(),
     tenant_id: args.tenantId,
     product_id: productId,
+    visibility: itemVisibility,
     name: finish.name,
     group_label: "Lamination",
     pricing_mode: "per_m2",
@@ -2692,6 +2750,7 @@ async function runImport(args) {
     id: crypto.randomUUID(),
     tenant_id: args.tenantId,
     product_id: productId,
+    visibility: itemVisibility,
     name: variant.name,
     group_label: "Delivery",
     pricing_mode: variant.pricing_mode,
@@ -2707,6 +2766,9 @@ async function runImport(args) {
   const variantIdByKey = new Map(
     variantModels.map((variant, idx) => [variant.key, productVariantRows[idx].id])
   );
+  const sourceQuoteModel = sourceQuotePlan ? bindPixartSourceQuoteModel(sourceQuotePlan, {
+    materialIds: materialIdByName, finishIds: finishIdByKey, productIds: variantIdByKey,
+  }) : null;
   const productTierRows = [];
   const productM2Rows = [];
   variantModels.forEach((variant) => {
@@ -2818,6 +2880,7 @@ async function runImport(args) {
     tenant_id: args.tenantId,
     product_id: productId,
     pricing_mode: "m2_rates",
+    ...(sourceQuoteModel ? { area_pricing_basis: "per_piece_quotes", source_quote_model: sourceQuoteModel } : {}),
     rounding_step: roundingStep,
     global_markup_pct: 0,
     quantities,
@@ -2835,6 +2898,10 @@ async function runImport(args) {
     .from("storformat_configs")
     .upsert(configRow, { onConflict: "product_id" });
   assertNoError(configError, "Upsert storformat_configs");
+  if (sourceQuotePlan && args.publish) {
+    const { error } = await client.from("products").update({ is_published: true }).eq("id", productId).eq("tenant_id", args.tenantId);
+    assertNoError(error, "Publish quote-aware Pixart product after its complete config");
+  }
 
   console.log("Import complete:");
   console.log(JSON.stringify(summary, null, 2));

@@ -4,21 +4,6 @@ import { resolveAdminTenant, MASTER_TENANT_ID } from '@/lib/adminTenant';
 
 export type UserRole = 'admin' | 'master_admin' | 'moderator' | 'user' | null;
 
-// Known operator emails are only a short-lived UI hint while the DB role loads.
-// Server-verified admin access must come from user_roles or tenant ownership.
-const EMAIL_ROLE_MAP: Record<string, UserRole> = {
-  'admin@webprinter.dk': 'master_admin',
-  'info@webprinter.dk': 'master_admin',
-  'result-admin@webprinter.dk': 'admin',
-  'online-trukserre@gmail.com': 'admin',
-};
-
-const isLocalDevelopmentHost = () => {
-  if (import.meta.env.DEV) return true;
-  if (typeof window === 'undefined') return false;
-  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-};
-
 const isAbortLikeError = (error: unknown) => {
   const name = (error as any)?.name;
   const message = String((error as any)?.message || '');
@@ -66,25 +51,16 @@ export const useUserRole = () => {
           return;
         }
 
-        // Show an optimistic role hint while we fetch roles, but never mark it
-        // server-verified. Admin UI requires serverVerified=true below.
-        const email = (user.email || '').toLowerCase();
-        const fallbackRole = EMAIL_ROLE_MAP[email] || null;
-        if (fallbackRole) {
-          setIfActive(() => {
-            setRole(fallbackRole);
-            setServerVerified(isLocalDevelopmentHost());
-          });
-        }
-
         try {
           const { data: verified } = await supabase.functions.invoke('verify-admin');
-          if (verified?.isAdmin) {
+          // Older deployments only return isAdmin. Missing master evidence is
+          // not an explicit denial: read this user's stored roles below.
+          if (verified?.isAdmin === true && typeof verified.isMasterAdmin === 'boolean') {
             const verifiedRole: UserRole = verified.isMasterAdmin ? 'master_admin' : 'admin';
 
             if (verifiedRole === 'master_admin') {
               const { tenantId } = await resolveAdminTenant();
-              if (tenantId && tenantId !== MASTER_TENANT_ID) {
+              if (tenantId !== MASTER_TENANT_ID) {
                 setIfActive(() => {
                   setRole('admin');
                   setServerVerified(true);
@@ -103,10 +79,6 @@ export const useUserRole = () => {
           console.warn('Server admin verification unavailable, falling back to direct role lookup:', verifyError);
         }
 
-        if (fallbackRole && isLocalDevelopmentHost()) {
-          return;
-        }
-
         // Fetch all roles (a user may have multiple; pick highest priority)
         const { data, error } = await (supabase as any)
           .from('user_roles')
@@ -116,7 +88,7 @@ export const useUserRole = () => {
         if (error) {
           console.warn('Error fetching user role, falling back to tenant ownership:', error);
           const { data: owned } = await supabase
-            .from('tenants' as any)
+            .from('tenants')
             .select('id')
             .eq('owner_id', user.id)
             .maybeSingle();
@@ -143,7 +115,7 @@ export const useUserRole = () => {
             // we must DOWNGRADE them to effective 'admin' so the UI doesn't show Platform tools.
             if (userRole === 'master_admin') {
               const { tenantId } = await resolveAdminTenant();
-              if (tenantId && tenantId !== MASTER_TENANT_ID) {
+              if (tenantId !== MASTER_TENANT_ID) {
                 console.log('[useUserRole] Masking Master Admin as Admin for tenant:', tenantId);
                 setIfActive(() => {
                   setRole('admin');
@@ -159,7 +131,7 @@ export const useUserRole = () => {
             });
           } else {
             const { data: owned } = await supabase
-              .from('tenants' as any)
+              .from('tenants')
               .select('id')
               .eq('owner_id', user.id)
               .maybeSingle();

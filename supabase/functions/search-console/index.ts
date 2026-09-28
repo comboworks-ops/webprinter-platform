@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 // Supabase Edge Function: Google Search Console OAuth & API
 // Handles OAuth flow and proxies Search Console API requests
 
@@ -91,7 +92,7 @@ serve(async (req) => {
         const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
         const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
         const supabaseUrl = Deno.env.get('SUPABASE_URL');
-        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        const supabaseServiceKey = readSupabaseKey((name) => Deno.env.get(name), "secret");
 
         if (!clientId || !clientSecret) {
             return jsonResponse({

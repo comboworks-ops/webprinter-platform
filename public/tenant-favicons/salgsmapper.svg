@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Salgsmapper">
+  <rect width="512" height="512" rx="104" fill="#F1A93F"/>
+  <path d="M82 154c0-18 14-32 32-32h116l44 48h124c18 0 32 14 32 32v188c0 18-14 32-32 32H114c-18 0-32-14-32-32V154Z" fill="#FFFFFF"/>
+  <path d="M82 206h348v48H82z" fill="#1F2937" opacity=".10"/>
+  <text x="256" y="354" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="144" font-weight="800" fill="#1F2937">SM</text>
+</svg>

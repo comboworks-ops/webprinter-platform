@@ -43,7 +43,7 @@ export function useProductAddons({ productId, tenantId }: UseProductAddonsOption
 
       // Fetch imports
       const { data: importsData, error: importsError } = await supabase
-        .from('product_addon_imports' as any)
+        .from('product_addon_imports')
         .select('*')
         .eq('product_id', productId)
         .order('sort_order');
@@ -52,7 +52,7 @@ export function useProductAddons({ productId, tenantId }: UseProductAddonsOption
 
       // Fetch overrides
       const { data: overridesData, error: overridesError } = await supabase
-        .from('product_addon_item_overrides' as any)
+        .from('product_addon_item_overrides')
         .select('*')
         .eq('product_id', productId);
 
@@ -80,7 +80,7 @@ export function useProductAddons({ productId, tenantId }: UseProductAddonsOption
     try {
       // 1. Fetch imports for this product
       const { data: importsData, error: importsError } = await supabase
-        .from('product_addon_imports' as any)
+        .from('product_addon_imports')
         .select('*')
         .eq('product_id', productId)
         .order('sort_order');
@@ -93,7 +93,7 @@ export function useProductAddons({ productId, tenantId }: UseProductAddonsOption
 
       // 2. Fetch library groups
       const { data: groupsData, error: groupsError } = await supabase
-        .from('addon_library_groups' as any)
+        .from('addon_library_groups')
         .select('*')
         .in('id', groupIds);
 
@@ -101,7 +101,7 @@ export function useProductAddons({ productId, tenantId }: UseProductAddonsOption
 
       // 3. Fetch library items for these groups
       const { data: itemsData, error: itemsError } = await supabase
-        .from('addon_library_items' as any)
+        .from('addon_library_items')
         .select('*')
         .in('group_id', groupIds)
         .eq('enabled', true)
@@ -111,7 +111,7 @@ export function useProductAddons({ productId, tenantId }: UseProductAddonsOption
 
       // 4. Fetch overrides for this product
       const { data: overridesData, error: overridesError } = await supabase
-        .from('product_addon_item_overrides' as any)
+        .from('product_addon_item_overrides')
         .select('*')
         .eq('product_id', productId);
 
@@ -195,7 +195,7 @@ export function useProductAddons({ productId, tenantId }: UseProductAddonsOption
 
     try {
       const { data: newImport, error } = await supabase
-        .from('product_addon_imports' as any)
+        .from('product_addon_imports')
         .insert({
           tenant_id: tenantId,
           product_id: productId,
@@ -233,7 +233,7 @@ export function useProductAddons({ productId, tenantId }: UseProductAddonsOption
   ): Promise<boolean> => {
     try {
       const { error } = await supabase
-        .from('product_addon_imports' as any)
+        .from('product_addon_imports')
         .update({
           ...(data.import_mode !== undefined && { import_mode: data.import_mode }),
           ...(data.override_label !== undefined && { override_label: data.override_label }),
@@ -264,14 +264,14 @@ export function useProductAddons({ productId, tenantId }: UseProductAddonsOption
       // Delete overrides for items in this group
       if (imp) {
         const { data: items } = await supabase
-          .from('addon_library_items' as any)
+          .from('addon_library_items')
           .select('id')
           .eq('group_id', imp.addon_group_id);
 
         if (items && items.length > 0) {
           const itemIds = items.map((i: any) => i.id);
           await supabase
-            .from('product_addon_item_overrides' as any)
+            .from('product_addon_item_overrides')
             .delete()
             .eq('product_id', productId)
             .in('addon_item_id', itemIds);
@@ -280,7 +280,7 @@ export function useProductAddons({ productId, tenantId }: UseProductAddonsOption
 
       // Delete the import
       const { error } = await supabase
-        .from('product_addon_imports' as any)
+        .from('product_addon_imports')
         .delete()
         .eq('id', importId);
 
@@ -306,7 +306,7 @@ export function useProductAddons({ productId, tenantId }: UseProductAddonsOption
     try {
       // Upsert the override
       const { data: override, error } = await supabase
-        .from('product_addon_item_overrides' as any)
+        .from('product_addon_item_overrides')
         .upsert(
           {
             tenant_id: tenantId,
@@ -341,7 +341,7 @@ export function useProductAddons({ productId, tenantId }: UseProductAddonsOption
   const removeItemOverride = async (addonItemId: string): Promise<boolean> => {
     try {
       const { error } = await supabase
-        .from('product_addon_item_overrides' as any)
+        .from('product_addon_item_overrides')
         .delete()
         .eq('product_id', productId)
         .eq('addon_item_id', addonItemId);
@@ -373,7 +373,7 @@ export function useProductAddons({ productId, tenantId }: UseProductAddonsOption
     try {
       const updates = orderedImportIds.map((id, index) =>
         supabase
-          .from('product_addon_imports' as any)
+          .from('product_addon_imports')
           .update({ sort_order: index })
           .eq('id', id)
       );

@@ -1,4 +1,22 @@
+import { SharedButtonLocalControls } from './SharedButtonsControls';
+import { FeaturedProductInspector } from './FeaturedProductInspector';
+import { FIRST_FEATURED_SLIDE, getFeaturedSlides } from '@/lib/branding/featuredProductPresentation';
+import type { USPIconType, BrandingData } from "@/hooks/useBrandingDraft";
+import { requestPreviewScreenshot } from '@/lib/preview/previewScreenshot';
+import { assignDesignToShop, loadShopDesignLibrary } from '@/lib/branding/premadeDesignLibrary';
+import { HeroQuickControls, HeaderQuickControls, MainButtonsControls } from './SiteDesignQuickControls';
+import { standardSiteDesign, applyMainButtonSettings, getMainButtonSettings } from '@/lib/branding/siteDesignControls';
+import { ProductPresentationPicker } from "@/components/admin/ProductPresentationPicker";
+import { applyProductPresentation, PRODUCT_PRESENTATIONS, resolveProductPresentation } from "@/lib/branding/productPresentations";
+import { resolveDropdownPreset } from "@/lib/branding/dropdownPresets";
 
+import { OrderFlowDesignInspector } from "@/components/admin/OrderFlowDesignInspector";
+import { SiteDesignWorkspace, SiteDesignNavigation } from "@/components/admin/SiteDesignWorkspace";
+import { applyOrderFlowDesign, ORDER_FLOW_DESIGNS, resolveOrderFlowDesign, type OrderFlowPage } from "@/lib/branding/orderFlowDesigns";
+import { getOrderFlowPreviewPage, getOrderFlowPreviewPath } from "@/lib/preview/orderFlowPreview";
+import { getSiteDesignPreviewPathname } from "@/lib/preview/siteDesignPreviewNavigation";
+import { PrintDesignPicker } from "@/components/admin/PrintDesignPicker";
+import { applyPrintDesignPreset, getPrintDesignPreset, selectPrintDesignPreset } from "@/lib/branding/printDesignPresets";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -6,11 +24,12 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-    Loader2, Save, RotateCcw, Send, Trash2, List,
-    X, ChevronRight, Layout, Type, Palette, Sparkles, Image as ImageIcon,
+    Loader2, Save, RotateCcw, Undo2, Redo2, Send, Trash2, List,
+    X, Layout, Type, Palette, Sparkles, Image as ImageIcon,
     ExternalLink, Monitor, Smartphone, Tablet, FolderUp, LayoutTemplate, ShoppingCart,
     Pencil, Eye, EyeOff, Check, History, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
-    Award, Plus, Truck, Phone, Shield, Clock, Star, Heart, MousePointer2, FileText, type LucideIcon
+    Award, Plus, Truck, Phone, Shield, Clock, Star, Heart, MousePointer2, FileText,
+    Store, PackagePlus, CheckCircle2, Layers3, Globe, type LucideIcon
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -35,7 +54,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
 import { da } from "date-fns/locale";
@@ -53,15 +79,45 @@ import { Banner2Section } from "@/components/admin/Banner2Section";
 import { LogoSection } from "@/components/admin/LogoSection";
 import { FaviconEditor } from "@/components/admin/FaviconEditor";
 import { ContentBlocksSection } from "@/components/admin/ContentBlocksSection";
+import { LowerInfoSection } from "@/components/admin/LowerInfoSection";
 import { PageBackgroundControls } from "@/components/admin/PageBackgroundControls";
 import { PendingPurchasesDialog, PendingPurchasesBadge } from "@/components/admin/PendingPurchasesDialog";
 import { ThemeSelector } from "@/components/admin/ThemeSelector";
+import { ShopTemplatePicker } from "@/components/admin/ShopTemplatePicker";
 import { ProduktvalgknapperSection } from "@/components/admin/ProduktvalgknapperSection";
 import { ProductOptionButtonEditor } from "@/components/admin/ProductOptionButtonEditor";
 import { ProductOptionSectionBoxEditor } from "@/components/admin/ProductOptionSectionBoxEditor";
+import { mergeProductStylingChange, persistProductStylingPatches, type ProductStylingChange, type ProductStylingPreview } from "@/lib/preview/productStylingSave";
 import { ProductDescriptionSection } from "@/components/admin/ProductDescriptionSection";
 import { supabase } from "@/integrations/supabase/client";
 import { usePaidItems } from "@/hooks/usePaidItems";
+import { SITE_PACKAGES, type SitePackage } from "@/lib/sites/sitePackages";
+import {
+    installSitePackageTemplates,
+    type SiteInstallSummary,
+} from "@/lib/sites/installSitePackage";
+import { buildPreviewShopUrl } from "@/lib/preview/previewSession";
+import {
+    readProductSiteIds,
+    removeProductSiteAssignment,
+    writeProductSiteIds,
+} from "@/lib/sites/productSiteFrontends";
+import {
+    PRODUCT_DESIGNER_MODE_OPTIONS,
+    PRODUCT_PRICING_MODEL_OPTIONS,
+    getProductDesignerModeLabel,
+    getProductPricingModelLabel,
+    readProductSiteModes,
+    resolveProductSiteModes,
+    writeProductSiteModes,
+    type ProductDesignerMode,
+    type ProductPricingModel,
+    type ProductSiteModes,
+} from "@/lib/sites/productSiteModes";
+import {
+    resolveStorefrontLayout,
+    type ShopTemplateDefinition,
+} from "@/lib/storefront/shopTemplates";
 
 import {
     DEFAULT_BRANDING,
@@ -70,7 +126,7 @@ import {
     brandingEquals,
     useBrandingEditor,
 } from "@/lib/branding";
-import { resolveSiteDesignTarget } from "@/lib/siteDesignTargets";
+import { isSiteDesignSelectionMessage, resolveSiteDesignTarget } from "@/lib/siteDesignTargets";
 
 interface SiteDesignEditorV2Props {
     adapter: BrandingStorageAdapter;
@@ -83,6 +139,17 @@ interface FeaturedProductOption {
     name: string;
     slug: string;
     pricing_type?: string | null;
+}
+
+interface SiteMappingProduct {
+    id: string;
+    name: string;
+    slug: string;
+    category?: string | null;
+    pricing_type?: string | null;
+    is_published?: boolean | null;
+    technical_specs?: unknown;
+    priceReady: boolean;
 }
 
 type BrandingColorKey =
@@ -118,7 +185,7 @@ type VisualThemePreset = {
     name: string;
     description: string;
     tags: string[];
-    themeId: "classic" | "glassmorphism";
+    themeId: string;
     colors: BrandingColorPresetColors;
     fonts: BrandingFontPresetFonts;
     headerStyle: typeof DEFAULT_BRANDING.header.style;
@@ -164,6 +231,65 @@ type VisualThemePreset = {
     pictureHoverEffect: "fill" | "outline" | "none";
     pictureSelectedEffect: "fill" | "outline" | "ring" | "none";
     glassOpacity?: number;
+};
+
+type VisualThemePresetConfig = Pick<VisualThemePreset, "id" | "name" | "description" | "tags" | "colors"> &
+    Partial<Omit<VisualThemePreset, "id" | "name" | "description" | "tags" | "colors">>;
+
+const createVisualThemePreset = (config: VisualThemePresetConfig): VisualThemePreset => {
+    const primary = config.colors.primary;
+    const hover = config.colors.hover;
+    return {
+        themeId: "classic",
+        fonts: {
+            heading: "Poppins",
+            body: "Inter",
+            pricing: "Roboto Mono",
+        },
+        headerStyle: "solid",
+        headerOpacity: 0.97,
+        dropdownPreset: "compact-columns",
+        dropdownRadiusPx: 16,
+        dropdownImageRadiusPx: 10,
+        cardStyle: "default",
+        radiusPx: 14,
+        tightRadiusPx: 9,
+        borderWidthPx: 1,
+        pageBackgroundType: "solid",
+        productBackgroundType: "solid",
+        buttonAnimation: "lift",
+        orderButtonAnimation: "none",
+        heroTransition: "fade",
+        heroTextAnimation: "fade",
+        parallaxStyle: "soft-depth",
+        parallaxIntensity: 16,
+        heroOverlayOpacity: 0.36,
+        matrixPaddingPx: 16,
+        optionButtonPaddingPx: 12,
+        optionImageSizePx: 144,
+        pictureHoverScale: 1.025,
+        buttonRadiusPx: 10,
+        buttonHoverScale: 1.015,
+        buttonHoverY: -1,
+        buttonTapScale: 0.98,
+        buttonTransitionMs: 180,
+        buttonShadow: `0 10px 24px ${primary}24`,
+        buttonHoverShadow: `0 16px 34px ${primary}33`,
+        buttonSurfaceStyle: "satin",
+        buttonTextColor: "#FFFFFF",
+        buttonHoverTextColor: "#FFFFFF",
+        buttonGradientStart: primary,
+        buttonGradientEnd: hover,
+        buttonHoverGradientStart: hover,
+        buttonHoverGradientEnd: primary,
+        buttonInnerShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(15, 23, 42, 0.16)",
+        buttonSheenColor: "rgba(255, 255, 255, 0.32)",
+        dropdownMotionStyle: "soft-slide",
+        pageTransitionStyle: "subtle-fade",
+        pictureHoverEffect: "outline",
+        pictureSelectedEffect: "ring",
+        ...config,
+    };
 };
 
 const VISUAL_THEME_PRESETS: VisualThemePreset[] = [
@@ -499,12 +625,787 @@ const VISUAL_THEME_PRESETS: VisualThemePreset[] = [
         pictureSelectedEffect: "ring",
         glassOpacity: 0.82,
     },
+    createVisualThemePreset({
+        id: "taste-glassmorphism",
+        name: "Glassmorphism",
+        description: "Frostede flader, rolig dybde og premium digital energi uden at miste kontrast.",
+        tags: ["Glas", "Premium", "Digital"],
+        themeId: "glassmorphism",
+        colors: {
+            primary: "#315E72",
+            secondary: "#E7EEF3",
+            background: "#F3F6F8",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#6B7AA1",
+            headingText: "#0F172A",
+            bodyText: "#475569",
+            pricingText: "#315E72",
+            linkText: "#4E6388",
+        },
+        fonts: { heading: "Manrope", body: "Inter", pricing: "Space Grotesk" },
+        headerStyle: "glass",
+        headerOpacity: 0.76,
+        dropdownPreset: "showcase-bar",
+        dropdownRadiusPx: 24,
+        dropdownImageRadiusPx: 18,
+        cardStyle: "glass",
+        radiusPx: 24,
+        tightRadiusPx: 16,
+        pageBackgroundType: "gradient",
+        productBackgroundType: "gradient",
+        buttonAnimation: "glow",
+        heroTransition: "cross-zoom",
+        heroTextAnimation: "soft-mask",
+        parallaxStyle: "slow-zoom",
+        parallaxIntensity: 24,
+        heroOverlayOpacity: 0.28,
+        buttonRadiusPx: 999,
+        buttonHoverScale: 1.025,
+        buttonHoverY: -3,
+        buttonTransitionMs: 240,
+        buttonSurfaceStyle: "apple-glass",
+        buttonTextColor: "#10202C",
+        buttonHoverTextColor: "#10202C",
+        buttonGradientStart: "rgba(255, 255, 255, 0.88)",
+        buttonGradientEnd: "rgba(230, 240, 246, 0.64)",
+        buttonHoverGradientStart: "rgba(255, 255, 255, 0.96)",
+        buttonHoverGradientEnd: "rgba(215, 230, 240, 0.78)",
+        buttonInnerShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.78), inset 0 -1px 0 rgba(49, 94, 114, 0.16)",
+        buttonSheenColor: "rgba(255, 255, 255, 0.58)",
+        dropdownMotionStyle: "liquid",
+        pageTransitionStyle: "soft-depth",
+        pictureHoverEffect: "fill",
+        glassOpacity: 0.72,
+    }),
+    createVisualThemePreset({
+        id: "taste-neo-brutalism",
+        name: "Neo-Brutalism",
+        description: "Tykke streger, hårde skygger og direkte kampagnefølelse til modige brands.",
+        tags: ["Bold", "Grafisk", "Ung"],
+        colors: {
+            primary: "#111827",
+            secondary: "#FFE566",
+            background: "#F8F4E8",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#EF4444",
+            headingText: "#111827",
+            bodyText: "#374151",
+            pricingText: "#B91C1C",
+            linkText: "#111827",
+        },
+        fonts: { heading: "Archivo Black", body: "IBM Plex Sans", pricing: "IBM Plex Mono" },
+        dropdownPreset: "gallery-cards",
+        dropdownRadiusPx: 6,
+        dropdownImageRadiusPx: 3,
+        radiusPx: 4,
+        tightRadiusPx: 3,
+        borderWidthPx: 3,
+        buttonRadiusPx: 3,
+        buttonSurfaceStyle: "pressed",
+        buttonShadow: "0 6px 0 rgba(17, 24, 39, 1)",
+        buttonHoverShadow: "0 8px 0 rgba(17, 24, 39, 1)",
+        buttonGradientStart: "#111827",
+        buttonGradientEnd: "#111827",
+        buttonHoverGradientStart: "#EF4444",
+        buttonHoverGradientEnd: "#B91C1C",
+        buttonHoverY: -2,
+        buttonTapScale: 0.95,
+        buttonTransitionMs: 130,
+        heroTransition: "slide",
+        heroTextAnimation: "stagger-rise",
+        parallaxStyle: "classic",
+        parallaxIntensity: 10,
+        dropdownMotionStyle: "gallery-rise",
+        pageTransitionStyle: "direct-snap",
+        pictureHoverEffect: "outline",
+        pictureSelectedEffect: "outline",
+    }),
+    createVisualThemePreset({
+        id: "taste-minimalism",
+        name: "Minimalism",
+        description: "Masser af luft, klare flader og stille professionalisme med fokus på handling.",
+        tags: ["Minimal", "Rolig", "Klar"],
+        colors: {
+            primary: "#0F172A",
+            secondary: "#EEF2F7",
+            background: "#FBFCFE",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#334155",
+            headingText: "#0F172A",
+            bodyText: "#526071",
+            pricingText: "#0F766E",
+            linkText: "#0F172A",
+        },
+        fonts: { heading: "Inter", body: "Inter", pricing: "Roboto Mono" },
+        dropdownPreset: "compact-columns",
+        radiusPx: 12,
+        tightRadiusPx: 8,
+        heroTransition: "fade",
+        heroTextAnimation: "fade",
+        parallaxStyle: "fixed-focus",
+        parallaxIntensity: 8,
+        heroOverlayOpacity: 0.26,
+        buttonAnimation: "none",
+        buttonSurfaceStyle: "matte",
+        buttonShadow: "0 6px 16px rgba(15, 23, 42, 0.08)",
+        buttonHoverShadow: "0 10px 24px rgba(15, 23, 42, 0.12)",
+        pageTransitionStyle: "subtle-fade",
+    }),
+    createVisualThemePreset({
+        id: "taste-neumorphism",
+        name: "Neumorphism",
+        description: "Bløde appflader, pressede knapper og lavmælt dybde til en rolig designeroplevelse.",
+        tags: ["Blød", "App", "Taktil"],
+        colors: {
+            primary: "#486581",
+            secondary: "#E5ECF3",
+            background: "#EEF3F8",
+            card: "#F8FBFE",
+            dropdown: "#F8FBFE",
+            hover: "#334E68",
+            headingText: "#102A43",
+            bodyText: "#52606D",
+            pricingText: "#0F766E",
+            linkText: "#486581",
+        },
+        fonts: { heading: "Nunito", body: "Inter", pricing: "Roboto Mono" },
+        radiusPx: 22,
+        tightRadiusPx: 16,
+        buttonRadiusPx: 18,
+        buttonSurfaceStyle: "pressed",
+        buttonTextColor: "#FFFFFF",
+        buttonShadow: "8px 8px 18px rgba(72, 101, 129, 0.18), -8px -8px 18px rgba(255, 255, 255, 0.86)",
+        buttonHoverShadow: "10px 10px 22px rgba(72, 101, 129, 0.22), -10px -10px 22px rgba(255, 255, 255, 0.9)",
+        buttonGradientStart: "#486581",
+        buttonGradientEnd: "#334E68",
+        heroTransition: "zoom-fade",
+        heroTextAnimation: "slide-up",
+        parallaxStyle: "soft-depth",
+    }),
+    createVisualThemePreset({
+        id: "taste-flat-design",
+        name: "Flat Design",
+        description: "Rene farveblokke, simple ikoner og hurtig læsbarhed til praktiske shops.",
+        tags: ["Flad", "Hurtig", "Simpel"],
+        colors: {
+            primary: "#2563EB",
+            secondary: "#DBEAFE",
+            background: "#F8FAFC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#1D4ED8",
+            headingText: "#111827",
+            bodyText: "#4B5563",
+            pricingText: "#059669",
+            linkText: "#2563EB",
+        },
+        fonts: { heading: "Rubik", body: "Open Sans", pricing: "Roboto Mono" },
+        radiusPx: 8,
+        tightRadiusPx: 6,
+        buttonRadiusPx: 6,
+        buttonSurfaceStyle: "matte",
+        buttonShadow: "none",
+        buttonHoverShadow: "none",
+        heroTransition: "slide",
+        heroTextAnimation: "fade",
+        parallaxStyle: "classic",
+        parallaxIntensity: 8,
+        pageTransitionStyle: "direct-snap",
+    }),
+    createVisualThemePreset({
+        id: "taste-material-design",
+        name: "Material Design",
+        description: "Strukturerede kort, tydelig elevation og velkendte SaaS-mønstre.",
+        tags: ["Material", "SaaS", "Struktur"],
+        colors: {
+            primary: "#0B57D0",
+            secondary: "#E8F0FE",
+            background: "#F8FAFD",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#174EA6",
+            headingText: "#202124",
+            bodyText: "#5F6368",
+            pricingText: "#188038",
+            linkText: "#0B57D0",
+        },
+        fonts: { heading: "Roboto", body: "Roboto", pricing: "Roboto Mono" },
+        dropdownPreset: "split-preview",
+        radiusPx: 16,
+        tightRadiusPx: 12,
+        buttonRadiusPx: 999,
+        buttonSurfaceStyle: "satin",
+        buttonShadow: "0 2px 6px rgba(60, 64, 67, 0.18)",
+        buttonHoverShadow: "0 8px 18px rgba(60, 64, 67, 0.2)",
+        heroTransition: "soft-wipe",
+        heroTextAnimation: "reveal-up",
+        dropdownMotionStyle: "soft-slide",
+    }),
+    createVisualThemePreset({
+        id: "taste-swiss-international",
+        name: "Swiss International",
+        description: "Præcis gridfølelse, disciplineret typografi og høj tillid til B2B.",
+        tags: ["Grid", "B2B", "Præcis"],
+        colors: {
+            primary: "#111827",
+            secondary: "#E5E7EB",
+            background: "#F9FAFB",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#D01F2F",
+            headingText: "#111827",
+            bodyText: "#4B5563",
+            pricingText: "#111827",
+            linkText: "#D01F2F",
+        },
+        fonts: { heading: "Work Sans", body: "Inter", pricing: "IBM Plex Mono" },
+        dropdownPreset: "compact-columns",
+        radiusPx: 2,
+        tightRadiusPx: 2,
+        borderWidthPx: 1,
+        buttonRadiusPx: 2,
+        buttonSurfaceStyle: "matte",
+        buttonShadow: "none",
+        buttonHoverShadow: "0 0 0 2px rgba(208, 31, 47, 0.24)",
+        heroTransition: "fade",
+        heroTextAnimation: "reveal-up",
+        pageTransitionStyle: "editorial-rise",
+    }),
+    createVisualThemePreset({
+        id: "taste-retro-y2k",
+        name: "Retro Y2K",
+        description: "Nostalgisk digital energi, klare accenter og moderne kontrol over kontrasten.",
+        tags: ["Retro", "Y2K", "Legende"],
+        colors: {
+            primary: "#7C3AED",
+            secondary: "#D9F99D",
+            background: "#FFF7ED",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#DB2777",
+            headingText: "#2E1065",
+            bodyText: "#5B4674",
+            pricingText: "#C026D3",
+            linkText: "#7C3AED",
+        },
+        fonts: { heading: "Sora", body: "Nunito", pricing: "Space Mono" },
+        dropdownPreset: "gallery-cards",
+        radiusPx: 20,
+        tightRadiusPx: 12,
+        buttonRadiusPx: 999,
+        buttonAnimation: "glow",
+        buttonSurfaceStyle: "luminous",
+        heroTransition: "cross-zoom",
+        heroTextAnimation: "stagger-rise",
+        parallaxStyle: "slow-zoom",
+        parallaxIntensity: 20,
+        dropdownMotionStyle: "gallery-rise",
+        pageTransitionStyle: "soft-depth",
+    }),
+    createVisualThemePreset({
+        id: "taste-editorial-magazine",
+        name: "Editorial Magazine",
+        description: "Store overskrifter, magasinrytme og billeddrevet premium fortælling.",
+        tags: ["Editorial", "Story", "Premium"],
+        colors: {
+            primary: "#1F2937",
+            secondary: "#E6EDF5",
+            background: "#FAFAF8",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#345C72",
+            headingText: "#111827",
+            bodyText: "#52525B",
+            pricingText: "#345C72",
+            linkText: "#1F2937",
+        },
+        fonts: { heading: "Cormorant Garamond", body: "Source Sans 3", pricing: "IBM Plex Mono" },
+        dropdownPreset: "split-preview",
+        radiusPx: 14,
+        tightRadiusPx: 8,
+        productBackgroundType: "gradient",
+        heroTransition: "zoom-fade",
+        heroTextAnimation: "cinematic",
+        parallaxStyle: "fixed-focus",
+        heroOverlayOpacity: 0.44,
+        pageTransitionStyle: "editorial-rise",
+    }),
+    createVisualThemePreset({
+        id: "taste-dark-futuristic",
+        name: "Dark Futuristic",
+        description: "Dyb teknisk kontrast, fokuserede cyan-accenter og kontrolleret glow.",
+        tags: ["Dark", "Tech", "Fokus"],
+        colors: {
+            primary: "#22D3EE",
+            secondary: "#172033",
+            background: "#050816",
+            card: "#0B1120",
+            dropdown: "#0F172A",
+            hover: "#38BDF8",
+            headingText: "#F8FAFC",
+            bodyText: "#CBD5E1",
+            pricingText: "#A5F3FC",
+            linkText: "#67E8F9",
+        },
+        fonts: { heading: "Space Grotesk", body: "Inter", pricing: "JetBrains Mono" },
+        cardStyle: "glass",
+        headerStyle: "solid",
+        pageBackgroundType: "gradient",
+        productBackgroundType: "gradient",
+        buttonAnimation: "glow",
+        buttonSurfaceStyle: "luminous",
+        heroTransition: "ken-burns",
+        heroTextAnimation: "reveal-up",
+        parallaxStyle: "slow-zoom",
+        heroOverlayOpacity: 0.54,
+        dropdownMotionStyle: "focus-slide",
+        pageTransitionStyle: "dark-focus",
+        glassOpacity: 0.84,
+    }),
+    createVisualThemePreset({
+        id: "taste-luxury-premium",
+        name: "Luxury Premium",
+        description: "Elegant luksus med kølige neutrale flader, rolig rytme og diskret metallisk accent.",
+        tags: ["Luksus", "Elegant", "Rolig"],
+        colors: {
+            primary: "#1F2937",
+            secondary: "#E5E7EB",
+            background: "#F7F8FA",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#6B7280",
+            headingText: "#111827",
+            bodyText: "#4B5563",
+            pricingText: "#374151",
+            linkText: "#1F2937",
+        },
+        fonts: { heading: "DM Serif Display", body: "Source Sans 3", pricing: "Roboto Mono" },
+        dropdownPreset: "split-preview",
+        radiusPx: 20,
+        tightRadiusPx: 14,
+        productBackgroundType: "gradient",
+        buttonRadiusPx: 999,
+        buttonSurfaceStyle: "satin",
+        heroTransition: "zoom-fade",
+        heroTextAnimation: "cinematic",
+        parallaxStyle: "fixed-focus",
+        pageTransitionStyle: "editorial-rise",
+    }),
+    createVisualThemePreset({
+        id: "taste-corporate-enterprise",
+        name: "Corporate Enterprise",
+        description: "Skalerbar og professionel B2B-flade med klare formularer og sikre valg.",
+        tags: ["Corporate", "B2B", "Tillid"],
+        colors: {
+            primary: "#1E3A8A",
+            secondary: "#E8EEF7",
+            background: "#F6F8FB",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#1D4ED8",
+            headingText: "#111827",
+            bodyText: "#475569",
+            pricingText: "#0F766E",
+            linkText: "#1E3A8A",
+        },
+        fonts: { heading: "Inter", body: "Source Sans 3", pricing: "IBM Plex Mono" },
+        dropdownPreset: "compact-columns",
+        radiusPx: 10,
+        tightRadiusPx: 8,
+        heroTransition: "soft-wipe",
+        heroTextAnimation: "reveal-up",
+        parallaxIntensity: 12,
+        pageTransitionStyle: "subtle-fade",
+    }),
+    createVisualThemePreset({
+        id: "taste-playful-cartoon",
+        name: "Playful Cartoon",
+        description: "Venlig, rund og farverig stil til lette kundeoplevelser uden at blive barnlig.",
+        tags: ["Venlig", "Rund", "Farverig"],
+        colors: {
+            primary: "#0EA5E9",
+            secondary: "#FEF3C7",
+            background: "#FFFDF7",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#F97316",
+            headingText: "#1F2937",
+            bodyText: "#4B5563",
+            pricingText: "#EA580C",
+            linkText: "#0284C7",
+        },
+        fonts: { heading: "Nunito", body: "Nunito", pricing: "Space Mono" },
+        dropdownPreset: "gallery-cards",
+        radiusPx: 28,
+        tightRadiusPx: 18,
+        buttonRadiusPx: 999,
+        buttonAnimation: "lift",
+        buttonSurfaceStyle: "satin",
+        heroTransition: "slide",
+        heroTextAnimation: "stagger-rise",
+        dropdownMotionStyle: "gallery-rise",
+        pictureHoverScale: 1.04,
+    }),
+    createVisualThemePreset({
+        id: "taste-organic-natural",
+        name: "Organic Natural",
+        description: "Jordnære farver, bløde former og varm menneskelig tone til lokale brands.",
+        tags: ["Organisk", "Varm", "Lokal"],
+        colors: {
+            primary: "#3F6B4F",
+            secondary: "#E8F1E8",
+            background: "#FAFBF7",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#2F513C",
+            headingText: "#102116",
+            bodyText: "#45574A",
+            pricingText: "#2F6B4F",
+            linkText: "#3F6B4F",
+        },
+        fonts: { heading: "Lora", body: "Lato", pricing: "Roboto Mono" },
+        radiusPx: 24,
+        tightRadiusPx: 16,
+        productBackgroundType: "gradient",
+        heroTransition: "zoom-fade",
+        heroTextAnimation: "slide-up",
+        parallaxStyle: "soft-depth",
+    }),
+    createVisualThemePreset({
+        id: "taste-industrial-technical",
+        name: "Industrial Technical",
+        description: "Robuste paneler, tekniske linjer og specifikationsklar produktvisning.",
+        tags: ["Teknisk", "Robust", "Data"],
+        colors: {
+            primary: "#334155",
+            secondary: "#E2E8F0",
+            background: "#F1F5F9",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#F97316",
+            headingText: "#0F172A",
+            bodyText: "#475569",
+            pricingText: "#C2410C",
+            linkText: "#334155",
+        },
+        fonts: { heading: "IBM Plex Sans", body: "Inter", pricing: "IBM Plex Mono" },
+        radiusPx: 6,
+        tightRadiusPx: 4,
+        borderWidthPx: 2,
+        buttonRadiusPx: 4,
+        buttonSurfaceStyle: "pressed",
+        buttonShadow: "0 4px 0 rgba(51, 65, 85, 0.82)",
+        buttonHoverShadow: "0 6px 0 rgba(51, 65, 85, 0.88)",
+        heroTransition: "soft-wipe",
+        heroTextAnimation: "reveal-up",
+        pageTransitionStyle: "direct-snap",
+    }),
+    createVisualThemePreset({
+        id: "taste-apple-clean",
+        name: "Apple Clean",
+        description: "Poleret, let og præcis premium enkelhed med bløde gradients og rolig motion.",
+        tags: ["Clean", "Apple", "Poleret"],
+        themeId: "glassmorphism",
+        colors: {
+            primary: "#2563EB",
+            secondary: "#EEF2FF",
+            background: "#F7F9FC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#64748B",
+            headingText: "#0F172A",
+            bodyText: "#475569",
+            pricingText: "#2563EB",
+            linkText: "#2563EB",
+        },
+        fonts: { heading: "Manrope", body: "Inter", pricing: "Space Grotesk" },
+        headerStyle: "glass",
+        cardStyle: "glass",
+        radiusPx: 28,
+        tightRadiusPx: 18,
+        pageBackgroundType: "gradient",
+        productBackgroundType: "gradient",
+        buttonRadiusPx: 999,
+        buttonSurfaceStyle: "apple-glass",
+        buttonTextColor: "#10202C",
+        buttonHoverTextColor: "#10202C",
+        buttonGradientStart: "rgba(255, 255, 255, 0.9)",
+        buttonGradientEnd: "rgba(226, 232, 240, 0.68)",
+        buttonHoverGradientStart: "rgba(255, 255, 255, 0.98)",
+        buttonHoverGradientEnd: "rgba(219, 234, 254, 0.82)",
+        heroTransition: "cross-zoom",
+        heroTextAnimation: "soft-mask",
+        parallaxStyle: "slow-zoom",
+        dropdownMotionStyle: "liquid",
+        pageTransitionStyle: "soft-depth",
+        glassOpacity: 0.76,
+    }),
+    createVisualThemePreset({
+        id: "taste-dashboard-saas",
+        name: "Dashboard SaaS",
+        description: "Tæt, handlingsklar adminfølelse med kort, status og hurtig scanning.",
+        tags: ["SaaS", "Dashboard", "Overblik"],
+        colors: {
+            primary: "#4F46E5",
+            secondary: "#EEF2FF",
+            background: "#F8FAFC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#3730A3",
+            headingText: "#111827",
+            bodyText: "#475569",
+            pricingText: "#0F766E",
+            linkText: "#4F46E5",
+        },
+        fonts: { heading: "Plus Jakarta Sans", body: "Inter", pricing: "JetBrains Mono" },
+        dropdownPreset: "compact-columns",
+        radiusPx: 14,
+        tightRadiusPx: 10,
+        matrixPaddingPx: 14,
+        optionButtonPaddingPx: 11,
+        heroTransition: "soft-wipe",
+        heroTextAnimation: "reveal-up",
+        pageTransitionStyle: "subtle-fade",
+    }),
+    createVisualThemePreset({
+        id: "taste-ecommerce-modern",
+        name: "E-commerce Modern",
+        description: "Produktkort, tydelige priser og stærke CTA'er til hurtig bestilling.",
+        tags: ["Shop", "Pris", "CTA"],
+        colors: {
+            primary: "#0F766E",
+            secondary: "#DFF7EF",
+            background: "#F7FBFA",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#115E59",
+            headingText: "#102A2A",
+            bodyText: "#4B635F",
+            pricingText: "#047857",
+            linkText: "#0F766E",
+        },
+        fonts: { heading: "Rubik", body: "Open Sans", pricing: "IBM Plex Mono" },
+        dropdownPreset: "showcase-bar",
+        radiusPx: 18,
+        tightRadiusPx: 12,
+        buttonRadiusPx: 999,
+        heroTransition: "zoom-fade",
+        heroTextAnimation: "slide-up",
+        parallaxStyle: "soft-depth",
+    }),
+    createVisualThemePreset({
+        id: "taste-cinematic-storytelling",
+        name: "Cinematic Storytelling",
+        description: "Mørkere billedbehandling, stærke hero-momenter og langsom fortællerytme.",
+        tags: ["Cinematic", "Story", "Billeder"],
+        colors: {
+            primary: "#D97706",
+            secondary: "#1F2937",
+            background: "#0B0F17",
+            card: "#111827",
+            dropdown: "#111827",
+            hover: "#F59E0B",
+            headingText: "#F9FAFB",
+            bodyText: "#D1D5DB",
+            pricingText: "#FBBF24",
+            linkText: "#F59E0B",
+        },
+        fonts: { heading: "Playfair Display", body: "Source Sans 3", pricing: "Roboto Mono" },
+        cardStyle: "glass",
+        pageBackgroundType: "gradient",
+        productBackgroundType: "gradient",
+        heroTransition: "ken-burns",
+        heroTextAnimation: "cinematic",
+        parallaxStyle: "fixed-focus",
+        heroOverlayOpacity: 0.58,
+        dropdownPreset: "split-preview",
+        pageTransitionStyle: "editorial-rise",
+        glassOpacity: 0.82,
+    }),
+    createVisualThemePreset({
+        id: "taste-gaming-ui",
+        name: "Gaming UI",
+        description: "Energi, badges og høj kontrast til gamifiede flows uden at gøre siden rodet.",
+        tags: ["Gaming", "Energi", "Kontrast"],
+        colors: {
+            primary: "#22C55E",
+            secondary: "#1E1B4B",
+            background: "#070A12",
+            card: "#111827",
+            dropdown: "#0F172A",
+            hover: "#A3E635",
+            headingText: "#F8FAFC",
+            bodyText: "#CBD5E1",
+            pricingText: "#BEF264",
+            linkText: "#86EFAC",
+        },
+        fonts: { heading: "Sora", body: "Inter", pricing: "Space Mono" },
+        cardStyle: "glass",
+        pageBackgroundType: "gradient",
+        productBackgroundType: "gradient",
+        buttonAnimation: "glow",
+        buttonSurfaceStyle: "luminous",
+        heroTransition: "cross-zoom",
+        heroTextAnimation: "stagger-rise",
+        dropdownMotionStyle: "focus-slide",
+        pageTransitionStyle: "dark-focus",
+        glassOpacity: 0.84,
+    }),
+    createVisualThemePreset({
+        id: "taste-government-public-service",
+        name: "Government Public Service",
+        description: "Officiel, rolig og meget tydelig stil med høj kontrast og enkle valg.",
+        tags: ["Offentlig", "Tilgængelig", "Klar"],
+        colors: {
+            primary: "#1D4ED8",
+            secondary: "#DBEAFE",
+            background: "#FFFFFF",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#1E3A8A",
+            headingText: "#111827",
+            bodyText: "#374151",
+            pricingText: "#065F46",
+            linkText: "#1D4ED8",
+        },
+        fonts: { heading: "Inter", body: "Open Sans", pricing: "Roboto Mono" },
+        radiusPx: 6,
+        tightRadiusPx: 4,
+        borderWidthPx: 1,
+        buttonRadiusPx: 4,
+        buttonAnimation: "none",
+        buttonSurfaceStyle: "matte",
+        buttonShadow: "none",
+        buttonHoverShadow: "0 0 0 3px rgba(29, 78, 216, 0.18)",
+        heroTransition: "fade",
+        heroTextAnimation: "none",
+        parallaxStyle: "fixed-focus",
+        parallaxIntensity: 0,
+        pageTransitionStyle: "direct-snap",
+    }),
+    createVisualThemePreset({
+        id: "taste-marketplace-ui",
+        name: "Marketplace UI",
+        description: "Søgning, filtrering og sammenligning får tydelige kort og stærk informationshierarki.",
+        tags: ["Marked", "Filter", "Kort"],
+        colors: {
+            primary: "#0F766E",
+            secondary: "#ECFDF5",
+            background: "#F8FAFC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#0F5E59",
+            headingText: "#0F172A",
+            bodyText: "#475569",
+            pricingText: "#047857",
+            linkText: "#0F766E",
+        },
+        fonts: { heading: "Plus Jakarta Sans", body: "Inter", pricing: "IBM Plex Mono" },
+        dropdownPreset: "showcase-bar",
+        radiusPx: 16,
+        tightRadiusPx: 10,
+        heroTransition: "soft-wipe",
+        heroTextAnimation: "slide-up",
+        matrixPaddingPx: 14,
+        optionButtonPaddingPx: 11,
+    }),
+    createVisualThemePreset({
+        id: "taste-mobile-first-app",
+        name: "Mobile-First App UI",
+        description: "Store trykflader, korte tekster og app-lignende rytme til hurtige kundevalg.",
+        tags: ["Mobil", "App", "Touch"],
+        colors: {
+            primary: "#2563EB",
+            secondary: "#DBEAFE",
+            background: "#F6F8FC",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#1D4ED8",
+            headingText: "#111827",
+            bodyText: "#4B5563",
+            pricingText: "#2563EB",
+            linkText: "#2563EB",
+        },
+        fonts: { heading: "Figtree", body: "Inter", pricing: "Roboto Mono" },
+        radiusPx: 24,
+        tightRadiusPx: 16,
+        buttonRadiusPx: 999,
+        optionButtonPaddingPx: 15,
+        optionImageSizePx: 160,
+        heroTransition: "slide",
+        heroTextAnimation: "slide-up",
+        dropdownMotionStyle: "soft-slide",
+    }),
+    createVisualThemePreset({
+        id: "taste-print-cmyk-graphic",
+        name: "Print CMYK Graphic",
+        description: "CMYK-referencer, crop-mark energi og grafisk printfornemmelse til web-to-print.",
+        tags: ["CMYK", "Print", "Grafisk"],
+        colors: {
+            primary: "#00A3E0",
+            secondary: "#FFF200",
+            background: "#FFFFFF",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#EC008C",
+            headingText: "#111827",
+            bodyText: "#374151",
+            pricingText: "#00A651",
+            linkText: "#0076A8",
+        },
+        fonts: { heading: "Space Grotesk", body: "Inter", pricing: "IBM Plex Mono" },
+        dropdownPreset: "gallery-cards",
+        radiusPx: 8,
+        tightRadiusPx: 4,
+        borderWidthPx: 2,
+        buttonRadiusPx: 4,
+        buttonSurfaceStyle: "pressed",
+        buttonShadow: "0 4px 0 rgba(17, 24, 39, 0.9)",
+        buttonHoverShadow: "0 6px 0 rgba(236, 0, 140, 0.82)",
+        buttonGradientStart: "#00A3E0",
+        buttonGradientEnd: "#0076A8",
+        buttonHoverGradientStart: "#EC008C",
+        buttonHoverGradientEnd: "#C00073",
+        heroTransition: "soft-wipe",
+        heroTextAnimation: "stagger-rise",
+        dropdownMotionStyle: "gallery-rise",
+    }),
+    createVisualThemePreset({
+        id: "taste-restaurant-menu",
+        name: "Restaurant Menu UI",
+        description: "Varme tilbud, klare kategorier og læsbare prisflader til mad og takeaway.",
+        tags: ["Menu", "Varm", "Bestilling"],
+        colors: {
+            primary: "#B91C1C",
+            secondary: "#FEF3C7",
+            background: "#FFF8F0",
+            card: "#FFFFFF",
+            dropdown: "#FFFFFF",
+            hover: "#EA580C",
+            headingText: "#2B1712",
+            bodyText: "#5F3B30",
+            pricingText: "#B45309",
+            linkText: "#B91C1C",
+        },
+        fonts: { heading: "Lora", body: "Nunito", pricing: "Roboto Mono" },
+        dropdownPreset: "gallery-cards",
+        radiusPx: 22,
+        tightRadiusPx: 14,
+        buttonRadiusPx: 999,
+        heroTransition: "zoom-fade",
+        heroTextAnimation: "slide-up",
+        parallaxStyle: "slow-zoom",
+        dropdownMotionStyle: "gallery-rise",
+    }),
 ];
 
 const buildColorPresetThemePatch = (
-    draft: typeof DEFAULT_BRANDING,
+    draft: BrandingData,
     presetColors: BrandingColorPresetColors,
-): Partial<typeof DEFAULT_BRANDING> => {
+): Partial<BrandingData> => {
     const colors = {
         ...draft.colors,
         ...presetColors,
@@ -819,9 +1720,9 @@ const buildColorPresetThemePatch = (
 };
 
 const buildVisualThemePresetPatch = (
-    draft: typeof DEFAULT_BRANDING,
+    draft: BrandingData,
     preset: VisualThemePreset,
-): Partial<typeof DEFAULT_BRANDING> => {
+): Partial<BrandingData> => {
     const basePatch = buildColorPresetThemePatch(draft, preset.colors);
     const primary = preset.colors.primary;
     const secondary = preset.colors.secondary;
@@ -836,7 +1737,10 @@ const buildVisualThemePresetPatch = (
     const buttonHoverText = preset.buttonHoverTextColor;
     const primaryFillText = getReadableTextForSolid(primary);
     const hoverFillText = getReadableTextForSolid(hover, buttonHoverText);
-    const isDark = background === "#070A12";
+    const isDark = isDarkThemeBackground(background);
+    const isGlassPreset = preset.cardStyle === "glass" || preset.headerStyle === "glass" || preset.buttonSurfaceStyle === "apple-glass";
+    const isBoldPreset = preset.buttonSurfaceStyle === "pressed" || preset.borderWidthPx >= 2;
+    const isEditorialPreset = preset.pageTransitionStyle === "editorial-rise";
     const subtleBorder = isDark ? hexToRgba("#FFFFFF", 0.12) : hexToRgba(primary, 0.18);
     const softPrimary = hexToRgba(primary, isDark ? 0.16 : 0.08);
     const softHover = hexToRgba(hover, isDark ? 0.2 : 0.1);
@@ -857,6 +1761,7 @@ const buildVisualThemePresetPatch = (
     const baseOrderButtons = baseProductPage.orderButtons || DEFAULT_BRANDING.productPage.orderButtons;
     const baseOptionSelectors = baseProductPage.optionSelectors || DEFAULT_BRANDING.productPage.optionSelectors;
     const heroSecondaryOpacity = preset.cardStyle === "glass" ? 0.82 : 1;
+    const themeId = preset.id.startsWith("taste-") ? preset.id : preset.themeId;
     const getHeroButtonColors = (index: number) => {
         const isPrimary = index === 0;
         const bgColor = isPrimary ? primary : card;
@@ -872,11 +1777,13 @@ const buildVisualThemePresetPatch = (
 
     return {
         ...basePatch,
-        themeId: preset.themeId,
+        themeId,
         themeSettings: {
             ...(draft.themeSettings || {}),
             visualThemePresetId: preset.id,
             visualThemePresetName: preset.name,
+            visualStyleId: preset.id,
+            visualStyleName: preset.name,
             pageTransitionStyle: preset.pageTransitionStyle,
         },
         fonts: {
@@ -889,9 +1796,9 @@ const buildVisualThemePresetPatch = (
             backgroundGradientType: "linear",
             backgroundGradientStart: background,
             backgroundGradientEnd: isDark ? "#111827" : secondary,
-            backgroundGradientUseMiddle: preset.id === "glass-studio",
-            backgroundGradientMiddle: preset.id === "glass-studio" ? "#F8FAFC" : card,
-            backgroundGradientAngle: preset.id === "bold-maker" ? 180 : 135,
+            backgroundGradientUseMiddle: isGlassPreset,
+            backgroundGradientMiddle: isGlassPreset ? secondary : card,
+            backgroundGradientAngle: isBoldPreset ? 180 : 135,
             backgroundImageUrl: null,
         },
         header: {
@@ -909,7 +1816,7 @@ const buildVisualThemePresetPatch = (
             activeTextColor: primary,
             actionHoverBgColor: softPrimary,
             actionHoverTextColor: hover,
-            dropdownPreset: preset.dropdownPreset,
+            dropdownPreset: resolveDropdownPreset(draft.header?.dropdownPreset),
             dropdownBgColor: dropdown,
             dropdownBgOpacity: preset.headerStyle === "glass" ? 0.86 : 0.98,
             dropdownShowBorder: true,
@@ -989,7 +1896,7 @@ const buildVisualThemePresetPatch = (
             useGradient: true,
             gradientFrom: primary,
             gradientTo: hover,
-            gradientDirection: preset.id === "bold-maker" ? "to-r" : "to-br",
+            gradientDirection: isBoldPreset ? "to-r" : "to-br",
             textColor: primaryFillText,
             iconColor: primaryFillText,
             titleColor: primaryFillText,
@@ -1009,8 +1916,8 @@ const buildVisualThemePresetPatch = (
                     color: primary,
                     gradientStart: primary,
                     gradientEnd: isDark ? "#0F172A" : hover,
-                    gradientAngle: preset.id === "premium-press" ? 145 : 135,
-                    animated: preset.id === "glass-studio",
+                    gradientAngle: isEditorialPreset ? 145 : 135,
+                    animated: isGlassPreset,
                     animatedStart: primary,
                     animatedMiddle: secondary,
                     animatedEnd: hover,
@@ -1018,15 +1925,15 @@ const buildVisualThemePresetPatch = (
             },
             productsSection: {
                 ...baseProductsSection,
-                layoutStyle: preset.id === "bold-maker" ? "flat" : "cards",
+                layoutStyle: isBoldPreset ? "flat" : "cards",
                 categoryTabs: {
                     ...baseProductsSection.categoryTabs,
-                    borderRadiusPx: preset.id === "bold-maker" ? preset.tightRadiusPx : 100,
+                    borderRadiusPx: isBoldPreset ? preset.tightRadiusPx : 100,
                     textColor: heading,
                     hoverTextColor: hover,
                     activeTextColor: primaryFillText,
                     bgColor: panelBg,
-                    hoverBgColor: preset.id === "bold-maker" ? secondary : softHover,
+                    hoverBgColor: isBoldPreset ? secondary : softHover,
                     activeBgColor: primary,
                     borderColor: subtleBorder,
                     activeBorderColor: primary,
@@ -1128,14 +2035,14 @@ const buildVisualThemePresetPatch = (
                 rowHeaderText: heading,
                 cellBg: panelBg,
                 cellText: heading,
-                cellHoverBg: preset.id === "bold-maker" ? secondary : softHover,
-                cellHoverText: preset.id === "bold-maker" ? heading : hover,
+                cellHoverBg: isBoldPreset ? secondary : softHover,
+                cellHoverText: isBoldPreset ? heading : hover,
                 selectedBg: primary,
                 selectedText: primaryFillText,
                 borderColor: subtleBorder,
                 navButtonBg: panelBg,
                 navButtonText: heading,
-                navButtonHoverBg: preset.id === "bold-maker" ? secondary : softHover,
+                navButtonHoverBg: isBoldPreset ? secondary : softHover,
                 navButtonHoverText: hover,
                 navButtonBorder: subtleBorder,
                 navButtonHoverBorder: primary,
@@ -1147,7 +2054,7 @@ const buildVisualThemePresetPatch = (
                 textButtons: {
                     ...baseMatrix.textButtons,
                     backgroundColor: panelBg,
-                    hoverBackgroundColor: preset.id === "bold-maker" ? secondary : softHover,
+                    hoverBackgroundColor: isBoldPreset ? secondary : softHover,
                     textColor: heading,
                     hoverTextColor: hover,
                     selectedBackgroundColor: primary,
@@ -1157,7 +2064,7 @@ const buildVisualThemePresetPatch = (
                     borderColor: subtleBorder,
                     hoverBorderColor: primary,
                     paddingPx: preset.optionButtonPaddingPx,
-                    minHeightPx: preset.id === "bold-maker" ? 46 : 44,
+                    minHeightPx: isBoldPreset ? 46 : 44,
                     fontFamily: preset.fonts.body,
                 },
                 pictureButtons: {
@@ -1201,7 +2108,7 @@ const buildVisualThemePresetPatch = (
                 radiusPx: preset.radiusPx,
                 dividerColor: subtleBorder,
                 optionBg: panelBg,
-                optionHoverBg: preset.id === "bold-maker" ? secondary : softHover,
+                optionHoverBg: isBoldPreset ? secondary : softHover,
                 optionSelectedBg: softPrimary,
                 optionBorderColor: subtleBorder,
                 optionHoverBorderColor: primary,
@@ -1210,7 +2117,7 @@ const buildVisualThemePresetPatch = (
                 badgeText: pricing,
                 badgeBorderColor: primary,
                 downloadButtonBg: panelBg,
-                downloadButtonHoverBg: preset.id === "bold-maker" ? secondary : softHover,
+                downloadButtonHoverBg: isBoldPreset ? secondary : softHover,
                 downloadButtonText: heading,
                 downloadButtonHoverText: hover,
                 downloadButtonBorder: subtleBorder,
@@ -1218,8 +2125,8 @@ const buildVisualThemePresetPatch = (
                 downloadButtonSurfaceStyle: preset.buttonSurfaceStyle,
                 downloadButtonGradientStart: panelBg,
                 downloadButtonGradientEnd: isDark ? "#0B1220" : hexToRgba(card, 0.72),
-                downloadButtonHoverGradientStart: preset.id === "glass-studio" ? "rgba(255, 255, 255, 0.92)" : softHover,
-                downloadButtonHoverGradientEnd: preset.id === "bold-maker" ? secondary : panelBg,
+                downloadButtonHoverGradientStart: isGlassPreset ? "rgba(255, 255, 255, 0.92)" : softHover,
+                downloadButtonHoverGradientEnd: isBoldPreset ? secondary : panelBg,
                 downloadButtonShadow: "0 6px 16px rgba(15, 23, 42, 0.08)",
                 downloadButtonHoverShadow: preset.buttonShadow,
             },
@@ -1234,7 +2141,7 @@ const buildVisualThemePresetPatch = (
                 hoverY: preset.buttonHoverY,
                 tapScale: preset.buttonTapScale,
                 transitionMs: preset.buttonTransitionMs,
-                motionStyle: preset.id === "glass-studio" ? "elastic" : preset.id === "bold-maker" ? "press" : "smooth",
+                motionStyle: isGlassPreset ? "elastic" : isBoldPreset ? "press" : "smooth",
                 surfaceStyle: preset.buttonSurfaceStyle,
                 gradientStart: preset.buttonGradientStart,
                 gradientEnd: preset.buttonGradientEnd,
@@ -1258,10 +2165,10 @@ const buildVisualThemePresetPatch = (
                 secondary: {
                     ...baseOrderButtons.secondary,
                     bgColor: panelBg,
-                    hoverBgColor: preset.id === "bold-maker" ? secondary : softHover,
+                    hoverBgColor: isBoldPreset ? secondary : softHover,
                     gradientStart: panelBg,
                     gradientEnd: preset.cardStyle === "glass" ? hexToRgba(card, 0.58) : panelBg,
-                    hoverGradientStart: preset.id === "bold-maker" ? secondary : softHover,
+                    hoverGradientStart: isBoldPreset ? secondary : softHover,
                     hoverGradientEnd: panelBg,
                     textColor: heading,
                     hoverTextColor: hover,
@@ -1290,7 +2197,7 @@ const buildVisualThemePresetPatch = (
                     textColor: heading,
                     selectedBgColor: primary,
                     selectedTextColor: primaryFillText,
-                    hoverBgColor: preset.id === "bold-maker" ? secondary : softHover,
+                    hoverBgColor: isBoldPreset ? secondary : softHover,
                     hoverTextColor: hover,
                     borderRadius: preset.tightRadiusPx,
                     borderColor: subtleBorder,
@@ -1298,19 +2205,19 @@ const buildVisualThemePresetPatch = (
                     selectedRingColor: primary,
                     hoverRingEnabled: true,
                     paddingPx: preset.optionButtonPaddingPx,
-                    fontSizePx: preset.id === "bold-maker" ? 15 : 14,
-                    shadow: preset.id === "bold-maker" ? preset.buttonShadow : "0 6px 16px rgba(15, 23, 42, 0.08)",
+                    fontSizePx: isBoldPreset ? 15 : 14,
+                    shadow: isBoldPreset ? preset.buttonShadow : "0 6px 16px rgba(15, 23, 42, 0.08)",
                     hoverShadow: preset.buttonHoverShadow,
                     selectedShadow: preset.buttonHoverShadow,
                     hoverScale: preset.buttonHoverScale,
                     hoverY: preset.buttonHoverY,
                     tapScale: preset.buttonTapScale,
                     transitionMs: preset.buttonTransitionMs,
-                    motionStyle: preset.id === "glass-studio" ? "elastic" : preset.id === "bold-maker" ? "press" : "smooth",
+                    motionStyle: isGlassPreset ? "elastic" : isBoldPreset ? "press" : "smooth",
                     surfaceStyle: preset.buttonSurfaceStyle,
                     gradientStart: preset.cardStyle === "glass" ? preset.buttonGradientStart : panelBg,
                     gradientEnd: preset.cardStyle === "glass" ? preset.buttonGradientEnd : panelBg,
-                    hoverGradientStart: preset.id === "bold-maker" ? secondary : softHover,
+                    hoverGradientStart: isBoldPreset ? secondary : softHover,
                     hoverGradientEnd: panelBg,
                     innerShadow: preset.cardStyle === "glass" ? preset.buttonInnerShadow : "inset 0 1px 0 rgba(255, 255, 255, 0.18)",
                     sheenColor: preset.buttonSheenColor,
@@ -1321,19 +2228,19 @@ const buildVisualThemePresetPatch = (
                     borderRadius: preset.tightRadiusPx,
                     bgColor: panelBg,
                     selectedBgColor: softPrimary,
-                    hoverBgColor: preset.id === "bold-maker" ? secondary : softHover,
+                    hoverBgColor: isBoldPreset ? secondary : softHover,
                     selectedRingColor: primary,
                     hoverRingEnabled: true,
                     hoverRingColor: hover,
                     labelColor: heading,
-                    shadow: preset.id === "bold-maker" ? preset.buttonShadow : "0 8px 20px rgba(15, 23, 42, 0.08)",
+                    shadow: isBoldPreset ? preset.buttonShadow : "0 8px 20px rgba(15, 23, 42, 0.08)",
                     hoverShadow: preset.buttonHoverShadow,
                     selectedShadow: preset.buttonHoverShadow,
                     hoverScale: preset.pictureHoverScale,
                     hoverY: preset.buttonHoverY,
                     tapScale: preset.buttonTapScale,
                     transitionMs: preset.buttonTransitionMs,
-                    motionStyle: preset.id === "glass-studio" ? "elastic" : preset.id === "bold-maker" ? "press" : "smooth",
+                    motionStyle: isGlassPreset ? "elastic" : isBoldPreset ? "press" : "smooth",
                     surfaceStyle: preset.buttonSurfaceStyle,
                     innerShadow: preset.buttonInnerShadow,
                     sheenColor: preset.buttonSheenColor,
@@ -1356,9 +2263,9 @@ const buildVisualThemePresetPatch = (
 };
 
 const buildFontPresetThemePatch = (
-    draft: typeof DEFAULT_BRANDING,
+    draft: BrandingData,
     presetFonts: BrandingFontPresetFonts,
-): Partial<typeof DEFAULT_BRANDING> => {
+): Partial<BrandingData> => {
     const fonts = {
         ...draft.fonts,
         ...presetFonts,
@@ -1470,7 +2377,10 @@ interface BrandingColorFieldConfig {
     description: string;
 }
 
-type MatrixColorKey = Exclude<keyof typeof DEFAULT_BRANDING.productPage.matrix, "font" | "pictureButtons">;
+type MatrixSettings = typeof DEFAULT_BRANDING.productPage.matrix;
+type MatrixColorKey = Exclude<{
+    [Key in keyof MatrixSettings]: MatrixSettings[Key] extends string ? Key : never;
+}[keyof MatrixSettings], "font">;
 
 interface MatrixColorFieldConfig {
     key: MatrixColorKey;
@@ -1524,8 +2434,99 @@ type ContextualEditorState =
 type PreviewPageLink = {
     label: string;
     path: string;
-    action?: "first-product";
 };
+
+type SiteFrontendState = {
+    activeSiteId: string | null;
+    installedSiteIds: string[];
+    lastInstallBySite: Record<string, SiteInstallSummary & { installedAt: string }>;
+};
+
+type SiteReadinessStats = {
+    mapped: number;
+    published: number;
+    priceReady: number;
+    siteOnly: number;
+    modeReady: number;
+    modeNeedsReview: number;
+};
+
+const EMPTY_SITE_READINESS: SiteReadinessStats = {
+    mapped: 0,
+    published: 0,
+    priceReady: 0,
+    siteOnly: 0,
+    modeReady: 0,
+    modeNeedsReview: 0,
+};
+
+const SITE_PACKAGE_GROUPS: Array<{
+    id: string;
+    label: string;
+    description: string;
+    siteIds: string[];
+}> = [
+    {
+        id: "general-print",
+        label: "General print",
+        description: "Bred webshop til flyers, foldere, visitkort og standard tryksager.",
+        siteIds: ["print-playground", "print-pop"],
+    },
+    {
+        id: "signage",
+        label: "Storformat og skilte",
+        description: "Bannere, skilte, folie og facade-orienterede shops.",
+        siteIds: ["banner-builder-pro", "shopfront-designer"],
+    },
+    {
+        id: "apparel",
+        label: "Tøj og merch",
+        description: "T-shirts, hoodies og merchandise-orienterede shopflows.",
+        siteIds: ["tee-design-hub", "vibe-tees", "vibe-prints-co"],
+    },
+    {
+        id: "photo-art",
+        label: "Foto og kunst",
+        description: "Fotoprodukter, plakater, art prints og personlige produkter.",
+        siteIds: ["art-canvas-studio", "snap-cherish"],
+    },
+    {
+        id: "education",
+        label: "Læring og specialprint",
+        description: "Læringsprodukter, gulvgrafikker og institutionsrettede løsninger.",
+        siteIds: ["learning-landscapes-shop"],
+    },
+];
+
+function parseSiteFrontendState(settings: any): SiteFrontendState {
+    const root = settings?.site_frontends || {};
+
+    return {
+        activeSiteId: typeof root.activeSiteId === "string" ? root.activeSiteId : null,
+        installedSiteIds: Array.isArray(root.installedSiteIds)
+            ? root.installedSiteIds.filter((value: unknown): value is string => typeof value === "string")
+            : [],
+        lastInstallBySite:
+            root.lastInstallBySite && typeof root.lastInstallBySite === "object"
+                ? root.lastInstallBySite
+                : {},
+    };
+}
+
+function mergeSiteFrontendState(settings: any, patch: Partial<SiteFrontendState>) {
+    const current = parseSiteFrontendState(settings);
+    const currentRaw = settings?.site_frontends || {};
+
+    return {
+        ...(settings || {}),
+        site_frontends: {
+            ...currentRaw,
+            ...current,
+            ...patch,
+            updatedAt: new Date().toISOString(),
+        },
+    };
+}
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
@@ -1551,6 +2552,24 @@ const hexToRgba = (color: string, alpha: number): string => {
     return normalized || `rgba(0, 0, 0, ${a})`;
 };
 
+const isDarkThemeBackground = (color: string): boolean => {
+    const normalized = String(color || "").trim();
+    const shortMatch = normalized.match(/^#([0-9a-f]{3})$/i);
+    const longMatch = normalized.match(/^#([0-9a-f]{6})$/i);
+    const hex = shortMatch
+        ? shortMatch[1].split("").map((part) => `${part}${part}`).join("")
+        : longMatch?.[1];
+
+    if (!hex) return false;
+
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    if ([r, g, b].some((value) => Number.isNaN(value))) return false;
+
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) < 96;
+};
+
 const getReadableTextForSolid = (background: string, preferred = "#FFFFFF"): string => {
     const normalized = String(background || "").trim();
     const shortMatch = normalized.match(/^#([0-9a-f]{3})$/i);
@@ -1572,13 +2591,13 @@ const getReadableTextForSolid = (background: string, preferred = "#FFFFFF"): str
 const PREVIEW_PAGE_LINKS: PreviewPageLink[] = [
     { label: "Forside", path: "/" },
     { label: "Produkter", path: "/produkter" },
-    { label: "Bestilling", path: "/produkter", action: "first-product" },
+    { label: "Checkout", path: "/checkout" },
     { label: "Grafisk vejledning", path: "/grafisk-vejledning" },
     { label: "Kontakt", path: "/kontakt" },
     { label: "Om os", path: "/om-os" },
 ];
 
-const USP_ICON_OPTIONS: Array<{ value: string; label: string; icon: LucideIcon }> = [
+const USP_ICON_OPTIONS: Array<{ value: USPIconType; label: string; icon: LucideIcon }> = [
     { value: "truck", label: "Lastbil", icon: Truck },
     { value: "award", label: "Pris", icon: Award },
     { value: "phone", label: "Support", icon: Phone },
@@ -1592,18 +2611,8 @@ const USP_ICON_OPTIONS: Array<{ value: string; label: string; icon: LucideIcon }
 function resolveContextualEditor(rawId?: string | null): ContextualEditorState | null {
     if (!rawId) return null;
 
-    const uspIconMatch = /^usp-strip\.item\.([^.]+)\.icon$/.exec(rawId);
-    if (uspIconMatch) {
-        return {
-            kind: "usp-icon",
-            itemId: uspIconMatch[1],
-            rawId,
-            label: "USP ikon",
-        };
-    }
-
     // Product option button click: product-option.<productId>.<sectionId>.<valueId>.<valueName>
-    const productOptionMatch = /^product-option\.([^\.]+)\.([^\.]+)\.([^\.]+)\.(.+)$/.exec(rawId);
+    const productOptionMatch = /^product-option\.([^.]+)\.([^.]+)\.([^.]+)\.(.+)$/.exec(rawId);
     if (productOptionMatch) {
         const [, productId, sectionId, valueId, valueName] = productOptionMatch;
         return {
@@ -1618,7 +2627,7 @@ function resolveContextualEditor(rawId?: string | null): ContextualEditorState |
     }
 
     // Product selector box click: product-selector-box.<productId>.<sectionId>.<sectionName>
-    const productSelectorBoxMatch = /^product-selector-box\.([^\.]+)\.([^\.]+)\.(.+)$/.exec(rawId);
+    const productSelectorBoxMatch = /^product-selector-box\.([^.]+)\.([^.]+)\.(.+)$/.exec(rawId);
     if (productSelectorBoxMatch) {
         const [, productId, sectionId, sectionName] = productSelectorBoxMatch;
         const decodedSectionName = decodeURIComponent(sectionName);
@@ -1636,6 +2645,8 @@ function resolveContextualEditor(rawId?: string | null): ContextualEditorState |
 }
 
 const SECTION_LABELS: Record<string, string> = {
+    "shop-layout": "Shopdesign",
+    "site-package": "Shop type",
     theme: "Tema",
     logo: "Logo & Favicon",
     header: "Header & Menu",
@@ -1643,10 +2654,12 @@ const SECTION_LABELS: Record<string, string> = {
     "page-background": "Sidebaggrund",
     colors: "Farver",
     banner: "Banner (Hero)",
-    showcase: "Banner 2 / Showcase",
-    "usp-strip": "USP Strip (Fordele)",
+    showcase: "Ekstra banner / galleri",
+    "lower-info": "Nedre infobokse",
+    "usp-strip": "Fordelsbjælke",
     "seo-content": "SEO Tekst",
-    products: "Forside produkter",
+    products: "Produktvisning",
+    "featured-products": "Fremhævede produkter",
     "product-page-matrix": "Produktside matrix, prisberegner & knapper",
     "produktvalgknapper": "Produktvalgknapper",
     "product-description": "Produktbeskrivelse",
@@ -1692,6 +2705,24 @@ const SECTION_GROUPS: SectionGroupConfig[] = [
 ];
 
 const SECTION_BUTTON_CONFIGS: SectionButtonConfig[] = [
+    {
+        id: "shop-layout",
+        label: "Shopdesign",
+        group: "global",
+        icon: Layers3,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-cyan-100 text-cyan-900 hover:bg-cyan-50/50 hover:border-cyan-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-cyan-100/50 flex items-center justify-center text-cyan-700 group-hover:bg-cyan-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "site-package",
+        label: "Shop type",
+        group: "global",
+        icon: Store,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-emerald-100 text-emerald-900 hover:bg-emerald-50/50 hover:border-emerald-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-emerald-100/50 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
     {
         id: "logo",
         label: "Logo & Favicon",
@@ -1792,12 +2823,25 @@ const SECTION_BUTTON_CONFIGS: SectionButtonConfig[] = [
         iconClassName: "h-4 w-4",
     },
     {
+        id: "featured-products", label: "Fremhævede produkter", group: "home", icon: ShoppingCart,
+        buttonClassName: "bg-blue-50/70", iconWrapperClassName: "bg-blue-100/70", iconClassName: "h-4 w-4",
+    },
+    {
         id: "products",
         label: "Forside produkter",
         group: "home",
         icon: ShoppingCart,
         buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-sky-100 text-sky-900 hover:bg-sky-50/50 hover:border-sky-200 group",
         iconWrapperClassName: "h-8 w-8 rounded-lg bg-sky-100/50 flex items-center justify-center text-sky-600 group-hover:bg-sky-100 transition-colors",
+        iconClassName: "h-4 w-4",
+    },
+    {
+        id: "lower-info",
+        label: "Nedre infobokse",
+        group: "home",
+        icon: Layout,
+        buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-cyan-100 text-cyan-900 hover:bg-cyan-50/50 hover:border-cyan-200 group",
+        iconWrapperClassName: "h-8 w-8 rounded-lg bg-cyan-100/50 flex items-center justify-center text-cyan-600 group-hover:bg-cyan-100 transition-colors",
         iconClassName: "h-4 w-4",
     },
     {
@@ -1901,30 +2945,15 @@ const BRANDING_COLOR_GROUPS: BrandingColorGroupConfig[] = [
             },
         ],
     },
-    {
-        title: "Avanceret / reserveret",
-        description: "Disse felter er ikke de primære storefront-farver. Brug dem kun ved særlige behov.",
-        badge: "Avanceret",
-        fields: [
-            {
-                key: "dropdown",
-                label: "Dropdown base",
-                description: "Reserveret farvefelt. Headerens rigtige dropdown-farver styres i Header-sektionen.",
-            },
-            {
-                key: "hover",
-                label: "Generisk hover-accent",
-                description: "Reserveret hover-farve. Bruges ikke som den primære hover-styring i hele sitet.",
-            },
-        ],
-    },
+
 ];
 
 export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: SiteDesignEditorV2Props) {
     const editor = useBrandingEditor({ adapter, capabilities });
     const isDraftLive = brandingEquals(editor.draft, editor.published);
-    const [activeSection, setActiveSection] = useState<string | null>(null);
-    const [sidebarOpen, setSidebarOpen] = useState(false); // Start collapsed for full-screen preview
+    const [activeSection, setActiveSection] = useState<string | null>("theme");
+    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [sectionFocusRequest, setSectionFocusRequest] = useState<{ id: number; target: string } | null>(null);
     const [previewEditMode, setPreviewEditMode] = useState(false);
     const [clearSelectionSignal, setClearSelectionSignal] = useState(0);
     const [currentPreviewPage, setCurrentPreviewPage] = useState<string>("/");
@@ -1951,12 +2980,34 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     const [showSaveToResourcesDialog, setShowSaveToResourcesDialog] = useState(false);
     const [resourceDesignName, setResourceDesignName] = useState("");
     const [resourceDesignDescription, setResourceDesignDescription] = useState("");
-    const [resourceDesignPrice, setResourceDesignPrice] = useState(0);
+
     const [resourceDesignVisible, setResourceDesignVisible] = useState(true);
     const [showPremadeDesignsDialog, setShowPremadeDesignsDialog] = useState(false);
     const [availablePremadeDesigns, setAvailablePremadeDesigns] = useState<any[]>([]);
     const [loadingPremadeDesigns, setLoadingPremadeDesigns] = useState(false);
     const [capturingThumbnail, setCapturingThumbnail] = useState(false);
+    const designLibraryRequest = useRef(0);
+    useEffect(() => {
+        designLibraryRequest.current += 1;
+        setAvailablePremadeDesigns([]);
+        return () => { designLibraryRequest.current += 1; };
+    }, [editor.entityId]);
+    const loadPremadeDesigns = useCallback(async () => {
+        const request = ++designLibraryRequest.current;
+        setLoadingPremadeDesigns(true);
+        try {
+            const designs = await loadShopDesignLibrary(editor.entityId);
+            if (request === designLibraryRequest.current) setAvailablePremadeDesigns(designs);
+        } catch (error) {
+            if (request === designLibraryRequest.current) {
+                setAvailablePremadeDesigns([]);
+                toast.error('Kunne ikke hente designskabeloner. Prøv igen.');
+            }
+        } finally {
+            if (request === designLibraryRequest.current) setLoadingPremadeDesigns(false);
+        }
+    }, [editor.entityId]);
+
 
     // Saved Premade Designs management (Master)
     const [showSavedPremadeDesignsDialog, setShowSavedPremadeDesignsDialog] = useState(false);
@@ -1980,25 +3031,28 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     const [focusedTargetId, setFocusedTargetId] = useState<string | null>(null);
     const [contextualEditor, setContextualEditor] = useState<ContextualEditorState | null>(null);
     const [focusedProductOption, setFocusedProductOption] = useState<{ productId: string; sectionId: string | null; valueId?: string | null; valueName?: string | null } | null>(null);
-    const [persistedProductPricing, setPersistedProductPricing] = useState<{ productId: string; pricingStructure: unknown } | null>(null);
-    const [productPricingPreview, setProductPricingPreview] = useState<{
-        productId: string;
-        pricingStructure: unknown;
-        isDirty: boolean;
-    } | null>(null);
+    const [persistedProductPricing, setPersistedProductPricing] = useState<ProductStylingPreview | null>(null);
+    const [productPricingPreview, setProductPricingPreview] = useState<ProductStylingPreview | null>(null);
     const [focusRequestId, setFocusRequestId] = useState(0);
+    const [selectedFeaturedSlideId, setSelectedFeaturedSlideId] = useState(FIRST_FEATURED_SLIDE);
     const [featuredProducts, setFeaturedProducts] = useState<FeaturedProductOption[]>([]);
     const [loadingFeaturedProducts, setLoadingFeaturedProducts] = useState(false);
-    const [featuredQuantityOptions, setFeaturedQuantityOptions] = useState<number[]>([]);
-    const [loadingFeaturedQuantities, setLoadingFeaturedQuantities] = useState(false);
     const [uploadingPageBackgroundImage, setUploadingPageBackgroundImage] = useState(false);
-    const [uploadingFeaturedSideImage, setUploadingFeaturedSideImage] = useState(false);
     const [uploadingFeaturedMainImage, setUploadingFeaturedMainImage] = useState(false);
-    const [uploadingFeaturedGalleryImage, setUploadingFeaturedGalleryImage] = useState(false);
     const [colorPresetName, setColorPresetName] = useState("");
+    const [tenantSettings, setTenantSettings] = useState<any>(null);
+    const [siteReadinessById, setSiteReadinessById] = useState<Record<string, SiteReadinessStats>>({});
+    const [siteMappingProducts, setSiteMappingProducts] = useState<SiteMappingProduct[]>([]);
+    const [loadingSitePackages, setLoadingSitePackages] = useState(false);
+    const [workingSiteId, setWorkingSiteId] = useState<string | null>(null);
 
-    // Ref for screenshot capture promise resolution
-    const screenshotResolverRef = useRef<{ resolve: (url: string | null) => void; reject: (err: any) => void } | null>(null);
+    // Keep preview selection and capture scoped to this editor instance.
+    const workspaceRef = useRef<HTMLDivElement>(null);
+    const siteState = useMemo(() => parseSiteFrontendState(tenantSettings), [tenantSettings]);
+    const activeSitePackage = useMemo(
+        () => SITE_PACKAGES.find((sitePackage) => sitePackage.id === siteState.activeSiteId) || null,
+        [siteState.activeSiteId],
+    );
 
     const currentPreviewProduct = useMemo(() => {
         const match = /^\/produkt\/([^/?#]+)/.exec(currentPreviewPage);
@@ -2007,6 +3061,283 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         const slug = decodeURIComponent(match[1]);
         return featuredProducts.find((product) => product.slug === slug) || null;
     }, [currentPreviewPage, featuredProducts]);
+
+    const loadSitePackageState = useCallback(async () => {
+        if (!editor.entityId) return;
+
+        setLoadingSitePackages(true);
+        try {
+            const { data: tenantRow, error: tenantError } = await supabase
+                .from("tenants")
+                .select("settings")
+                .eq("id", editor.entityId)
+                .maybeSingle();
+
+            if (tenantError) throw tenantError;
+
+            const settings = (tenantRow as any)?.settings || {};
+            setTenantSettings(settings);
+
+            const { data: productRows, error: productError } = await supabase
+                .from("products")
+                .select("id, name, slug, category, is_published, pricing_type, technical_specs")
+                .eq("tenant_id", editor.entityId);
+
+            if (productError) throw productError;
+
+            const rows = (productRows || []) as Array<{
+                id: string;
+                name?: string | null;
+                slug?: string | null;
+                category?: string | null;
+                is_published?: boolean | null;
+                pricing_type?: string | null;
+                technical_specs?: unknown;
+            }>;
+            const mappedProductIds = rows.map((row) => row.id).filter(Boolean);
+            const matrixPriceReadyIds = new Set<string>();
+
+            if (mappedProductIds.length > 0) {
+                const { data: priceRows, error: priceError } = await supabase
+                    .from("generic_product_prices")
+                    .select("product_id")
+                    .in("product_id", mappedProductIds);
+
+                if (!priceError) {
+                    (priceRows || []).forEach((row: any) => {
+                        if (row?.product_id) matrixPriceReadyIds.add(row.product_id);
+                    });
+                }
+            }
+
+            const nextStats: Record<string, SiteReadinessStats> = Object.fromEntries(
+                SITE_PACKAGES.map((sitePackage) => [sitePackage.id, { ...EMPTY_SITE_READINESS }]),
+            );
+
+            const nextMappingProducts: SiteMappingProduct[] = rows
+                .map((product) => {
+                    const isSpecialPricing = product.pricing_type === "STORFORMAT" || product.pricing_type === "MACHINE_PRICED";
+                    return {
+                        id: product.id,
+                        name: product.name || "Unavngivet produkt",
+                        slug: product.slug || product.id,
+                        category: product.category || null,
+                        is_published: product.is_published,
+                        pricing_type: product.pricing_type || null,
+                        technical_specs: product.technical_specs,
+                        priceReady: isSpecialPricing || matrixPriceReadyIds.has(product.id),
+                    };
+                })
+                .sort((a, b) => {
+                    const categoryCompare = String(a.category || "").localeCompare(String(b.category || ""), "da");
+                    if (categoryCompare !== 0) return categoryCompare;
+                    return a.name.localeCompare(b.name, "da");
+                });
+
+            nextMappingProducts.forEach((product) => {
+                const siteIds = readProductSiteIds(product.technical_specs);
+                const siteModes = readProductSiteModes(product.technical_specs);
+                const hasExplicitModes = Boolean(siteModes.designerMode && siteModes.pricingModel);
+                const specs = product.technical_specs as any;
+                const siteFrontends = specs?.site_frontends || {};
+                const isSiteOnly =
+                    siteFrontends.site_only === true
+                    || siteFrontends.siteOnly === true
+                    || siteFrontends.catalog_scope === "site_only"
+                    || siteFrontends.catalogScope === "site_only"
+                    || siteFrontends.visibility === "site_only";
+
+                siteIds.forEach((siteId) => {
+                    if (!nextStats[siteId]) return;
+                    nextStats[siteId] = {
+                        mapped: nextStats[siteId].mapped + 1,
+                        published: nextStats[siteId].published + (product.is_published ? 1 : 0),
+                        priceReady: nextStats[siteId].priceReady + (product.priceReady ? 1 : 0),
+                        siteOnly: nextStats[siteId].siteOnly + (isSiteOnly ? 1 : 0),
+                        modeReady: nextStats[siteId].modeReady + (hasExplicitModes ? 1 : 0),
+                        modeNeedsReview: nextStats[siteId].modeNeedsReview + (hasExplicitModes ? 0 : 1),
+                    };
+                });
+            });
+
+            setSiteMappingProducts(nextMappingProducts);
+            setSiteReadinessById(nextStats);
+        } catch (error) {
+            console.error("Could not load site package state:", error);
+            toast.error("Kunne ikke hente shop type-status");
+        } finally {
+            setLoadingSitePackages(false);
+        }
+    }, [editor.entityId]);
+
+    useEffect(() => {
+        loadSitePackageState();
+    }, [loadSitePackageState]);
+
+    const persistTenantSiteSettings = useCallback(async (nextSettings: any) => {
+        if (!editor.entityId) return false;
+
+        const { error } = await supabase
+            .from("tenants" as any)
+            .update({ settings: nextSettings })
+            .eq("id", editor.entityId);
+
+        if (error) {
+            console.error("Could not save site package settings:", error);
+            toast.error("Kunne ikke gemme shop type");
+            return false;
+        }
+
+        setTenantSettings(nextSettings);
+        return true;
+    }, [editor.entityId]);
+
+    const handleActivateSitePackage = useCallback(async (sitePackage: SitePackage) => {
+        setWorkingSiteId(sitePackage.id);
+        try {
+            const nextSettings = mergeSiteFrontendState(tenantSettings, {
+                activeSiteId: sitePackage.id,
+            });
+            const saved = await persistTenantSiteSettings(nextSettings);
+            if (!saved) return;
+
+            editor.updateDraft({
+                themeSettings: {
+                    ...(editor.draft.themeSettings || {}),
+                    activeSiteId: sitePackage.id,
+                },
+            });
+            toast.success(`${sitePackage.name} er valgt som aktiv shop type`);
+        } finally {
+            setWorkingSiteId(null);
+        }
+    }, [editor, persistTenantSiteSettings, tenantSettings]);
+
+    const handleInstallSitePackage = useCallback(async (sitePackage: SitePackage) => {
+        if (!editor.entityId) return;
+
+        setWorkingSiteId(sitePackage.id);
+        try {
+            const summary = await installSitePackageTemplates({
+                sitePackage,
+                tenantId: editor.entityId,
+            });
+
+            const installedSiteIds = Array.from(new Set([...siteState.installedSiteIds, sitePackage.id]));
+            const lastInstallBySite = {
+                ...siteState.lastInstallBySite,
+                [sitePackage.id]: {
+                    ...summary,
+                    installedAt: new Date().toISOString(),
+                },
+            };
+            const nextSettings = mergeSiteFrontendState(tenantSettings, {
+                installedSiteIds,
+                activeSiteId: siteState.activeSiteId || sitePackage.id,
+                lastInstallBySite,
+            });
+
+            const saved = await persistTenantSiteSettings(nextSettings);
+            if (!saved) return;
+
+            toast.success(`${sitePackage.name}: ${summary.inserted} nye bibliotekselementer installeret`);
+            await loadSitePackageState();
+        } catch (error: any) {
+            console.error("Could not install site package:", error);
+            toast.error(error?.message || "Kunne ikke installere shop type");
+        } finally {
+            setWorkingSiteId(null);
+        }
+    }, [
+        editor.entityId,
+        loadSitePackageState,
+        persistTenantSiteSettings,
+        siteState.activeSiteId,
+        siteState.installedSiteIds,
+        siteState.lastInstallBySite,
+        tenantSettings,
+    ]);
+
+    const handleToggleProductSiteMapping = useCallback(async (
+        product: SiteMappingProduct,
+        sitePackage: SitePackage,
+        checked: boolean,
+    ) => {
+        if (!editor.entityId) return;
+
+        const existingSiteIds = readProductSiteIds(product.technical_specs);
+        const nextSiteIds = checked
+            ? Array.from(new Set([...existingSiteIds, sitePackage.id]))
+            : existingSiteIds.filter((siteId) => siteId !== sitePackage.id);
+        const nextSpecs = checked
+            ? writeProductSiteIds(product.technical_specs, nextSiteIds)
+            : removeProductSiteAssignment(product.technical_specs, sitePackage.id);
+
+        setWorkingSiteId(`${sitePackage.id}:${product.id}`);
+        try {
+            const { error } = await supabase
+                .from("products")
+                .update({ technical_specs: nextSpecs })
+                .eq("id", product.id)
+                .eq("tenant_id", editor.entityId);
+
+            if (error) throw error;
+
+            setSiteMappingProducts((current) =>
+                current.map((candidate) =>
+                    candidate.id === product.id
+                        ? { ...candidate, technical_specs: nextSpecs }
+                        : candidate
+                )
+            );
+            toast.success(
+                checked
+                    ? `${product.name} er tilføjet til ${sitePackage.name}`
+                    : `${product.name} er fjernet fra ${sitePackage.name}`,
+            );
+            await loadSitePackageState();
+        } catch (error: any) {
+            console.error("Could not update product site mapping:", error);
+            toast.error(error?.message || "Kunne ikke opdatere produktmapping");
+        } finally {
+            setWorkingSiteId(null);
+        }
+    }, [editor.entityId, loadSitePackageState]);
+
+    const handleUpdateProductSiteModes = useCallback(async (
+        product: SiteMappingProduct,
+        patch: Partial<ProductSiteModes>,
+    ) => {
+        if (!editor.entityId) return;
+
+        const nextSpecs = writeProductSiteModes(product.technical_specs, patch);
+        setWorkingSiteId(`mode:${product.id}`);
+
+        try {
+            const { error } = await supabase
+                .from("products")
+                .update({ technical_specs: nextSpecs })
+                .eq("id", product.id)
+                .eq("tenant_id", editor.entityId);
+
+            if (error) throw error;
+
+            setSiteMappingProducts((current) =>
+                current.map((candidate) =>
+                    candidate.id === product.id
+                        ? { ...candidate, technical_specs: nextSpecs }
+                        : candidate
+                )
+            );
+            toast.success(`${product.name}: flowklassifikation opdateret`);
+            await loadSitePackageState();
+        } catch (error: any) {
+            console.error("Could not update product site modes:", error);
+            toast.error(error?.message || "Kunne ikke opdatere produktets flow");
+        } finally {
+            setWorkingSiteId(null);
+        }
+    }, [editor.entityId, loadSitePackageState]);
 
     const saveColorSwatch = useCallback((color: string) => {
         const swatches = editor.draft.savedSwatches || [];
@@ -2053,7 +3384,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         const selection = resolveSiteDesignTarget(rawSectionId);
         const contextualSelection = resolveContextualEditor(rawSectionId);
         console.log('[Editor] Resolved selection:', selection, 'contextual:', contextualSelection);
-        
+
         // For product option clicks, open the sidebar instead of the floating contextual popup.
         const isProductOptionButton = contextualSelection?.kind === 'product-option-button';
         const isProductOptionSectionBox = contextualSelection?.kind === 'product-option-section-box';
@@ -2082,7 +3413,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         } else if (selection?.sectionId !== "produktvalgknapper") {
             setFocusedProductOption(null);
         }
-        
+
         if (selection) {
             console.log('[Editor] Setting active section to:', selection.sectionId);
             setActiveSection(selection.sectionId);
@@ -2121,23 +3452,36 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         setFocusedProductOption(null);
         setFocusRequestId((current) => current + 1);
     }, []);
-    
+
     const closeSection = useCallback(() => {
+        if (activeSection === "produktvalgknapper") {
+            setProductPricingPreview(current => current?.isDirty ? current : null);
+        }
         setActiveSection(null);
         setFocusedBlockId(null);
         setFocusedTargetId(null);
         setContextualEditor(null);
         setClearSelectionSignal(prev => prev + 1);
-    }, []);
+    }, [activeSection]);
 
     useEffect(() => {
         if (!activeSection || !focusedTargetId) return;
 
         const timeoutId = window.setTimeout(() => {
-            const element = document.getElementById(focusedTargetId);
+            const sharedPrintText = Boolean(getPrintDesignPreset(editor.draft.themeId)) && editor.draft.hero.textSource !== 'slides';
+            const targetId = sharedPrintText && focusedTargetId === 'site-design-focus-banner-title' ? 'sd-hero-title'
+                : sharedPrintText && focusedTargetId === 'site-design-focus-banner-subtitle' ? 'sd-hero-subtitle' : focusedTargetId;
+            const element = document.getElementById(targetId);
             if (!element) return;
+            const details = element.closest('details');
+            if (details) details.open = true;
 
-            element.scrollIntoView({ behavior: "smooth", block: "center" });
+            const inspector = element.closest('.sd-workspace-inspector-content');
+            if (inspector && getComputedStyle(inspector).overflowY === 'auto') {
+                inspector.scrollTo({ top: inspector.scrollTop + element.getBoundingClientRect().top - inspector.getBoundingClientRect().top - 24, behavior: 'smooth' });
+            } else {
+                element.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
             element.classList.add("ring-2", "ring-primary", "ring-offset-2");
 
             window.setTimeout(() => {
@@ -2146,7 +3490,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         }, 120);
 
         return () => window.clearTimeout(timeoutId);
-    }, [activeSection, focusedTargetId, focusRequestId]);
+    }, [activeSection, focusedTargetId, focusRequestId, editor.draft.themeId, editor.draft.hero.textSource]);
 
     useEffect(() => {
         if (!previewEditMode) {
@@ -2158,36 +3502,36 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         setContextualEditor(null);
     }, [currentPreviewPage]);
 
-    // Listen for click events from preview AND screenshot responses
+    // Only this workspace's iframe may select controls or change preview navigation.
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
-            console.log('[Editor] Received message:', event.data);
-            
-            if (event.data?.type === 'EDIT_SECTION' || event.data?.type === 'ELEMENT_CLICKED') {
-                console.log('[Editor] Opening section:', event.data?.sectionId);
-                openPreviewSelection(event.data?.sectionId);
+            const iframe = workspaceRef.current?.querySelector<HTMLIFrameElement>('iframe[title="Branding Preview"]');
+            if (event.origin !== window.location.origin || !iframe?.contentWindow || event.source !== iframe.contentWindow) return;
+
+            if (event.data?.type === 'FEATURED_PRODUCT_SELECTED' && typeof event.data.slideId === 'string') {
+                const config = editor.draft.forside.productsSection.featuredProductConfig;
+                if (getFeaturedSlides(config).some(slide => slide.id === event.data.slideId)) setSelectedFeaturedSlideId(event.data.slideId);
+            }
+            if (
+                isSiteDesignSelectionMessage(event.data)
+                || event.data?.type === 'EDIT_SECTION'
+                || event.data?.type === 'ELEMENT_CLICKED'
+            ) {
+                if (previewEditMode) {
+                    console.log('[Editor] Opening section:', event.data?.sectionId);
+                    openPreviewSelection(event.data?.sectionId);
+                }
             }
 
             if (event.data?.type === 'PREVIEW_PAGE_CHANGED' || event.data?.type === 'PREVIEW_NAVIGATION') {
                 const path = typeof event.data.path === 'string' ? event.data.path : '/';
                 setCurrentPreviewPage(path);
             }
-
-            // Handle screenshot capture response
-            if (event.data?.type === 'SCREENSHOT_CAPTURED' && screenshotResolverRef.current) {
-                screenshotResolverRef.current.resolve(event.data.dataUrl);
-                screenshotResolverRef.current = null;
-            }
-            if (event.data?.type === 'SCREENSHOT_ERROR' && screenshotResolverRef.current) {
-                console.error('Screenshot error:', event.data.error);
-                screenshotResolverRef.current.resolve(null); // Resolve with null instead of rejecting
-                screenshotResolverRef.current = null;
-            }
         };
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, [openPreviewSelection]);
+    }, [openPreviewSelection, previewEditMode, editor.draft.forside.productsSection.featuredProductConfig]);
 
     useEffect(() => {
         let cancelled = false;
@@ -2221,81 +3565,24 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         };
     }, [editor.entityId]);
 
-    useEffect(() => {
-        const featuredProductId = editor.draft.forside?.productsSection?.featuredProductConfig?.productId;
-        const selectedFeaturedProduct = featuredProducts.find((product) => product.id === featuredProductId);
 
-        if (!featuredProductId || selectedFeaturedProduct?.pricing_type === "STORFORMAT") {
-            setFeaturedQuantityOptions([]);
-            setLoadingFeaturedQuantities(false);
-            return;
-        }
-
-        let cancelled = false;
-
-        async function loadFeaturedQuantities() {
-            setLoadingFeaturedQuantities(true);
-
-            const { data, error } = await supabase
-                .from('generic_product_prices')
-                .select('quantity')
-                .eq('product_id', featuredProductId)
-                .order('quantity');
-
-            if (cancelled) return;
-
-            if (error) {
-                console.error('Error loading featured product quantities:', error);
-                setFeaturedQuantityOptions([]);
-            } else {
-                const quantities = Array.from(
-                    new Set(
-                        (data || [])
-                            .map((row: any) => Number(row.quantity))
-                            .filter((value) => Number.isFinite(value) && value > 0)
-                    )
-                ).sort((a, b) => a - b);
-                setFeaturedQuantityOptions(quantities);
-            }
-
-            setLoadingFeaturedQuantities(false);
-        }
-
-        loadFeaturedQuantities();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [editor.draft.forside?.productsSection?.featuredProductConfig?.productId, featuredProducts]);
 
     // Capture and upload a thumbnail from the preview iframe
     const capturePreviewThumbnail = useCallback(async (): Promise<string | null> => {
         setCapturingThumbnail(true);
         try {
             // Find the preview iframe
-            const iframe = document.querySelector('iframe[title="Branding Preview"]') as HTMLIFrameElement;
+            const iframe = workspaceRef.current?.querySelector<HTMLIFrameElement>('iframe[title="Branding Preview"]');
             if (!iframe || !iframe.contentWindow) {
                 console.warn('Preview iframe not found');
                 return null;
             }
 
-            // Request screenshot from iframe
-            const requestId = Date.now().toString();
-            const screenshotPromise = new Promise<string | null>((resolve, reject) => {
-                screenshotResolverRef.current = { resolve, reject };
-
-                // Timeout after 10 seconds
-                setTimeout(() => {
-                    if (screenshotResolverRef.current) {
-                        screenshotResolverRef.current.resolve(null);
-                        screenshotResolverRef.current = null;
-                    }
-                }, 10000);
+            const dataUrl = await requestPreviewScreenshot({
+                target: iframe.contentWindow,
+                host: window,
+                origin: window.location.origin,
             });
-
-            iframe.contentWindow.postMessage({ type: 'CAPTURE_SCREENSHOT', requestId }, '*');
-
-            const dataUrl = await screenshotPromise;
             if (!dataUrl) {
                 console.warn('Screenshot capture failed or timed out');
                 return null;
@@ -2331,34 +3618,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         }
     }, []);
 
-    const uploadFeaturedSidePanelImage = useCallback(async (file: File): Promise<string | null> => {
-        try {
-            setUploadingFeaturedSideImage(true);
-            const fileExt = file.name.split('.').pop() || 'png';
-            const fileName = `featured-side-panel-${Date.now()}.${fileExt}`;
-            const filePath = `branding/${editor.entityId || 'master'}/${fileName}`;
 
-            const { error: uploadError } = await supabase.storage
-                .from('product-images')
-                .upload(filePath, file, { upsert: true });
-
-            if (uploadError) {
-                console.error('Featured side panel upload error:', uploadError);
-                return null;
-            }
-
-            const { data: { publicUrl } } = supabase.storage
-                .from('product-images')
-                .getPublicUrl(filePath);
-
-            return publicUrl;
-        } catch (error) {
-            console.error('Error uploading featured side panel image:', error);
-            return null;
-        } finally {
-            setUploadingFeaturedSideImage(false);
-        }
-    }, [editor.entityId]);
 
     const uploadFeaturedMainImage = useCallback(async (file: File): Promise<string | null> => {
         try {
@@ -2389,34 +3649,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         }
     }, [editor.entityId]);
 
-    const uploadFeaturedGalleryImage = useCallback(async (file: File): Promise<string | null> => {
-        try {
-            setUploadingFeaturedGalleryImage(true);
-            const fileExt = file.name.split('.').pop() || 'png';
-            const fileName = `featured-gallery-${Date.now()}.${fileExt}`;
-            const filePath = `branding/${editor.entityId || 'master'}/${fileName}`;
 
-            const { error: uploadError } = await supabase.storage
-                .from('product-images')
-                .upload(filePath, file, { upsert: true });
-
-            if (uploadError) {
-                console.error('Featured gallery upload error:', uploadError);
-                return null;
-            }
-
-            const { data: { publicUrl } } = supabase.storage
-                .from('product-images')
-                .getPublicUrl(filePath);
-
-            return publicUrl;
-        } catch (error) {
-            console.error('Error uploading featured gallery image:', error);
-            return null;
-        } finally {
-            setUploadingFeaturedGalleryImage(false);
-        }
-    }, [editor.entityId]);
 
     const navigatePreviewTo = useCallback((path: string) => {
         setCurrentPreviewPage(path);
@@ -2427,19 +3660,37 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         });
     }, []);
 
-    const navigatePreviewToFirstProduct = useCallback(() => {
-        setCurrentPreviewPage("/produkt");
+    const navigatePreviewToProduct = useCallback((slug: string) => {
+        const productPath = `/produkt/${encodeURIComponent(slug)}`;
+        setCurrentPreviewPage(productPath);
         setPreviewNavigationRequest({
             id: Date.now(),
-            type: "first-product",
+            type: "path",
+            path: productPath,
         });
     }, []);
 
-    const isHomePreviewPage = currentPreviewPage === "/"
-        || currentPreviewPage === "/shop"
-        || currentPreviewPage === "/produkter"
-        || currentPreviewPage === "/prisberegner";
-    const isProductPreviewPage = currentPreviewPage === "/produkt" || currentPreviewPage.startsWith("/produkt/");
+    const lastOrderPreviewProduct = useRef<string | null>(null);
+    useEffect(() => {
+        if (currentPreviewProduct?.slug) lastOrderPreviewProduct.current = currentPreviewProduct.slug;
+    }, [currentPreviewProduct?.slug]);
+
+    const navigatePreviewToOrderStep = (page: OrderFlowPage) => {
+        const slug = currentPreviewProduct?.slug || lastOrderPreviewProduct.current || featuredProducts.find(item => item.slug)?.slug;
+        if (page === 'calculator' && !slug) {
+            setPreviewNavigationRequest({ id: Date.now(), type: 'first-product' });
+        } else {
+            navigatePreviewTo(getOrderFlowPreviewPath(page, slug));
+        }
+    };
+
+    const previewPathname = getSiteDesignPreviewPathname(currentPreviewPage);
+    const isHomePreviewPage = previewPathname === "/"
+        || previewPathname === "/shop"
+        || previewPathname === "/produkter"
+        || previewPathname === "/prisberegner";
+    const isProductPreviewPage = previewPathname === "/produkt" || previewPathname.startsWith("/produkt/");
+    const isCheckoutPreviewPage = previewPathname === "/checkout";
 
     const currentPreviewPageLabel = useMemo(() => {
         if (currentPreviewPage.startsWith("/produkt/") || currentPreviewPage === "/produkt") {
@@ -2453,14 +3704,16 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         return "Aktuel side";
     }, [currentPreviewPage]);
 
-    const currentPreviewPageTypeLabel = isProductPreviewPage
+    const currentPreviewPageTypeLabel = isCheckoutPreviewPage
+        ? "Checkout"
+        : isProductPreviewPage
         ? "Produktside"
         : isHomePreviewPage
             ? "Forside / katalog"
             : "Indholdsside";
 
     const allowedSections = useMemo(() => {
-        const sections = new Set<string>(["theme"]);
+        const sections = new Set<string>(["shop-layout", "site-package", "theme", "products", "featured-products", "order-flow", "main-buttons"]);
         if (capabilities.sections.logo) sections.add("logo");
         if (capabilities.sections.header) sections.add("header");
         if (capabilities.sections.footer) sections.add("footer");
@@ -2473,6 +3726,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         if (isHomePreviewPage) {
             sections.add("banner");
             sections.add("showcase");
+            sections.add("lower-info");
             sections.add("usp-strip");
             sections.add("seo-content");
             sections.add("products");
@@ -2486,6 +3740,10 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
             sections.add("product-description");
         }
 
+        if (isCheckoutPreviewPage) {
+            sections.add("product-page-matrix");
+        }
+
         return sections;
     }, [
         capabilities.sections.colors,
@@ -2495,6 +3753,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         capabilities.sections.logo,
         capabilities.sections.typography,
         isHomePreviewPage,
+        isCheckoutPreviewPage,
         isProductPreviewPage,
         // Note: usp-strip is always shown on home preview
     ]);
@@ -2512,34 +3771,30 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     // ... existing publish/save handlers ...
 
     const persistCurrentProductPricingPreview = useCallback(async () => {
-        if (!productPricingPreview?.productId || !productPricingPreview.isDirty) {
+        if (!productPricingPreview?.productId || !productPricingPreview.isDirty) return true;
+        const submitted = productPricingPreview;
+        try {
+            const pricingStructure = await persistProductStylingPatches(supabase, editor.entityId, submitted.productId, submitted.patches);
+            const saved = { ...submitted, pricingStructure, isDirty: false };
+            setProductPricingPreview(current => {
+                if (current?.productId !== submitted.productId) return current;
+                return mergeProductStylingChange(current, saved);
+            });
+            setPersistedProductPricing(saved);
             return true;
-        }
-
-        const { error } = await supabase
-            .from('products')
-            .update({ pricing_structure: productPricingPreview.pricingStructure })
-            .eq('id', productPricingPreview.productId)
-            .eq('tenant_id', editor.entityId);
-
-        if (error) {
-            console.error('Error saving Produktvalgknapper settings:', error);
+        } catch (error) {
+            console.error('Error saving tenant-owned Produktvalgknapper settings:', error);
             toast.error('Kunne ikke gemme produktvalg-indstillinger');
             return false;
         }
-
-        setProductPricingPreview((current) => (
-            current?.productId === productPricingPreview.productId
-                ? { ...current, isDirty: false }
-                : current
-        ));
-        setPersistedProductPricing({
-            productId: productPricingPreview.productId,
-            pricingStructure: productPricingPreview.pricingStructure,
-        });
-
-        return true;
     }, [editor.entityId, productPricingPreview]);
+
+    const handleProductOptionPricingStructureChange = useCallback((change: ProductStylingChange | null) => {
+        if (!change) return;
+        setProductPricingPreview(current => !change.isDirty && current && current.productId !== change.productId
+            ? current : mergeProductStylingChange(current, change));
+        if (!change.isDirty && change.patches.length) setPersistedProductPricing(change);
+    }, []);
 
     const saveDraftWithProductSettings = useCallback(async () => {
         const productSettingsSaved = await persistCurrentProductPricingPreview();
@@ -2682,6 +3937,419 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         }
 
         switch (activeSection) {
+            case 'main-buttons':
+                return <MainButtonsControls draft={editor.draft} updateDraft={editor.updateDraft} designDefaults={(() => {
+                    const preset = VISUAL_THEME_PRESETS.find(item => item.id === String(editor.draft.themeSettings.visualThemePresetId || editor.draft.themeId));
+                    if (preset) return { ...DEFAULT_BRANDING, ...buildVisualThemePresetPatch(DEFAULT_BRANDING, preset) };
+                    if (getPrintDesignPreset(editor.draft.themeId)) {
+                        const base = applyPrintDesignPreset(DEFAULT_BRANDING, editor.draft.themeId);
+                        return { ...base, ...applyMainButtonSettings(base, { bgColor: '#087FC5', hoverBgColor: '#066BA8', textColor: '#FFFFFF', radiusPx: 6, fontSizePx: 16, paddingYPx: 14 }) };
+                    }
+                    return DEFAULT_BRANDING;
+                })()} />;
+            case 'shop-layout': {
+                const selectedTemplateId = resolveStorefrontLayout(
+                    editor.draft.forside?.layout,
+                ).templateId;
+                const selectedNavigationPreset = resolveDropdownPreset(editor.draft.header?.dropdownPreset);
+
+                const applyShopTemplate = (template: ShopTemplateDefinition) => {
+                    const currentForside = editor.draft.forside || DEFAULT_BRANDING.forside;
+                    const currentProducts = currentForside.productsSection
+                        || DEFAULT_BRANDING.forside.productsSection;
+                    const currentFeatured = currentProducts.featuredProductConfig
+                        || DEFAULT_BRANDING.forside.productsSection.featuredProductConfig;
+
+                    editor.updateDraft({
+                        header: {
+                            ...editor.draft.header,
+                            transparentOverHero: template.layout.sectionOrder[0] === "hero",
+                            alignment: template.recipe.header.alignment,
+                            height: template.recipe.header.height,
+                            style: template.recipe.header.style,
+                            dropdownPreset: resolveDropdownPreset(editor.draft.header?.dropdownPreset),
+                        },
+                        footer: {
+                            ...editor.draft.footer,
+                            style: template.recipe.footer,
+                        },
+                        forside: {
+                            ...currentForside,
+                            layout: {
+                                ...template.layout,
+                                sectionOrder: [...template.layout.sectionOrder],
+                            },
+                            productsSection: {
+                                ...currentProducts,
+                                columns: template.productDefaults.columns,
+                                layoutStyle: template.productDefaults.layoutStyle,
+                                featuredProductConfig: {
+                                    ...currentFeatured,
+                                    position: template.productDefaults.featuredPosition,
+                                    productSide: template.productDefaults.featuredProductSide,
+                                },
+                            },
+                        },
+                    });
+
+                    toast.success(`${template.name} er anvendt. Produkter og brandindhold er bevaret.`);
+                };
+
+                return (
+                    <ShopTemplatePicker
+                        selectedTemplateId={selectedTemplateId}
+                        selectedNavigationPreset={selectedNavigationPreset}
+                        onSelect={applyShopTemplate}
+                        onNavigationPresetChange={(dropdownPreset) => {
+                            editor.updateDraft({
+                                header: {
+                                    ...editor.draft.header,
+                                    dropdownPreset,
+                                },
+                            });
+                        }}
+                        onClose={closeSection}
+                    />
+                );
+            }
+            case 'site-package': {
+                const previewSite = (sitePackage: SitePackage) => {
+                    const url = buildPreviewShopUrl({
+                        tenantId: editor.entityId,
+                        siteId: sitePackage.id,
+                        sitePreviewMode: true,
+                        page: "/",
+                    });
+                    window.open(url, "_blank");
+                };
+
+                return (
+                    <div className="space-y-3 px-3 pb-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Shop type</h3>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
+                        </div>
+
+                        <Card>
+                            <CardHeader className="space-y-1 p-3">
+                                <div className="flex items-center gap-2">
+                                    <Store className="h-4 w-4 text-primary" />
+                                    <CardTitle className="text-sm">Aktiv shop</CardTitle>
+                                </div>
+                                <CardDescription className="text-[11px] leading-4">
+                                    Shop typen bestemmer koncept, produktfiltrering, templates og senere designer-flow. Farver og temaer bevares separat.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-2 p-3 pt-0">
+                                {activeSitePackage ? (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <Badge className="gap-1">
+                                            <CheckCircle2 className="h-3 w-3" />
+                                            {activeSitePackage.name}
+                                        </Badge>
+                                        <Badge variant="outline" className="font-normal">
+                                            {activeSitePackage.recommendedThemeId || "classic"}
+                                        </Badge>
+                                    </div>
+                                ) : (
+                                    <Badge variant="outline" className="font-normal">Ingen shop type valgt</Badge>
+                                )}
+                                <p className="text-[11px] text-muted-foreground">
+                                    Brug preview for at prøve et site uden at gøre det aktivt. Aktivér skifter kun shop type, ikke produkter eller priser.
+                                </p>
+                            </CardContent>
+                        </Card>
+
+                        {loadingSitePackages ? (
+                            <div className="flex items-center justify-center rounded-lg border py-8 text-sm text-muted-foreground">
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Henter shop typer...
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                {SITE_PACKAGE_GROUPS.map((group) => {
+                                    const packages = group.siteIds
+                                        .map((siteId) => SITE_PACKAGES.find((sitePackage) => sitePackage.id === siteId))
+                                        .filter((sitePackage): sitePackage is SitePackage => Boolean(sitePackage));
+
+                                    if (packages.length === 0) return null;
+
+                                    return (
+                                        <div key={group.id} className="space-y-2">
+                                            <div className="px-1">
+                                                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                                    {group.label}
+                                                </div>
+                                                <div className="text-[11px] text-muted-foreground">
+                                                    {group.description}
+                                                </div>
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                {packages.map((sitePackage) => {
+                                                    const isActive = siteState.activeSiteId === sitePackage.id;
+                                                    const isInstalled = siteState.installedSiteIds.includes(sitePackage.id);
+                                                    const stats = siteReadinessById[sitePackage.id] || EMPTY_SITE_READINESS;
+                                                    const isWorking = workingSiteId === sitePackage.id;
+                                                    const hasMappedProducts = stats.mapped > 0;
+                                                    const previewUrl = buildPreviewShopUrl({
+                                                        tenantId: editor.entityId,
+                                                        siteId: sitePackage.id,
+                                                        sitePreviewMode: true,
+                                                        page: "/",
+                                                    });
+                                                    const assignedProducts = siteMappingProducts.filter((product) =>
+                                                        readProductSiteIds(product.technical_specs).includes(sitePackage.id),
+                                                    );
+
+                                                    return (
+                                                        <Card
+                                                            key={sitePackage.id}
+                                                            className={isActive ? "border-primary bg-primary/5" : "bg-background"}
+                                                        >
+                                                            <CardContent className="space-y-3 p-3">
+                                                                <div className="flex items-start gap-2">
+                                                                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                                                                        {sitePackage.tags.includes("storformat") || sitePackage.tags.includes("signage") ? (
+                                                                            <Globe className="h-4 w-4" />
+                                                                        ) : sitePackage.tags.includes("apparel") ? (
+                                                                            <Layers3 className="h-4 w-4" />
+                                                                        ) : (
+                                                                            <Store className="h-4 w-4" />
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <p className="truncate text-sm font-semibold">{sitePackage.name}</p>
+                                                                            {isActive && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+                                                                        </div>
+                                                                        <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                                                                            {sitePackage.description}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+                                                                    <div className="rounded border bg-muted/30 px-2 py-1">
+                                                                        <span className="text-muted-foreground">Produkter</span>
+                                                                        <span className="ml-1 font-semibold">{stats.mapped}</span>
+                                                                    </div>
+                                                                    <div className="rounded border bg-muted/30 px-2 py-1">
+                                                                        <span className="text-muted-foreground">Publiceret</span>
+                                                                        <span className="ml-1 font-semibold">{stats.published}</span>
+                                                                    </div>
+                                                                    <div className="rounded border bg-muted/30 px-2 py-1">
+                                                                        <span className="text-muted-foreground">Pris-klar</span>
+                                                                        <span className="ml-1 font-semibold">{stats.priceReady}</span>
+                                                                    </div>
+                                                                    <div className="rounded border bg-muted/30 px-2 py-1">
+                                                                        <span className="text-muted-foreground">Flow sat</span>
+                                                                        <span className="ml-1 font-semibold">{stats.modeReady}</span>
+                                                                    </div>
+                                                                    <div className="rounded border bg-muted/30 px-2 py-1">
+                                                                        <span className="text-muted-foreground">Tjek</span>
+                                                                        <span className="ml-1 font-semibold">{stats.modeNeedsReview}</span>
+                                                                    </div>
+                                                                    <div className="rounded border bg-muted/30 px-2 py-1">
+                                                                        <span className="text-muted-foreground">Bibliotek</span>
+                                                                        <span className="ml-1 font-semibold">{isInstalled ? "Ja" : "Nej"}</span>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="flex flex-wrap gap-1">
+                                                                    {sitePackage.tags.slice(0, 4).map((tag) => (
+                                                                        <Badge key={tag} variant="outline" className="h-5 rounded-sm px-1.5 text-[10px] font-normal">
+                                                                            {tag}
+                                                                        </Badge>
+                                                                    ))}
+                                                                </div>
+
+                                                                {!hasMappedProducts && (
+                                                                    <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
+                                                                        Ingen produkter er knyttet til denne shop type endnu.
+                                                                    </div>
+                                                                )}
+
+                                                                {hasMappedProducts && stats.modeNeedsReview > 0 && (
+                                                                    <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">
+                                                                        {stats.modeNeedsReview} produkter bruger auto-forslag til designer/pris-flow. Gennemgå dem før demo eller kundebrug.
+                                                                    </div>
+                                                                )}
+
+                                                                <details className="rounded-md border bg-muted/10">
+                                                                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-2.5 py-2 text-[11px] font-semibold text-foreground">
+                                                                        <span>Administrer produkter</span>
+                                                                        <Badge variant="secondary" className="h-5 rounded-sm px-1.5 text-[10px] font-normal">
+                                                                            {assignedProducts.length} valgt
+                                                                        </Badge>
+                                                                    </summary>
+                                                                    <div className="max-h-60 space-y-1 overflow-y-auto border-t p-2">
+                                                                        {siteMappingProducts.length === 0 ? (
+                                                                            <p className="px-1 py-2 text-[11px] text-muted-foreground">
+                                                                                Ingen produkter fundet i denne tenant.
+                                                                            </p>
+                                                                        ) : (
+                                                                            siteMappingProducts.map((product) => {
+                                                                                const productSiteIds = readProductSiteIds(product.technical_specs);
+                                                                                const checked = productSiteIds.includes(sitePackage.id);
+                                                                                const productWorking = workingSiteId === `${sitePackage.id}:${product.id}`;
+                                                                                const productModeWorking = workingSiteId === `mode:${product.id}`;
+                                                                                const resolvedModes = resolveProductSiteModes(product);
+                                                                                return (
+                                                                                    <div
+                                                                                        key={product.id}
+                                                                                        className={`flex items-start gap-2 rounded-md border px-2 py-2 transition ${checked ? "border-primary/50 bg-primary/5" : "border-transparent bg-background hover:border-border"}`}
+                                                                                    >
+                                                                                        <Checkbox
+                                                                                            checked={checked}
+                                                                                            disabled={productWorking}
+                                                                                            onCheckedChange={(value) =>
+                                                                                                handleToggleProductSiteMapping(product, sitePackage, value === true)
+                                                                                            }
+                                                                                            className="mt-0.5 cursor-pointer"
+                                                                                        />
+                                                                                        <div className="min-w-0 flex-1">
+                                                                                            <div className="flex items-center gap-1.5">
+                                                                                                <span className="truncate text-[11px] font-medium">
+                                                                                                    {product.name}
+                                                                                                </span>
+                                                                                                {(productWorking || productModeWorking) && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                                                                                            </div>
+                                                                                            <div className="mt-1 flex flex-wrap gap-1">
+                                                                                                {product.category && (
+                                                                                                    <Badge variant="outline" className="h-4 rounded-sm px-1 text-[9px] font-normal">
+                                                                                                        {product.category}
+                                                                                                    </Badge>
+                                                                                                )}
+                                                                                                <Badge
+                                                                                                    variant={product.is_published ? "secondary" : "outline"}
+                                                                                                    className="h-4 rounded-sm px-1 text-[9px] font-normal"
+                                                                                                >
+                                                                                                    {product.is_published ? "Publiceret" : "Ikke publiceret"}
+                                                                                                </Badge>
+                                                                                                <Badge
+                                                                                                    variant={product.priceReady ? "secondary" : "outline"}
+                                                                                                    className="h-4 rounded-sm px-1 text-[9px] font-normal"
+                                                                                                >
+                                                                                                    {product.priceReady ? "Pris klar" : "Mangler pris"}
+                                                                                                </Badge>
+                                                                                                <Badge
+                                                                                                    variant={resolvedModes.source === "explicit" ? "secondary" : "outline"}
+                                                                                                    className="h-4 rounded-sm px-1 text-[9px] font-normal"
+                                                                                                >
+                                                                                                    {resolvedModes.source === "explicit" ? "Flow sat" : "Auto forslag"}
+                                                                                                </Badge>
+                                                                                            </div>
+                                                                                            {checked && (
+                                                                                                <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                                                                                                    <Select
+                                                                                                        value={resolvedModes.designerMode || "flat_print"}
+                                                                                                        disabled={productWorking || productModeWorking}
+                                                                                                        onValueChange={(value) =>
+                                                                                                            handleUpdateProductSiteModes(product, {
+                                                                                                                designerMode: value as ProductDesignerMode,
+                                                                                                                pricingModel: resolvedModes.pricingModel,
+                                                                                                            })
+                                                                                                        }
+                                                                                                    >
+                                                                                                        <SelectTrigger className="h-7 rounded-md bg-background px-2 text-[10px]">
+                                                                                                            <SelectValue placeholder="Designer-flow" />
+                                                                                                        </SelectTrigger>
+                                                                                                        <SelectContent>
+                                                                                                            {PRODUCT_DESIGNER_MODE_OPTIONS.map((option) => (
+                                                                                                                <SelectItem key={option.value} value={option.value}>
+                                                                                                                    {option.label}
+                                                                                                                </SelectItem>
+                                                                                                            ))}
+                                                                                                        </SelectContent>
+                                                                                                    </Select>
+                                                                                                    <Select
+                                                                                                        value={resolvedModes.pricingModel || "matrix"}
+                                                                                                        disabled={productWorking || productModeWorking}
+                                                                                                        onValueChange={(value) =>
+                                                                                                            handleUpdateProductSiteModes(product, {
+                                                                                                                designerMode: resolvedModes.designerMode,
+                                                                                                                pricingModel: value as ProductPricingModel,
+                                                                                                            })
+                                                                                                        }
+                                                                                                    >
+                                                                                                        <SelectTrigger className="h-7 rounded-md bg-background px-2 text-[10px]">
+                                                                                                            <SelectValue placeholder="Pris-model" />
+                                                                                                        </SelectTrigger>
+                                                                                                        <SelectContent>
+                                                                                                            {PRODUCT_PRICING_MODEL_OPTIONS.map((option) => (
+                                                                                                                <SelectItem key={option.value} value={option.value}>
+                                                                                                                    {option.label}
+                                                                                                                </SelectItem>
+                                                                                                            ))}
+                                                                                                        </SelectContent>
+                                                                                                    </Select>
+                                                                                                </div>
+                                                                                            )}
+                                                                                            {!checked && (
+                                                                                                <p className="mt-1 text-[10px] text-muted-foreground">
+                                                                                                    Foreslået: {getProductDesignerModeLabel(resolvedModes.designerMode)} / {getProductPricingModelLabel(resolvedModes.pricingModel)}
+                                                                                                </p>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                );
+                                                                            })
+                                                                        )}
+                                                                    </div>
+                                                                </details>
+
+                                                                <div className="grid grid-cols-3 gap-1.5">
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="h-8 gap-1 px-2 text-[11px]"
+                                                                        onClick={() => previewSite(sitePackage)}
+                                                                        title={previewUrl}
+                                                                    >
+                                                                        <ExternalLink className="h-3.5 w-3.5" />
+                                                                        Preview
+                                                                    </Button>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="h-8 gap-1 px-2 text-[11px]"
+                                                                        onClick={() => handleInstallSitePackage(sitePackage)}
+                                                                        disabled={isWorking}
+                                                                    >
+                                                                        {isWorking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PackagePlus className="h-3.5 w-3.5" />}
+                                                                        Installér
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        className="h-8 gap-1 px-2 text-[11px]"
+                                                                        onClick={() => handleActivateSitePackage(sitePackage)}
+                                                                        disabled={isWorking || isActive}
+                                                                    >
+                                                                        {isWorking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                                                                        {isActive ? "Aktiv" : "Aktivér"}
+                                                                    </Button>
+                                                                </div>
+                                                            </CardContent>
+                                                        </Card>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                );
+            }
+            case 'order-flow':
+                return <OrderFlowDesignInspector branding={editor.draft}
+                    page={getOrderFlowPreviewPage(currentPreviewPage) || 'calculator'}
+                    onPageChange={navigatePreviewToOrderStep} onChange={(page, design) => {
+                    editor.updateDraft(applyOrderFlowDesign(editor.draft, page, design));
+                    if (getOrderFlowPreviewPage(currentPreviewPage) !== page) navigatePreviewToOrderStep(page);
+                }} />;
             case 'theme': {
                 const activeVisualThemePresetId = String((editor.draft.themeSettings as Record<string, unknown> | undefined)?.visualThemePresetId || "");
                 const applyVisualThemePreset = (preset: VisualThemePreset) => {
@@ -2694,50 +4362,52 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                             <h3 className="text-sm font-medium">Tema</h3>
                             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                         </div>
+                        <PrintDesignPicker compact value={editor.draft.themeId} presentation={editor.draft.forside.productsSection.presentation} onChange={(id) => {
+                            editor.updateDraft(selectPrintDesignPreset(editor.draft, id));
+                            navigatePreviewTo('/');
+                            toast.success("Shopdesign anvendt i kladden");
+                        }} />
+                        <details className="rounded-lg border p-3">
+                            <summary className="cursor-pointer text-xs font-medium">Tidligere temaer og effekter</summary>
+                            <div className="mt-3 space-y-3">
                         <Card className="overflow-hidden">
-                            <CardHeader className="space-y-1 p-3 pb-0">
+                            <CardHeader className="space-y-1 p-2.5 pb-0">
                                 <div className="flex items-center gap-2">
                                     <Sparkles className="h-4 w-4 text-primary" />
                                     <CardTitle className="text-sm">Komplette visuelle presets</CardTitle>
                                 </div>
-                                <CardDescription className="text-xs text-muted-foreground">
-                                    Skifter farver, flader, radius, dropdown, hero-effekter, produktknapper, matrix og prisboks samlet.
+                                <CardDescription className="text-[11px] leading-4 text-muted-foreground">
+                                    25 Taste-temaer plus eksisterende presets. Skifter farver, flader, radius, dropdown, hero-effekter, produktknapper, matrix og prisboks samlet.
                                 </CardDescription>
                             </CardHeader>
-                            <CardContent className="space-y-2 p-3 pt-3">
+                            <CardContent className="grid grid-cols-2 gap-2 p-2.5 pt-2">
                                 {VISUAL_THEME_PRESETS.map((preset) => {
                                     const isSelected = activeVisualThemePresetId === preset.id;
                                     return (
                                         <button
                                             key={preset.id}
                                             type="button"
-                                            className={`w-full rounded-lg border p-3 text-left transition hover:border-primary/60 hover:bg-muted/30 ${isSelected ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border/70 bg-background"}`}
+                                            title={preset.description}
+                                            className={`min-h-[76px] rounded-md border p-2 text-left transition hover:border-primary/60 hover:bg-muted/30 ${isSelected ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border/70 bg-background"}`}
                                             onClick={() => applyVisualThemePreset(preset)}
                                         >
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div className="min-w-0">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="truncate text-xs font-semibold">{preset.name}</span>
-                                                        {isSelected ? <Check className="h-3.5 w-3.5 text-primary" /> : null}
-                                                    </div>
-                                                    <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                                                        {preset.description}
-                                                    </p>
-                                                </div>
-                                                <div className="flex h-7 w-24 shrink-0 overflow-hidden rounded-md border">
-                                                    {BRANDING_COLOR_KEYS.slice(0, 6).map((key) => (
-                                                        <span
-                                                            key={key}
-                                                            className="flex-1"
-                                                            style={{ backgroundColor: preset.colors[key] }}
-                                                            title={`${key}: ${preset.colors[key]}`}
-                                                        />
-                                                    ))}
-                                                </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-4">{preset.name}</span>
+                                                {isSelected ? <Check className="h-3.5 w-3.5 shrink-0 text-primary" /> : null}
                                             </div>
-                                            <div className="mt-2 flex flex-wrap gap-1">
-                                                {preset.tags.map((tag) => (
-                                                    <Badge key={tag} variant="outline" className="h-4 rounded-sm px-1 text-[9px] uppercase">
+                                            <div className="mt-1.5 flex h-4 overflow-hidden rounded border">
+                                                {BRANDING_COLOR_KEYS.slice(0, 7).map((key) => (
+                                                    <span
+                                                        key={key}
+                                                        className="flex-1"
+                                                        style={{ backgroundColor: preset.colors[key] }}
+                                                        title={`${key}: ${preset.colors[key]}`}
+                                                    />
+                                                ))}
+                                            </div>
+                                            <div className="mt-1.5 flex min-w-0 gap-1 overflow-hidden">
+                                                {preset.tags.slice(0, 2).map((tag) => (
+                                                    <Badge key={tag} variant="outline" className="h-4 max-w-[72px] truncate rounded-sm px-1 text-[9px] uppercase">
                                                         {tag}
                                                     </Badge>
                                                 ))}
@@ -2750,13 +4420,30 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         <ThemeSelector
                             selectedThemeId={editor.draft.themeId || 'classic'}
                             onThemeChange={(themeId) => {
-                                editor.updateDraft({ themeId });
+                                const matchingPreset = VISUAL_THEME_PRESETS.find((preset) => preset.id === themeId);
+                                if (matchingPreset) {
+                                    editor.updateDraft(buildVisualThemePresetPatch(editor.draft, matchingPreset));
+                                    toast.success(`${matchingPreset.name} anvendt på hele designet`);
+                                    return;
+                                }
+
+                                editor.updateDraft({
+                                    themeId,
+                                    themeSettings: {
+                                        ...(editor.draft.themeSettings || {}),
+                                        visualStyleId: themeId,
+                                        visualThemePresetId: themeId,
+                                    },
+                                });
                             }}
                             themeSettings={editor.draft.themeSettings}
+                            compact
                             onThemeSettingsChange={(themeSettings) => {
                                 editor.updateDraft({ themeSettings });
                             }}
                         />
+                            </div>
+                        </details>
                     </div>
                 );
             }
@@ -2765,12 +4452,18 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
                             <h3 className="text-sm font-medium">Logo & Favicon</h3>
-                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
+                            <div className="flex items-center gap-2">
+                                {focusedTargetId === "site-design-focus-logo" && (
+                                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFocusedSelection}>Vis alt</Button>
+                                )}
+                                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
+                            </div>
                         </div>
                         <LogoSection
                             draft={editor.draft}
                             updateDraft={editor.updateDraft}
                             tenantId={editor.entityId}
+                            focusTargetId={focusedTargetId}
                             savedSwatches={editor.draft.savedSwatches}
                             onSaveSwatch={(color) => {
                                 const swatches = editor.draft.savedSwatches || [];
@@ -2786,6 +4479,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         />
 
                         {/* Favicon Editor */}
+                        {focusedTargetId !== "site-design-focus-logo" && (
                         <FaviconEditor
                             favicon={editor.draft.favicon}
                             onChange={(favicon) => editor.updateDraft({ favicon })}
@@ -2803,6 +4497,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                             }}
                             tenantId={editor.entityId}
                         />
+                        )}
                     </div>
                 );
             case 'header':
@@ -2817,9 +4512,12 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                             </div>
                         </div>
+                        <HeaderQuickControls draft={editor.draft} updateDraft={editor.updateDraft} />
+                        <details className="sd-banner-details" open={Boolean(focusedTargetId)} key={focusedTargetId || 'header-details'}>
+                            <summary>Menulayout, links og detaljer</summary>
                         <HeaderSection
                             header={editor.draft.header}
-                            onChange={(header) => editor.updateDraft({ header })}
+                            onChange={(header) => editor.updateDraft({ header, themeSettings: { ...editor.draft.themeSettings, dropdownColorsCustomized: true } })}
                             focusTargetId={focusedTargetId}
                             savedSwatches={editor.draft.savedSwatches}
                             onSaveSwatch={(color) => {
@@ -2834,6 +4532,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 });
                             }}
                         />
+                        </details>
                     </div>
                 );
             case 'banner':
@@ -2848,6 +4547,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                             </div>
                         </div>
+                        <HeroQuickControls draft={editor.draft} updateDraft={editor.updateDraft} />
+                        <details className="sd-banner-details" open={Boolean(focusedTargetId) && !(getPrintDesignPreset(editor.draft.themeId) && editor.draft.hero.textSource !== 'slides' && ['site-design-focus-banner-title', 'site-design-focus-banner-subtitle'].includes(focusedTargetId!))}>
+                            <summary>Billeder, video og detaljer</summary>
                         <BannerEditor
                             draft={editor.draft}
                             updateDraft={editor.updateDraft}
@@ -2866,6 +4568,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 });
                             }}
                         />
+                        </details>
                     </div>
                 );
             case 'showcase':
@@ -2884,6 +4587,39 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                             draft={editor.draft}
                             updateDraft={editor.updateDraft}
                             tenantId={editor.entityId}
+                            focusTargetId={focusedTargetId}
+                            savedSwatches={editor.draft.savedSwatches}
+                            onSaveSwatch={(color) => {
+                                const swatches = editor.draft.savedSwatches || [];
+                                if (!swatches.includes(color) && swatches.length < 20) {
+                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                }
+                            }}
+                            onRemoveSwatch={(color) => {
+                                editor.updateDraft({
+                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                });
+                            }}
+                        />
+                    </div>
+                );
+            case 'lower-info':
+                return (
+                    <div className="space-y-3 px-3 pb-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Nedre infobokse</h3>
+                            <div className="flex items-center gap-2">
+                                {focusedTargetId?.startsWith("site-design-focus-lower-info") && (
+                                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFocusedSelection}>Vis alt</Button>
+                                )}
+                                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
+                            </div>
+                        </div>
+                        <LowerInfoSection
+                            draft={editor.draft}
+                            updateDraft={editor.updateDraft}
+                            tenantId={editor.entityId}
+                            focusTargetId={focusedTargetId}
                             savedSwatches={editor.draft.savedSwatches}
                             onSaveSwatch={(color) => {
                                 const swatches = editor.draft.savedSwatches || [];
@@ -2932,10 +4668,26 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         />
                     </div>
                 );
+            case 'featured-products': {
+                const productsSection = editor.draft.forside.productsSection;
+                const config = productsSection.featuredProductConfig;
+                return <FeaturedProductInspector config={config} products={featuredProducts}
+                    selectedSlideId={selectedFeaturedSlideId} onSelectSlide={setSelectedFeaturedSlideId}
+                    onChange={featuredProductConfig => editor.updateDraft({ forside: { ...editor.draft.forside, productsSection: { ...productsSection, featuredProductConfig } } })}
+                    disabled={!productsSection.enabled} loadingProducts={loadingFeaturedProducts}
+                    printDesign={Boolean(getPrintDesignPreset(editor.draft.themeId))}
+                    primaryColor={editor.draft.colors.primary || '#0EA5E9'}
+                    backgroundColor={editor.draft.themeId === 'print-nordic' ? '#f4f7f9' : editor.draft.themeId === 'print-product' ? '#f0f6fc' : '#ffffff'}
+                    titleColor={editor.draft.colors.headingText || '#0b1933'} bodyColor={editor.draft.colors.bodyText || '#4b5565'}
+                    buttonFontSize={productsSection.button.fontSizePx || 16} buttonPadding={productsSection.button.paddingYPx || 12}
+                    focusTarget={focusedTargetId} uploadImage={uploadFeaturedMainImage} uploading={uploadingFeaturedMainImage}
+                />;
+            }
             case 'products': {
                 const forside = editor.draft.forside;
                 const productsSection = forside.productsSection || DEFAULT_BRANDING.forside.productsSection;
                 const layoutStyle = productsSection.layoutStyle || 'cards';
+                const isPrintDesign = Boolean(getPrintDesignPreset(editor.draft.themeId));
                 const buttonConfig = productsSection.button || {
                     style: 'default',
                     bgColor: '#0EA5E9',
@@ -2966,55 +4718,6 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     opacity: 1,
                 };
                 const cardConfig = productsSection.card || {};
-                const featuredProductConfig = productsSection.featuredProductConfig || {
-                    enabled: false,
-                    productId: undefined,
-                    quantityPresets: [200, 500, 1000, 2500, 5000],
-                    showOptions: true,
-                    showPrice: true,
-                    overlapPx: 45,
-                    boxScalePct: 80,
-                    imageScalePct: 100,
-                    borderRadiusPx: 24,
-                    position: 'above',
-                    productSide: 'left',
-                    imageMode: 'contain',
-                    cardStyle: 'default',
-                    customTitle: '',
-                    customDescription: '',
-                    backgroundColor: '',
-                    galleryEnabled: false,
-                    galleryImages: [],
-                    galleryIntervalMs: 6000,
-                    ctaLabel: 'Bestil nu',
-                    ctaColor: '#0EA5E9',
-                    ctaTextColor: '#FFFFFF',
-                    sidePanel: {
-                        enabled: false,
-                        mode: 'banner',
-                        imageUrl: null,
-                        images: [],
-                        slideshowIntervalMs: 6000,
-                        showNavigationArrows: false,
-                        fadeTransition: true,
-                        transitionDurationMs: 700,
-                        borderRadiusPx: 24,
-                        boxScalePct: 80,
-                        imageScalePct: 100,
-                        title: 'Fremhæv din kampagne',
-                        subtitle: 'Brug denne flade til CTA, billede og ekstra budskab ved siden af det fremhævede produkt.',
-                        textAnimation: 'slide-up',
-                        overlayColor: '#000000',
-                        overlayOpacity: 0.35,
-                        titleColor: '#FFFFFF',
-                        subtitleColor: 'rgba(255, 255, 255, 0.9)',
-                        ctaLabel: 'Læs mere',
-                        ctaHref: '/shop',
-                        ctaColor: '#0EA5E9',
-                        ctaTextColor: '#FFFFFF',
-                        productId: undefined,
-                    },
-                };
                 const updateProductsSection = (updates: Partial<typeof productsSection>) => {
                     editor.updateDraft({
                         forside: {
@@ -3049,115 +4752,11 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
                     });
                 };
-                const updateFeaturedProductConfig = (updates: Partial<typeof featuredProductConfig>) => {
-                    updateProductsSection({
-                        featuredProductConfig: {
-                            ...featuredProductConfig,
-                            ...updates,
-                        },
-                    });
-                };
-                const updateFeaturedSidePanel = (updates: Partial<NonNullable<typeof featuredProductConfig.sidePanel>>) => {
-                    updateFeaturedProductConfig({
-                        sidePanel: {
-                            ...featuredProductConfig.sidePanel,
-                            ...updates,
-                        },
-                    });
-                };
-                const selectedFeaturedProduct = featuredProducts.find((product) => product.id === featuredProductConfig.productId);
-                const isFeaturedStorformat = selectedFeaturedProduct?.pricing_type === "STORFORMAT";
-                const quantityPresetSlots = Array.from({ length: 8 }, (_, index) => featuredProductConfig.quantityPresets?.[index] || null);
-                const updateQuantityPresetSlot = (index: number, value: string) => {
-                    const nextSlots = [...quantityPresetSlots];
-                    nextSlots[index] = value === "none" ? null : Number(value);
-                    const nextPresets = nextSlots.filter((entry): entry is number => Number.isFinite(entry) && entry > 0);
-                    updateFeaturedProductConfig({ quantityPresets: nextPresets });
-                };
-                const featuredSidePanelItems = (featuredProductConfig.sidePanel?.items || []).slice(0, 5);
-                const featuredSidePanelMode = featuredProductConfig.sidePanel?.mode || "banner";
-                const hasFeaturedSidePanelItems = featuredSidePanelItems.length > 0;
-                const isSimpleSideProductMode = !hasFeaturedSidePanelItems && featuredSidePanelMode === "product";
-                const isSimpleSideBannerMode = !hasFeaturedSidePanelItems && featuredSidePanelMode === "banner";
-                const showSidePanelTransitionControls = hasFeaturedSidePanelItems || featuredSidePanelMode === "banner";
-                const updateFeaturedSidePanelItems = (items: typeof featuredSidePanelItems) => {
-                    updateFeaturedSidePanel({ items: items.slice(0, 5) });
-                };
-                const createFeaturedSidePanelItemId = () => {
-                    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-                        return crypto.randomUUID();
-                    }
-                    return `side-panel-item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                };
-                const addFeaturedSidePanelItem = (mode: "banner" | "product") => {
-                    if (featuredSidePanelItems.length >= 5) return;
-                    updateFeaturedSidePanelItems([
-                        ...featuredSidePanelItems,
-                        {
-                            id: createFeaturedSidePanelItemId(),
-                            mode,
-                            productId: undefined,
-                            imageUrl: null,
-                            title: mode === "banner" ? "Nyt banner" : "",
-                            subtitle: "",
-                            ctaLabel: mode === "banner" ? "Læs mere" : "",
-                            ctaHref: mode === "banner" ? "/shop" : "",
-                        },
-                    ]);
-                };
-                const updateFeaturedSidePanelItem = (
-                    itemId: string,
-                    updates: Partial<(typeof featuredSidePanelItems)[number]>
-                ) => {
-                    updateFeaturedSidePanelItems(
-                        featuredSidePanelItems.map((item) => (
-                            item.id === itemId ? { ...item, ...updates } : item
-                        ))
-                    );
-                };
-                const removeFeaturedSidePanelItem = (itemId: string) => {
-                    updateFeaturedSidePanelItems(
-                        featuredSidePanelItems.filter((item) => item.id !== itemId)
-                    );
-                };
-                const featuredSideImages = Array.from(
-                    new Set(
-                        [
-                            ...(featuredProductConfig.sidePanel?.imageUrl ? [featuredProductConfig.sidePanel.imageUrl] : []),
-                            ...((featuredProductConfig.sidePanel?.images || []).filter(Boolean)),
-                        ].filter(Boolean)
-                    )
-                ).slice(0, 5) as string[];
-                const appendFeaturedSidePanelImage = (imageUrl: string) => {
-                    const nextImages = [...featuredSideImages, imageUrl].slice(0, 5);
-                    updateFeaturedSidePanel({
-                        imageUrl: nextImages[0] || null,
-                        images: nextImages,
-                    });
-                };
-                const removeFeaturedSidePanelImage = (imageUrl: string) => {
-                    const nextImages = featuredSideImages.filter((existing) => existing !== imageUrl);
-                    updateFeaturedSidePanel({
-                        imageUrl: nextImages[0] || null,
-                        images: nextImages,
-                    });
-                };
-                const featuredGalleryImages = Array.from(
-                    new Set((featuredProductConfig.galleryImages || []).filter(Boolean))
-                ).slice(0, 8) as string[];
-                const appendFeaturedGalleryImage = (imageUrl: string) => {
-                    const nextImages = [...featuredGalleryImages, imageUrl].slice(0, 8);
-                    updateFeaturedProductConfig({ galleryImages: nextImages });
-                };
-                const removeFeaturedGalleryImage = (imageUrl: string) => {
-                    const nextImages = featuredGalleryImages.filter((existing) => existing !== imageUrl);
-                    updateFeaturedProductConfig({ galleryImages: nextImages });
-                };
 
                 return (
                     <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-medium">Forside produkter</h3>
+                            <h3 className="text-sm font-medium">Forside og produktoversigt</h3>
                             <div className="flex items-center gap-2">
                                 {focusedTargetId?.startsWith("site-design-focus-products") && (
                                     <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFocusedSelection}>Vis alt</Button>
@@ -3165,11 +4764,30 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                             </div>
                         </div>
+                        <Card>
+                            <CardContent className="space-y-4 pt-5">
+                                <ProductPresentationPicker value={productsSection.presentation} onChange={(presentation) => {
+                                    const updated = applyProductPresentation(editor.draft, presentation);
+                                    editor.updateDraft({ forside: updated.forside });
+                                    if (!isHomePreviewPage) navigatePreviewTo('/produkter');
+                                }} />
+                                {resolveProductPresentation(productsSection.presentation) !== 'standard' && <div className="space-y-4 border-t pt-4">
+                                    <div className="flex items-center justify-between gap-3"><Label htmlFor="product-presentation-enabled">Vis produkter på forsiden</Label><Switch id="product-presentation-enabled" checked={productsSection.enabled} onCheckedChange={checked => updateProductsSection({ enabled: checked })} /></div>
+                                    <div className="space-y-2"><Label htmlFor="product-presentation-title">Overskrift</Label><Input id="product-presentation-title" value={productsSection.presentationTitle || ''} placeholder={PRODUCT_PRESENTATIONS.find(item => item.id === productsSection.presentation)?.title} onChange={event => updateProductsSection({ presentationTitle: event.target.value })} /></div>
+                                    <div className="space-y-2"><Label htmlFor="product-presentation-subtitle">Undertekst</Label><Input id="product-presentation-subtitle" value={productsSection.presentationSubtitle || ''} placeholder="Vælg et produkt. Gør det til dit eget." onChange={event => updateProductsSection({ presentationSubtitle: event.target.value })} /></div>
+                                    <div className="flex items-center justify-between gap-3"><Label htmlFor="product-presentation-motion">Animation ved hover og tastaturfokus</Label><Switch id="product-presentation-motion" checked={productsSection.presentationMotion !== false} onCheckedChange={checked => updateProductsSection({ presentationMotion: checked })} /></div>
+                                    <p className="text-xs leading-relaxed text-muted-foreground">Visningen bruger shoppens produktbilleder og navne. Skift billeder under Produkter eller Ikoner. Kunder med reduceret bevægelse får rolige overgange.</p>
+                                    <Button variant="outline" size="sm" onClick={() => navigatePreviewTo('/produkter')}>Se produktoversigten i preview</Button>
+                                    <div className="sd-control-note"><p className="text-xs leading-relaxed">Det fremhævede produkt med prisberegner og billedgalleri hører til standardvisningen. De fire produktpræsentationer viser kataloget.</p><Button className="mt-3" variant="outline" size="sm" onClick={() => editor.updateDraft({ forside: applyProductPresentation(editor.draft, 'standard').forside })}>Brug standard med fremhævet produkt</Button></div>
+                                </div>}
+                            </CardContent>
+                        </Card>
+                        {resolveProductPresentation(productsSection.presentation) === 'standard' && <>
                         <Card id="site-design-focus-products-layout">
                             <CardHeader className="space-y-1">
-                                <CardTitle className="text-sm">Produktbokse på forsiden</CardTitle>
+                                <CardTitle className="text-sm">{isPrintDesign ? "Produktbokse i kataloget" : "Produktbokse på forsiden"}</CardTitle>
                                 <CardDescription className="text-xs text-muted-foreground">
-                                    Vælg hvor mange produktbokse der skal vises pr. række.
+                                    {isPrintDesign ? "Kolonner og kort gælder standardkataloget. Forsidens kategorier og fremhævede produkt følger shopdesignet." : "Vælg hvor mange produktbokse der skal vises pr. række."}
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
@@ -3198,7 +4816,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     </Select>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>Forside produkt layout</Label>
+                                    <Label>{isPrintDesign ? "Produktkort i kataloget" : "Forside produkt layout"}</Label>
                                     <Select
                                         value={layoutStyle}
                                         onValueChange={(value) => updateProductsSection({ layoutStyle: value as typeof layoutStyle })}
@@ -3215,7 +4833,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <div className="flex items-center justify-between">
+                                <div hidden={isPrintDesign} className={isPrintDesign ? "hidden" : "flex items-center justify-between"}>
                                     <div>
                                         <Label>Vis kategori knap</Label>
                                         <p className="text-xs text-muted-foreground">Skjuler fanen “Storformat print”</p>
@@ -3226,7 +4844,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         disabled={!productsSection.enabled}
                                     />
                                 </div>
-                                <div id="site-design-focus-products-category-tabs" className="space-y-4 border-t pt-4">
+                                <div hidden={isPrintDesign} id="site-design-focus-products-category-tabs" className="space-y-4 border-t pt-4">
                                     <div>
                                         <Label className="text-sm font-semibold">Kategori-knapper</Label>
                                         <p className="text-xs text-muted-foreground">
@@ -3663,1468 +5281,11 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             />
                                         </div>
                                     </div>
-                                    <div id="site-design-focus-products-featured" className="space-y-4 border-t pt-4">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <Label className="text-sm font-semibold">Fremhævet produkt</Label>
-                                                <p className="text-xs text-muted-foreground">
-                                                    Stor produktboks med valgfri sidebanner eller sideprodukt.
-                                                </p>
-                                            </div>
-                                            <Switch
-                                                checked={featuredProductConfig.enabled}
-                                                onCheckedChange={(checked) => updateFeaturedProductConfig({ enabled: checked })}
-                                                disabled={!productsSection.enabled}
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label>Produkt</Label>
-                                            <Select
-                                                value={featuredProductConfig.productId || "none"}
-                                                onValueChange={(value) => updateFeaturedProductConfig({
-                                                    productId: value === "none" ? undefined : value,
-                                                })}
-                                                disabled={!productsSection.enabled || loadingFeaturedProducts}
-                                            >
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder={loadingFeaturedProducts ? "Indlæser produkter..." : "Vælg produkt"} />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="none">Ingen valgt</SelectItem>
-                                                    {featuredProducts.map((product) => (
-                                                        <SelectItem key={product.id} value={product.id}>
-                                                            {product.name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                            {featuredProductConfig.productId && (
-                                                <p className="text-xs text-muted-foreground">
-                                                    Den store produktboks vises kun på forsiden.
-                                                </p>
-                                            )}
-                                        </div>
-
-                                        {/* Focused Box Styling Panel */}
-                                        <div id="site-design-focus-products-featured-box" className="space-y-4 rounded-lg border border-dashed border-orange-200 bg-orange-50/30 p-4">
-                                            <div className="flex items-center gap-2">
-                                                <div className="h-4 w-4 rounded-full bg-orange-500" />
-                                                <Label className="text-sm font-semibold">Boks styling</Label>
-                                                <span className="text-xs text-muted-foreground">- Klik på boksen i preview</span>
-                                            </div>
-                                            
-                                            {/* Box Background Color */}
-                                            <div className="grid gap-3 md:grid-cols-2">
-                                                <ColorPickerWithSwatches
-                                                    label="Boks farve"
-                                                    value={featuredProductConfig.backgroundColor || '#FFFFFF'}
-                                                    onChange={(value) => updateFeaturedProductConfig({ backgroundColor: value })}
-                                                    savedSwatches={editor.draft.savedSwatches}
-                                                    onSaveSwatch={(color) => {
-                                                        const swatches = editor.draft.savedSwatches || [];
-                                                        if (!swatches.includes(color) && swatches.length < 20) {
-                                                            editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                        }
-                                                    }}
-                                                    onRemoveSwatch={(color) => {
-                                                        editor.updateDraft({
-                                                            savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                        });
-                                                    }}
-                                                />
-                                            </div>
-
-                                            {/* Border Radius */}
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Runding på hjørner</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.borderRadiusPx ?? 24}px
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.borderRadiusPx ?? 24]}
-                                                    onValueChange={([value]) => updateFeaturedProductConfig({ borderRadiusPx: value })}
-                                                    min={0}
-                                                    max={48}
-                                                    step={2}
-                                                    className="py-1"
-                                                />
-                                            </div>
-
-                                            {/* Box Scale */}
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Størrelse på boks</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.boxScalePct ?? 80}%
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.boxScalePct ?? 80]}
-                                                    onValueChange={([value]) => updateFeaturedProductConfig({ boxScalePct: value })}
-                                                    min={60}
-                                                    max={140}
-                                                    step={5}
-                                                    className="py-1"
-                                                />
-                                            </div>
-
-                                            {/* Margin to Banner */}
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Margin til banner</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.overlapPx || 0}px
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.overlapPx || 0]}
-                                                    onValueChange={([value]) => updateFeaturedProductConfig({ overlapPx: value })}
-                                                    min={0}
-                                                    max={140}
-                                                    step={5}
-                                                    className="py-1"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div className="grid gap-4 xl:grid-cols-2">
-                                            <div className="space-y-2">
-                                                <Label>Placering</Label>
-                                                <div className="flex flex-wrap gap-2">
-                                                    <Button
-                                                        type="button"
-                                                        variant={featuredProductConfig.position === 'above' ? 'default' : 'outline'}
-                                                        size="sm"
-                                                        className="h-8 px-3 text-xs"
-                                                        onClick={() => updateFeaturedProductConfig({ position: 'above' })}
-                                                        disabled={!productsSection.enabled}
-                                                    >
-                                                        <ArrowUp className="h-4 w-4" />
-                                                        Over kategorier
-                                                    </Button>
-                                                    <Button
-                                                        type="button"
-                                                        variant={featuredProductConfig.position === 'below' ? 'default' : 'outline'}
-                                                        size="sm"
-                                                        className="h-8 px-3 text-xs"
-                                                        onClick={() => updateFeaturedProductConfig({ position: 'below' })}
-                                                        disabled={!productsSection.enabled}
-                                                    >
-                                                        <ArrowDown className="h-4 w-4" />
-                                                        Under kategorier
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>Produktside</Label>
-                                                <div className="flex flex-wrap gap-2">
-                                                    <Button
-                                                        type="button"
-                                                        variant={featuredProductConfig.productSide === 'left' ? 'default' : 'outline'}
-                                                        size="sm"
-                                                        className="h-8 px-3 text-xs"
-                                                        onClick={() => updateFeaturedProductConfig({ productSide: 'left' })}
-                                                        disabled={!productsSection.enabled}
-                                                    >
-                                                        <ArrowLeft className="h-4 w-4" />
-                                                        Produkt venstre
-                                                    </Button>
-                                                    <Button
-                                                        type="button"
-                                                        variant={featuredProductConfig.productSide === 'right' ? 'default' : 'outline'}
-                                                        size="sm"
-                                                        className="h-8 px-3 text-xs"
-                                                        onClick={() => updateFeaturedProductConfig({ productSide: 'right' })}
-                                                        disabled={!productsSection.enabled}
-                                                    >
-                                                        <ArrowRight className="h-4 w-4" />
-                                                        Produkt højre
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="grid gap-3 md:grid-cols-2">
-                                            <div className="space-y-2">
-                                                <Label>Vis optioner</Label>
-                                                <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                                                    <span className="text-sm text-muted-foreground">
-                                                        Viser de første option-knapper i boksen
-                                                    </span>
-                                                    <Switch
-                                                        checked={featuredProductConfig.showOptions}
-                                                        onCheckedChange={(checked) => updateFeaturedProductConfig({ showOptions: checked })}
-                                                        disabled={!productsSection.enabled}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>Vis pris</Label>
-                                                <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                                                    <span className="text-sm text-muted-foreground">
-                                                        Viser stor prisvisning i boksen
-                                                    </span>
-                                                    <Switch
-                                                        checked={featuredProductConfig.showPrice}
-                                                        onCheckedChange={(checked) => updateFeaturedProductConfig({ showPrice: checked })}
-                                                        disabled={!productsSection.enabled}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>Vis også i produktliste</Label>
-                                                <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                                                    <span className="text-sm text-muted-foreground">
-                                                        Vis det fremhævede produkt igen i den normale produktliste
-                                                    </span>
-                                                    <Switch
-                                                        checked={featuredProductConfig.showInProductList ?? false}
-                                                        onCheckedChange={(checked) => updateFeaturedProductConfig({ showInProductList: checked })}
-                                                        disabled={!productsSection.enabled}
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div id="site-design-focus-products-featured-basics" className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                                            <div className="space-y-2">
-                                                <Label>Kort stil</Label>
-                                                <Select
-                                                    value={featuredProductConfig.cardStyle || "default"}
-                                                    onValueChange={(value) => updateFeaturedProductConfig({
-                                                        cardStyle: value as "default" | "glass",
-                                                    })}
-                                                    disabled={!productsSection.enabled}
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="default">Standard med let skygge</SelectItem>
-                                                        <SelectItem value="glass">Ingen skygge</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>Produktbillede</Label>
-                                                <Select
-                                                    value={featuredProductConfig.imageMode || "contain"}
-                                                    onValueChange={(value) => updateFeaturedProductConfig({
-                                                        imageMode: value as "contain" | "full",
-                                                    })}
-                                                    disabled={!productsSection.enabled}
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="contain">Indsat billede</SelectItem>
-                                                        <SelectItem value="full">Fuldt billede i side</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>CTA tekst</Label>
-                                                <Input
-                                                    value={featuredProductConfig.ctaLabel || ""}
-                                                    onChange={(event) => updateFeaturedProductConfig({ ctaLabel: event.target.value })}
-                                                    placeholder="Bestil nu"
-                                                    disabled={!productsSection.enabled}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div id="site-design-focus-products-featured-copy" className="grid gap-3 md:grid-cols-2">
-                                            <div className="space-y-2">
-                                                <Label>Alternativ titel</Label>
-                                                <Input
-                                                    value={featuredProductConfig.customTitle || ""}
-                                                    onChange={(event) => updateFeaturedProductConfig({ customTitle: event.target.value })}
-                                                    placeholder="Vises kun i fremhævet boks"
-                                                    disabled={!productsSection.enabled}
-                                                />
-                                            </div>
-                                            <div className="space-y-2 md:col-span-2">
-                                                <Label>Alternativ beskrivelse</Label>
-                                                <Textarea
-                                                    value={featuredProductConfig.customDescription || ""}
-                                                    onChange={(event) => updateFeaturedProductConfig({ customDescription: event.target.value })}
-                                                    placeholder="Denne tekst påvirker ikke selve produktet"
-                                                    disabled={!productsSection.enabled}
-                                                    rows={3}
-                                                />
-                                            </div>
-                                        </div>
-                                        {/* CTA Button Styling Panel */}
-                                        <div id="site-design-focus-products-featured-cta" className="space-y-4 rounded-lg border border-dashed border-blue-200 bg-blue-50/30 p-4">
-                                            <div className="flex items-center gap-2">
-                                                <div className="h-4 w-4 rounded-full bg-blue-500" />
-                                                <Label className="text-sm font-semibold">CTA Knap</Label>
-                                                <span className="text-xs text-muted-foreground">- Klik på knappen i preview</span>
-                                            </div>
-
-                                            {/* Button Text */}
-                                            <div className="space-y-2">
-                                                <Label>Knap tekst</Label>
-                                                <Input
-                                                    value={featuredProductConfig.ctaLabel || ""}
-                                                    onChange={(event) => updateFeaturedProductConfig({ ctaLabel: event.target.value })}
-                                                    placeholder="Bestil nu"
-                                                    disabled={!productsSection.enabled}
-                                                />
-                                            </div>
-
-                                            {/* Button Colors */}
-                                            <div className="grid gap-3 md:grid-cols-2">
-                                                <ColorPickerWithSwatches
-                                                    label="Knap farve"
-                                                    value={featuredProductConfig.ctaColor || '#0EA5E9'}
-                                                    onChange={(value) => updateFeaturedProductConfig({ ctaColor: value })}
-                                                    savedSwatches={editor.draft.savedSwatches}
-                                                    onSaveSwatch={(color) => {
-                                                        const swatches = editor.draft.savedSwatches || [];
-                                                        if (!swatches.includes(color) && swatches.length < 20) {
-                                                            editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                        }
-                                                    }}
-                                                    onRemoveSwatch={(color) => {
-                                                        editor.updateDraft({
-                                                            savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                        });
-                                                    }}
-                                                />
-                                                <ColorPickerWithSwatches
-                                                    label="Tekst farve"
-                                                    value={featuredProductConfig.ctaTextColor || '#FFFFFF'}
-                                                    onChange={(value) => updateFeaturedProductConfig({ ctaTextColor: value })}
-                                                    savedSwatches={editor.draft.savedSwatches}
-                                                    onSaveSwatch={(color) => {
-                                                        const swatches = editor.draft.savedSwatches || [];
-                                                        if (!swatches.includes(color) && swatches.length < 20) {
-                                                            editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                        }
-                                                    }}
-                                                    onRemoveSwatch={(color) => {
-                                                        editor.updateDraft({
-                                                            savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                        });
-                                                    }}
-                                                />
-                                            </div>
-
-                                            {/* Button Border Radius */}
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Runding på knap</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.ctaBorderRadiusPx ?? 8}px
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.ctaBorderRadiusPx ?? 8]}
-                                                    onValueChange={([value]) => updateFeaturedProductConfig({ ctaBorderRadiusPx: value })}
-                                                    min={0}
-                                                    max={32}
-                                                    step={2}
-                                                    className="py-1"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {/* Image Panel - Focused */}
-                                        <div id="site-design-focus-products-featured-image" className="space-y-4 rounded-lg border border-dashed border-purple-200 bg-purple-50/30 p-4">
-                                            <div className="flex items-center gap-2">
-                                                <div className="h-4 w-4 rounded-full bg-purple-500" />
-                                                <Label className="text-sm font-semibold">Produktbillede</Label>
-                                                <span className="text-xs text-muted-foreground">- Klik på billedet i preview</span>
-                                            </div>
-
-                                            {/* Image Mode */}
-                                            <div className="space-y-2">
-                                                <Label>Billedvisning</Label>
-                                                <div className="flex flex-wrap gap-2">
-                                                    <Button
-                                                        type="button"
-                                                        variant={featuredProductConfig.imageMode === 'contain' ? 'default' : 'outline'}
-                                                        size="sm"
-                                                        className="h-8 px-3 text-xs"
-                                                        onClick={() => updateFeaturedProductConfig({ imageMode: 'contain' })}
-                                                        disabled={!productsSection.enabled}
-                                                    >
-                                                        Standard (i boks)
-                                                    </Button>
-                                                    <Button
-                                                        type="button"
-                                                        variant={featuredProductConfig.imageMode === 'full' ? 'default' : 'outline'}
-                                                        size="sm"
-                                                        className="h-8 px-3 text-xs"
-                                                        onClick={() => updateFeaturedProductConfig({ imageMode: 'full' })}
-                                                        disabled={!productsSection.enabled}
-                                                    >
-                                                        Fuld flade
-                                                    </Button>
-                                                </div>
-                                            </div>
-
-                                            {/* Image Scale */}
-                                            {featuredProductConfig.imageMode !== 'full' && (
-                                                <div className="space-y-2">
-                                                    <div className="flex items-center justify-between">
-                                                        <Label>Billede størrelse</Label>
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {featuredProductConfig.imageScalePct ?? 100}%
-                                                        </span>
-                                                    </div>
-                                                    <Slider
-                                                        value={[featuredProductConfig.imageScalePct ?? 100]}
-                                                        onValueChange={([value]) => updateFeaturedProductConfig({ imageScalePct: value })}
-                                                        min={60}
-                                                        max={140}
-                                                        step={5}
-                                                        className="py-1"
-                                                    />
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Skalerer kun billedet i venstre felt, uden at påvirke tekst/pris til højre
-                                                    </p>
-                                                </div>
-                                            )}
-
-                                            <div className="space-y-3 rounded-lg border border-dashed border-purple-200/80 bg-white/70 p-3">
-                                                <div>
-                                                    <Label>Tilpasset produktbillede</Label>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Erstat produktets standard billede med dit eget. Bruges når galleri er slået fra.
-                                                    </p>
-                                                </div>
-                                                {featuredProductConfig.customImageUrl && (
-                                                    <div className="flex items-start gap-3">
-                                                        <div className="relative w-32 overflow-hidden rounded-md border bg-muted">
-                                                            <img
-                                                                src={featuredProductConfig.customImageUrl}
-                                                                alt="Tilpasset billede"
-                                                                className="h-24 w-full object-contain"
-                                                            />
-                                                        </div>
-                                                        <Button
-                                                            type="button"
-                                                            variant="destructive"
-                                                            size="sm"
-                                                            className="shrink-0"
-                                                            onClick={() => updateFeaturedProductConfig({ customImageUrl: null })}
-                                                            disabled={!productsSection.enabled || uploadingFeaturedMainImage}
-                                                        >
-                                                            Fjern billede
-                                                        </Button>
-                                                    </div>
-                                                )}
-                                                <Input
-                                                    type="file"
-                                                    accept="image/*"
-                                                    disabled={!productsSection.enabled || uploadingFeaturedMainImage}
-                                                    onChange={async (event) => {
-                                                        const input = event.currentTarget;
-                                                        const file = input.files?.[0];
-                                                        if (!file) return;
-                                                        const publicUrl = await uploadFeaturedMainImage(file);
-                                                        if (publicUrl) {
-                                                            updateFeaturedProductConfig({ customImageUrl: publicUrl });
-                                                        }
-                                                        input.value = "";
-                                                    }}
-                                                />
-                                                {uploadingFeaturedMainImage && (
-                                                    <p className="text-xs text-muted-foreground">Uploader...</p>
-                                                )}
-                                            </div>
-
-                                            {/* Gallery Toggle */}
-                                            <div className="flex items-center justify-between pt-2 border-t border-purple-200">
-                                                <div>
-                                                    <Label className="text-sm">Brug galleri</Label>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Vis flere billeder som slideshow
-                                                    </p>
-                                                </div>
-                                                <Switch
-                                                    checked={featuredProductConfig.galleryEnabled ?? false}
-                                                    onCheckedChange={(checked) => updateFeaturedProductConfig({ galleryEnabled: checked })}
-                                                    disabled={!productsSection.enabled}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {/* Gallery Panel */}
-                                        <div id="site-design-focus-products-featured-gallery" className="space-y-3 rounded-lg border border-dashed p-3">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <Label>Brug galleri i stedet for produktfoto</Label>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Upload flere billeder og roter dem i den fremhævede boks.
-                                                    </p>
-                                                </div>
-                                                <Switch
-                                                    checked={featuredProductConfig.galleryEnabled ?? false}
-                                                    onCheckedChange={(checked) => updateFeaturedProductConfig({ galleryEnabled: checked })}
-                                                    disabled={!productsSection.enabled}
-                                                />
-                                            </div>
-                                            {(featuredProductConfig.galleryEnabled ?? false) && (
-                                                <div className="space-y-3">
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <Label>Galleri billeder</Label>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {featuredGalleryImages.length}/8
-                                                            </span>
-                                                        </div>
-                                                        <Input
-                                                            type="file"
-                                                            accept="image/*"
-                                                            disabled={!productsSection.enabled || uploadingFeaturedGalleryImage || featuredGalleryImages.length >= 8}
-                                                            onChange={async (event) => {
-                                                                const input = event.currentTarget;
-                                                                const file = input.files?.[0];
-                                                                if (!file) return;
-                                                                const publicUrl = await uploadFeaturedGalleryImage(file);
-                                                                if (publicUrl) {
-                                                                    appendFeaturedGalleryImage(publicUrl);
-                                                                }
-                                                                input.value = "";
-                                                            }}
-                                                        />
-                                                        <p className="text-xs text-muted-foreground">
-                                                            Der må være op til 8 billeder i galleriet.
-                                                        </p>
-                                                    </div>
-                                                    {featuredGalleryImages.length > 0 && (
-                                                        <div className="grid gap-2 sm:grid-cols-2">
-                                                            {featuredGalleryImages.map((imageUrl, index) => (
-                                                                <div key={`${imageUrl}-${index}`} className="rounded-md border bg-background p-2">
-                                                                    <div className="aspect-[4/3] overflow-hidden rounded-md bg-muted">
-                                                                        <img
-                                                                            src={imageUrl}
-                                                                            alt={`Galleri billede ${index + 1}`}
-                                                                            className="h-full w-full object-cover"
-                                                                        />
-                                                                    </div>
-                                                                    <div className="mt-2 flex items-center justify-between gap-2">
-                                                                        <span className="text-xs text-muted-foreground">
-                                                                            Billede {index + 1}
-                                                                        </span>
-                                                                        <Button
-                                                                            type="button"
-                                                                            variant="ghost"
-                                                                            size="sm"
-                                                                            className="h-7 px-2 text-destructive"
-                                                                            onClick={() => removeFeaturedGalleryImage(imageUrl)}
-                                                                        >
-                                                                            <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                                                            Fjern
-                                                                        </Button>
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <Label>Skifteinterval</Label>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {Math.round((featuredProductConfig.galleryIntervalMs ?? 6000) / 1000)} sek
-                                                            </span>
-                                                        </div>
-                                                        <Slider
-                                                            value={[(featuredProductConfig.galleryIntervalMs ?? 6000) / 1000]}
-                                                            onValueChange={([value]) => updateFeaturedProductConfig({ galleryIntervalMs: value * 1000 })}
-                                                            min={3}
-                                                            max={12}
-                                                            step={1}
-                                                            className="py-1"
-                                                            disabled={!productsSection.enabled}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="grid gap-3 md:grid-cols-3">
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Runding på produktboks</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.borderRadiusPx ?? 24}px
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.borderRadiusPx ?? 24]}
-                                                    onValueChange={([value]) => updateFeaturedProductConfig({ borderRadiusPx: value })}
-                                                    min={0}
-                                                    max={48}
-                                                    step={2}
-                                                    className="py-1"
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Runding på sidepanel</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.sidePanel?.borderRadiusPx ?? 24}px
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.sidePanel?.borderRadiusPx ?? 24]}
-                                                    onValueChange={([value]) => updateFeaturedSidePanel({ borderRadiusPx: value })}
-                                                    min={0}
-                                                    max={48}
-                                                    step={2}
-                                                    className="py-1"
-                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Størrelse på sidepanel</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.sidePanel?.boxScalePct ?? 80}%
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.sidePanel?.boxScalePct ?? 80]}
-                                                    onValueChange={([value]) => updateFeaturedSidePanel({ boxScalePct: value })}
-                                                    min={60}
-                                                    max={140}
-                                                    step={5}
-                                                    className="py-1"
-                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Størrelse på sidepanel-billede</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.sidePanel?.imageScalePct ?? 100}%
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    value={[featuredProductConfig.sidePanel?.imageScalePct ?? 100]}
-                                                    onValueChange={([value]) => updateFeaturedSidePanel({ imageScalePct: value })}
-                                                    min={60}
-                                                    max={140}
-                                                    step={5}
-                                                    className="py-1"
-                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label>Mængdeknapper</Label>
-                                            {isFeaturedStorformat ? (
-                                                <div className="rounded-md border px-3 py-3 text-xs text-muted-foreground">
-                                                    Storformat bruger faste mængdeknapper sammen med bredde/højde i den fremhævede boks.
-                                                </div>
-                                            ) : (
-                                                <div className="space-y-2">
-                                                    <div className="grid gap-2 md:grid-cols-4">
-                                                        {quantityPresetSlots.map((quantity, index) => (
-                                                            <Select
-                                                                key={`featured-qty-slot-${index}`}
-                                                                value={quantity ? String(quantity) : "none"}
-                                                                onValueChange={(value) => updateQuantityPresetSlot(index, value)}
-                                                                disabled={!productsSection.enabled || loadingFeaturedQuantities}
-                                                            >
-                                                                <SelectTrigger>
-                                                                    <SelectValue placeholder={`Plads ${index + 1}`} />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    <SelectItem value="none">Tom</SelectItem>
-                                                                    {featuredQuantityOptions.map((optionQuantity) => (
-                                                                        <SelectItem
-                                                                            key={`featured-qty-${index}-${optionQuantity}`}
-                                                                            value={String(optionQuantity)}
-                                                                        >
-                                                                            {optionQuantity.toLocaleString("da-DK")}
-                                                                        </SelectItem>
-                                                                    ))}
-                                                                </SelectContent>
-                                                            </Select>
-                                                        ))}
-                                                    </div>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Op til 2 rækker med 4 mængdeknapper. Tomme pladser vises ikke på forsiden.
-                                                    </p>
-                                                </div>
-                                            )}
-                                        </div>
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Margin til banner</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.overlapPx || 0}px
-                                                    </span>
-                                                </div>
-                                            <Slider
-                                                value={[featuredProductConfig.overlapPx || 0]}
-                                                onValueChange={([value]) => updateFeaturedProductConfig({ overlapPx: value })}
-                                                min={0}
-                                                max={140}
-                                                step={5}
-                                                className="py-1"
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Størrelse på fremhævet boks</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.boxScalePct ?? 80}%
-                                                    </span>
-                                                </div>
-                                            <Slider
-                                                value={[featuredProductConfig.boxScalePct ?? 80]}
-                                                onValueChange={([value]) => updateFeaturedProductConfig({ boxScalePct: value })}
-                                                min={60}
-                                                max={140}
-                                                step={5}
-                                                className="py-1"
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label>Venstre billede (højde)</Label>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {featuredProductConfig.imageScalePct ?? 100}%
-                                                    </span>
-                                                </div>
-                                            <Slider
-                                                value={[featuredProductConfig.imageScalePct ?? 100]}
-                                                onValueChange={([value]) => updateFeaturedProductConfig({ imageScalePct: value })}
-                                                min={60}
-                                                max={140}
-                                                step={5}
-                                                className="py-1"
-                                                disabled={(featuredProductConfig.imageMode || 'contain') === 'full'}
-                                            />
-                                            {(featuredProductConfig.imageMode || 'contain') === 'full' && (
-                                                <p className="text-xs text-muted-foreground">
-                                                    Virker kun når billedet vises som venstrestillet billede og ikke som fuld flade.
-                                                </p>
-                                            )}
-                                            {(featuredProductConfig.imageMode || 'contain') !== 'full' && (
-                                                <p className="text-xs text-muted-foreground">
-                                                    Billedet skaleres kun i venstre felt, forankret i bunden, og påvirker ikke tekst/prisfeltet til højre.
-                                                </p>
-                                            )}
-                                        </div>
-                                        <div className="grid gap-3 md:grid-cols-3">
-                                            <ColorPickerWithSwatches
-                                                label="Baggrund på produktboks"
-                                                value={featuredProductConfig.backgroundColor || '#FFFFFF'}
-                                                onChange={(value) => updateFeaturedProductConfig({ backgroundColor: value })}
-                                                savedSwatches={editor.draft.savedSwatches}
-                                                onSaveSwatch={(color) => {
-                                                    const swatches = editor.draft.savedSwatches || [];
-                                                    if (!swatches.includes(color) && swatches.length < 20) {
-                                                        editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                    }
-                                                }}
-                                                onRemoveSwatch={(color) => {
-                                                    editor.updateDraft({
-                                                        savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                    });
-                                                }}
-                                            />
-                                            <ColorPickerWithSwatches
-                                                label="CTA farve"
-                                                value={featuredProductConfig.ctaColor || '#0EA5E9'}
-                                                onChange={(value) => updateFeaturedProductConfig({ ctaColor: value })}
-                                                savedSwatches={editor.draft.savedSwatches}
-                                                onSaveSwatch={(color) => {
-                                                    const swatches = editor.draft.savedSwatches || [];
-                                                    if (!swatches.includes(color) && swatches.length < 20) {
-                                                        editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                    }
-                                                }}
-                                                onRemoveSwatch={(color) => {
-                                                    editor.updateDraft({
-                                                        savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                    });
-                                                }}
-                                            />
-                                            <ColorPickerWithSwatches
-                                                label="CTA tekstfarve"
-                                                value={featuredProductConfig.ctaTextColor || '#FFFFFF'}
-                                                onChange={(value) => updateFeaturedProductConfig({ ctaTextColor: value })}
-                                                savedSwatches={editor.draft.savedSwatches}
-                                                onSaveSwatch={(color) => {
-                                                    const swatches = editor.draft.savedSwatches || [];
-                                                    if (!swatches.includes(color) && swatches.length < 20) {
-                                                        editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                    }
-                                                }}
-                                                onRemoveSwatch={(color) => {
-                                                    editor.updateDraft({
-                                                        savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                    });
-                                                }}
-                                            />
-                                        </div>
-                                        <div id="site-design-focus-products-featured-side-panel" className="space-y-4 rounded-lg border border-dashed border-emerald-200 bg-emerald-50/20 p-4">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <Label className="text-sm font-semibold">Sidepanel</Label>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Vælg mellem kampagnebanner eller ekstra produkt ved siden af.
-                                                    </p>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Klik direkte på sidepanelet i preview for at hoppe hertil.
-                                                    </p>
-                                                </div>
-                                                <Switch
-                                                    checked={featuredProductConfig.sidePanel?.enabled ?? false}
-                                                    onCheckedChange={(checked) => updateFeaturedSidePanel({ enabled: checked })}
-                                                    disabled={!productsSection.enabled}
-                                                />
-                                            </div>
-                                            <div className="grid gap-3">
-                                                <div className="space-y-2">
-                                                    <Label>Sidepanel type</Label>
-                                                    <Select
-                                                        value={featuredSidePanelMode}
-                                                        onValueChange={(value) => updateFeaturedSidePanel({ mode: value as "banner" | "product" })}
-                                                        disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                    >
-                                                        <SelectTrigger>
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="banner">Banner</SelectItem>
-                                                            <SelectItem value="product">Produktkort</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                                {isSimpleSideProductMode && (
-                                                    <div className="space-y-2">
-                                                        <Label>Sideprodukt</Label>
-                                                        <Select
-                                                            value={featuredProductConfig.sidePanel?.productId || "none"}
-                                                            onValueChange={(value) => updateFeaturedSidePanel({
-                                                                productId: value === "none" ? undefined : value,
-                                                            })}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                        >
-                                                            <SelectTrigger>
-                                                                <SelectValue placeholder="Vælg produkt" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="none">Ingen valgt</SelectItem>
-                                                                {featuredProducts.map((product) => (
-                                                                    <SelectItem key={product.id} value={product.id}>
-                                                                        {product.name}
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
-                                                        <p className="text-xs text-muted-foreground">
-                                                            Vælg et ekstra produkt til sidepanelet. Bannerfelter skjules i denne tilstand.
-                                                        </p>
-                                                    </div>
-                                                )}
-                                                {showSidePanelTransitionControls && (
-                                                <div className="space-y-2">
-                                                    <div className="flex items-center justify-between">
-                                                        <Label>Skifteinterval</Label>
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {Math.round((featuredProductConfig.sidePanel?.slideshowIntervalMs ?? 6000) / 1000)} sek
-                                                        </span>
-                                                    </div>
-                                                    <Slider
-                                                        value={[(featuredProductConfig.sidePanel?.slideshowIntervalMs ?? 6000) / 1000]}
-                                                        onValueChange={([value]) => updateFeaturedSidePanel({ slideshowIntervalMs: value * 1000 })}
-                                                        min={2}
-                                                        max={15}
-                                                        step={1}
-                                                        className="py-1"
-                                                        disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                    />
-                                                </div>
-                                                )}
-                                                {showSidePanelTransitionControls && (
-                                                <div className="grid gap-3 md:grid-cols-2">
-                                                    <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                                                        <div>
-                                                            <Label>Fade overgang</Label>
-                                                            <p className="text-xs text-muted-foreground">
-                                                                Blød overgang mellem bannere
-                                                            </p>
-                                                        </div>
-                                                        <Switch
-                                                            checked={featuredProductConfig.sidePanel?.fadeTransition ?? true}
-                                                            onCheckedChange={(checked) => updateFeaturedSidePanel({ fadeTransition: checked })}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                        />
-                                                    </div>
-                                                    <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                                                        <div>
-                                                            <Label>Vis pile i banner</Label>
-                                                            <p className="text-xs text-muted-foreground">
-                                                                Manuel forrige/næste i banneret
-                                                            </p>
-                                                        </div>
-                                                        <Switch
-                                                            checked={featuredProductConfig.sidePanel?.showNavigationArrows ?? false}
-                                                            onCheckedChange={(checked) => updateFeaturedSidePanel({ showNavigationArrows: checked })}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                )}
-                                                {showSidePanelTransitionControls && (featuredProductConfig.sidePanel?.fadeTransition ?? true) && (
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <Label>Fade varighed</Label>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {featuredProductConfig.sidePanel?.transitionDurationMs ?? 700} ms
-                                                            </span>
-                                                        </div>
-                                                        <Slider
-                                                            value={[featuredProductConfig.sidePanel?.transitionDurationMs ?? 700]}
-                                                            onValueChange={([value]) => updateFeaturedSidePanel({ transitionDurationMs: value })}
-                                                            min={150}
-                                                            max={1800}
-                                                            step={50}
-                                                            className="py-1"
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                        />
-                                                    </div>
-                                                )}
-                                                <div className="space-y-3 rounded-lg border border-dashed p-3">
-                                                    <div className="flex items-center justify-between gap-3">
-                                                        <div>
-                                                            <Label>Roterende elementer</Label>
-                                                            <p className="text-xs text-muted-foreground">
-                                                                Tilføj op til 5 sidepanel-elementer. Hvis der er elementer her, bruges de i stedet for det enkle sidepanel ovenfor.
-                                                            </p>
-                                                        </div>
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {featuredSidePanelItems.length}/5
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        <Button
-                                                            type="button"
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => addFeaturedSidePanelItem("product")}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false) || featuredSidePanelItems.length >= 5}
-                                                        >
-                                                            Tilføj produkt
-                                                        </Button>
-                                                        <Button
-                                                            type="button"
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => addFeaturedSidePanelItem("banner")}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false) || featuredSidePanelItems.length >= 5}
-                                                        >
-                                                            Tilføj banner
-                                                        </Button>
-                                                    </div>
-                                                    {featuredSidePanelItems.length > 0 && (
-                                                        <div className="space-y-3">
-                                                            {featuredSidePanelItems.map((item, index) => (
-                                                                <div key={item.id} className="rounded-lg border bg-background p-3 space-y-3">
-                                                                    <div className="flex items-center justify-between gap-3">
-                                                                        <Badge variant="secondary">
-                                                                            {item.mode === "product" ? `Produkt ${index + 1}` : `Banner ${index + 1}`}
-                                                                        </Badge>
-                                                                        <Button
-                                                                            type="button"
-                                                                            variant="ghost"
-                                                                            size="sm"
-                                                                            className="h-8 px-2 text-destructive"
-                                                                            onClick={() => removeFeaturedSidePanelItem(item.id)}
-                                                                        >
-                                                                            <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                                                            Fjern
-                                                                        </Button>
-                                                                    </div>
-                                                                    <div className="space-y-2">
-                                                                        <Label>Type</Label>
-                                                                        <Select
-                                                                            value={item.mode}
-                                                                            onValueChange={(value) => updateFeaturedSidePanelItem(item.id, { mode: value as "banner" | "product" })}
-                                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                                        >
-                                                                            <SelectTrigger>
-                                                                                <SelectValue />
-                                                                            </SelectTrigger>
-                                                                            <SelectContent>
-                                                                                <SelectItem value="product">Produktkort</SelectItem>
-                                                                                <SelectItem value="banner">Banner</SelectItem>
-                                                                            </SelectContent>
-                                                                        </Select>
-                                                                    </div>
-                                                                    {item.mode === "product" ? (
-                                                                        <div className="space-y-2">
-                                                                            <Label>Produkt</Label>
-                                                                            <Select
-                                                                                value={item.productId || "none"}
-                                                                                onValueChange={(value) => updateFeaturedSidePanelItem(item.id, {
-                                                                                    productId: value === "none" ? undefined : value,
-                                                                                })}
-                                                                                disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                                            >
-                                                                                <SelectTrigger>
-                                                                                    <SelectValue placeholder="Vælg produkt" />
-                                                                                </SelectTrigger>
-                                                                                <SelectContent>
-                                                                                    <SelectItem value="none">Ingen valgt</SelectItem>
-                                                                                    {featuredProducts.map((product) => (
-                                                                                        <SelectItem key={product.id} value={product.id}>
-                                                                                            {product.name}
-                                                                                        </SelectItem>
-                                                                                    ))}
-                                                                                </SelectContent>
-                                                                            </Select>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="space-y-3">
-                                                                            <div className="space-y-2">
-                                                                                <Label>Banner billede</Label>
-                                                                                <Input
-                                                                                    type="file"
-                                                                                    accept="image/*"
-                                                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false) || uploadingFeaturedSideImage}
-                                                                                    onChange={async (event) => {
-                                                                                        const input = event.currentTarget;
-                                                                                        const file = input.files?.[0];
-                                                                                        if (!file) return;
-                                                                                        const publicUrl = await uploadFeaturedSidePanelImage(file);
-                                                                                        if (publicUrl) {
-                                                                                            updateFeaturedSidePanelItem(item.id, { imageUrl: publicUrl });
-                                                                                        }
-                                                                                        input.value = "";
-                                                                                    }}
-                                                                                />
-                                                                                {item.imageUrl && (
-                                                                                    <div className="rounded-md border bg-muted p-2 space-y-2">
-                                                                                        <div className="aspect-[4/3] overflow-hidden rounded-md bg-background">
-                                                                                            <img
-                                                                                                src={item.imageUrl}
-                                                                                                alt={`Banner ${index + 1}`}
-                                                                                                className="h-full w-full object-cover"
-                                                                                            />
-                                                                                        </div>
-                                                                                        <Button
-                                                                                            type="button"
-                                                                                            variant="ghost"
-                                                                                            size="sm"
-                                                                                            className="h-8 px-2 text-destructive"
-                                                                                            onClick={() => updateFeaturedSidePanelItem(item.id, { imageUrl: null })}
-                                                                                        >
-                                                                                            <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                                                                            Fjern billede
-                                                                                        </Button>
-                                                                                    </div>
-                                                                                )}
-                                                                            </div>
-                                                                            <div className="space-y-2">
-                                                                                <Label>Overskrift</Label>
-                                                                                <Input
-                                                                                    value={item.title || ""}
-                                                                                    onChange={(event) => updateFeaturedSidePanelItem(item.id, { title: event.target.value })}
-                                                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                                                />
-                                                                            </div>
-                                                                            <div className="space-y-2">
-                                                                                <Label>Underrubrik</Label>
-                                                                                <Input
-                                                                                    value={item.subtitle || ""}
-                                                                                    onChange={(event) => updateFeaturedSidePanelItem(item.id, { subtitle: event.target.value })}
-                                                                                    disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                                                />
-                                                                            </div>
-                                                                            <div className="grid gap-3 md:grid-cols-2">
-                                                                                <div className="space-y-2">
-                                                                                    <Label>CTA tekst</Label>
-                                                                                    <Input
-                                                                                        value={item.ctaLabel || ""}
-                                                                                        onChange={(event) => updateFeaturedSidePanelItem(item.id, { ctaLabel: event.target.value })}
-                                                                                        disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                                                    />
-                                                                                </div>
-                                                                                <div className="space-y-2">
-                                                                                    <Label>CTA link</Label>
-                                                                                    <Input
-                                                                                        value={item.ctaHref || ""}
-                                                                                        onChange={(event) => updateFeaturedSidePanelItem(item.id, { ctaHref: event.target.value })}
-                                                                                        placeholder="/shop eller https://..."
-                                                                                        disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                                                    />
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            {isSimpleSideBannerMode && (
-                                                <>
-                                                    <div className="space-y-3 rounded-lg border border-dashed p-3">
-                                                        <div className="space-y-2">
-                                                            <div className="flex items-center justify-between">
-                                                                <Label>Banner billeder</Label>
-                                                                <span className="text-xs text-muted-foreground">
-                                                                    {featuredSideImages.length}/5
-                                                                </span>
-                                                            </div>
-                                                            <Input
-                                                                type="file"
-                                                                accept="image/*"
-                                                                disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false) || uploadingFeaturedSideImage || featuredSideImages.length >= 5}
-                                                                onChange={async (event) => {
-                                                                    const input = event.currentTarget;
-                                                                    const file = input.files?.[0];
-                                                                    if (!file) return;
-                                                                    const publicUrl = await uploadFeaturedSidePanelImage(file);
-                                                                    if (publicUrl) {
-                                                                        appendFeaturedSidePanelImage(publicUrl);
-                                                                    }
-                                                                    input.value = "";
-                                                                }}
-                                                            />
-                                                            <p className="text-xs text-muted-foreground">
-                                                                Upload op til 5 billeder. Hvis der er flere end ét, roterer sidepanelet automatisk.
-                                                            </p>
-                                                        </div>
-                                                        {featuredSideImages.length > 0 && (
-                                                            <div className="grid gap-2 sm:grid-cols-2">
-                                                                {featuredSideImages.map((imageUrl, index) => (
-                                                                    <div key={`${imageUrl}-${index}`} className="rounded-md border bg-background p-2">
-                                                                        <div className="aspect-[4/3] overflow-hidden rounded-md bg-muted">
-                                                                            <img
-                                                                                src={imageUrl}
-                                                                                alt={`Sidepanel banner ${index + 1}`}
-                                                                                className="h-full w-full object-cover"
-                                                                            />
-                                                                        </div>
-                                                                        <div className="mt-2 flex items-center justify-between gap-2">
-                                                                            <span className="text-xs text-muted-foreground">
-                                                                                Banner {index + 1}
-                                                                            </span>
-                                                                            <Button
-                                                                                type="button"
-                                                                                variant="ghost"
-                                                                                size="sm"
-                                                                                className="h-7 px-2 text-destructive"
-                                                                                onClick={() => removeFeaturedSidePanelImage(imageUrl)}
-                                                                            >
-                                                                                <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                                                                Fjern
-                                                                            </Button>
-                                                                        </div>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <div className="grid gap-3 md:grid-cols-2">
-                                                        <div className="space-y-2">
-                                                            <Label>Overskrift</Label>
-                                                            <Input
-                                                                value={featuredProductConfig.sidePanel?.title || ""}
-                                                                onChange={(event) => updateFeaturedSidePanel({ title: event.target.value })}
-                                                                disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-2">
-                                                            <Label>Teksteffekt</Label>
-                                                            <Select
-                                                                value={featuredProductConfig.sidePanel?.textAnimation || "slide-up"}
-                                                                onValueChange={(value) => updateFeaturedSidePanel({ textAnimation: value as any })}
-                                                                disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                            >
-                                                                <SelectTrigger>
-                                                                    <SelectValue />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    <SelectItem value="none">Ingen</SelectItem>
-                                                                    <SelectItem value="fade">Fade</SelectItem>
-                                                                    <SelectItem value="slide-up">Slide op</SelectItem>
-                                                                    <SelectItem value="slide-down">Slide ned</SelectItem>
-                                                                    <SelectItem value="scale">Scale</SelectItem>
-                                                                    <SelectItem value="blur">Blur</SelectItem>
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </div>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label>Underrubrik</Label>
-                                                        <Input
-                                                            value={featuredProductConfig.sidePanel?.subtitle || ""}
-                                                            onChange={(event) => updateFeaturedSidePanel({ subtitle: event.target.value })}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                        />
-                                                    </div>
-                                                    <div className="grid gap-3 md:grid-cols-2">
-                                                        <div className="space-y-2">
-                                                            <Label>CTA tekst</Label>
-                                                            <Input
-                                                                value={featuredProductConfig.sidePanel?.ctaLabel || ""}
-                                                                onChange={(event) => updateFeaturedSidePanel({ ctaLabel: event.target.value })}
-                                                                disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-2">
-                                                            <Label>CTA link</Label>
-                                                            <Input
-                                                                value={featuredProductConfig.sidePanel?.ctaHref || ""}
-                                                                onChange={(event) => updateFeaturedSidePanel({ ctaHref: event.target.value })}
-                                                                placeholder="/shop eller https://..."
-                                                                disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <Label>Overlay opacitet</Label>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {Math.round((featuredProductConfig.sidePanel?.overlayOpacity ?? 0.35) * 100)}%
-                                                            </span>
-                                                        </div>
-                                                        <Slider
-                                                            value={[(featuredProductConfig.sidePanel?.overlayOpacity ?? 0.35) * 100]}
-                                                            onValueChange={([value]) => updateFeaturedSidePanel({ overlayOpacity: value / 100 })}
-                                                            min={0}
-                                                            max={100}
-                                                            step={5}
-                                                            className="py-1"
-                                                        />
-                                                    </div>
-                                                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                                        <ColorPickerWithSwatches
-                                                            label="Overlay farve"
-                                                            value={featuredProductConfig.sidePanel?.overlayColor || '#000000'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ overlayColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="Overskrift farve"
-                                                            value={featuredProductConfig.sidePanel?.titleColor || '#FFFFFF'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ titleColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="Underrubrik farve"
-                                                            value={featuredProductConfig.sidePanel?.subtitleColor || 'rgba(255, 255, 255, 0.9)'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ subtitleColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="CTA farve"
-                                                            value={featuredProductConfig.sidePanel?.ctaColor || '#0EA5E9'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ ctaColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="CTA tekstfarve"
-                                                            value={featuredProductConfig.sidePanel?.ctaTextColor || '#FFFFFF'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ ctaTextColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </>
-                                            )}
-                                            {featuredSidePanelItems.length > 0 && featuredProductConfig.sidePanel?.mode === 'banner' && (
-                                                <div className="space-y-3 rounded-lg border border-dashed p-3">
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Udseende for banner-elementer (gælder alle bannere i rotationen).
-                                                    </p>
-                                                    <div className="space-y-2">
-                                                        <Label>Teksteffekt</Label>
-                                                        <Select
-                                                            value={featuredProductConfig.sidePanel?.textAnimation || "slide-up"}
-                                                            onValueChange={(value) => updateFeaturedSidePanel({ textAnimation: value as any })}
-                                                            disabled={!productsSection.enabled || !(featuredProductConfig.sidePanel?.enabled ?? false)}
-                                                        >
-                                                            <SelectTrigger>
-                                                                <SelectValue />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="none">Ingen</SelectItem>
-                                                                <SelectItem value="fade">Fade</SelectItem>
-                                                                <SelectItem value="slide-up">Slide op</SelectItem>
-                                                                <SelectItem value="slide-down">Slide ned</SelectItem>
-                                                                <SelectItem value="scale">Scale</SelectItem>
-                                                                <SelectItem value="blur">Blur</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <Label>Overlay opacitet</Label>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {Math.round((featuredProductConfig.sidePanel?.overlayOpacity ?? 0.35) * 100)}%
-                                                            </span>
-                                                        </div>
-                                                        <Slider
-                                                            value={[(featuredProductConfig.sidePanel?.overlayOpacity ?? 0.35) * 100]}
-                                                            onValueChange={([value]) => updateFeaturedSidePanel({ overlayOpacity: value / 100 })}
-                                                            min={0}
-                                                            max={100}
-                                                            step={5}
-                                                            className="py-1"
-                                                        />
-                                                    </div>
-                                                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                                        <ColorPickerWithSwatches
-                                                            label="Overlay farve"
-                                                            value={featuredProductConfig.sidePanel?.overlayColor || '#000000'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ overlayColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="Overskrift farve"
-                                                            value={featuredProductConfig.sidePanel?.titleColor || '#FFFFFF'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ titleColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="Underrubrik farve"
-                                                            value={featuredProductConfig.sidePanel?.subtitleColor || 'rgba(255, 255, 255, 0.9)'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ subtitleColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="CTA farve"
-                                                            value={featuredProductConfig.sidePanel?.ctaColor || '#0EA5E9'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ ctaColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                        <ColorPickerWithSwatches
-                                                            label="CTA tekstfarve"
-                                                            value={featuredProductConfig.sidePanel?.ctaTextColor || '#FFFFFF'}
-                                                            onChange={(value) => updateFeaturedSidePanel({ ctaTextColor: value })}
-                                                            savedSwatches={editor.draft.savedSwatches}
-                                                            onSaveSwatch={(color) => {
-                                                                const swatches = editor.draft.savedSwatches || [];
-                                                                if (!swatches.includes(color) && swatches.length < 20) {
-                                                                    editor.updateDraft({ savedSwatches: [...swatches, color] });
-                                                                }
-                                                            }}
-                                                            onRemoveSwatch={(color) => {
-                                                                editor.updateDraft({
-                                                                    savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
-                                                                });
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
+                                    <Button variant="outline" onClick={() => setActiveSection('featured-products')}>Redigér fremhævede produkter</Button>
                                 </div>
                             </CardContent>
                         </Card>
+                        </>}
                     </div>
                 );
             }
@@ -5201,7 +5362,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 return (
                     <div className="space-y-3 px-3 pb-6">
                         <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-medium">USP Strip (Fordele)</h3>
+                            <h3 className="text-sm font-medium">Fordelsbjælke</h3>
                             <div className="flex items-center gap-2">
                                 {isUSPFocusMode && (
                                     <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFocusedSelection}>Vis alt</Button>
@@ -5209,15 +5370,16 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                             </div>
                         </div>
-                        
+
                         {/* Enable/Disable */}
                         <div id="site-design-focus-usp-strip" className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                            <Label className="text-sm">Vis USP strip</Label>
-                            <Switch 
-                                checked={uspStrip.enabled !== false} 
-                                onCheckedChange={(checked) => editor.updateDraft({ 
-                                    uspStrip: { ...uspStrip, enabled: checked } 
-                                })} 
+                            <Label className="text-sm" htmlFor="usp-strip-visible">Vis fordelsbjælke</Label>
+                            <Switch
+                                id="usp-strip-visible"
+                                checked={uspStrip.enabled !== false}
+                                onCheckedChange={(checked) => editor.updateDraft({
+                                    uspStrip: { ...uspStrip, enabled: checked }
+                                })}
                             />
                         </div>
 
@@ -5283,6 +5445,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     )}
                                 </div>
 
+                                <details className="sd-banner-details">
+                                    <summary>Baggrund, farver og skrifttyper</summary>
                                 {/* Background Type */}
                                 <div className="space-y-3 border-t pt-4">
                                     <h4 className="text-xs font-medium text-muted-foreground uppercase">Baggrund</h4>
@@ -5304,14 +5468,13 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             Gradient
                                         </Button>
                                     </div>
-                                    
+
                                     {!uspStrip.useGradient && (
                                         <ColorPickerWithSwatches
                                             label="Baggrundsfarve"
                                             value={uspStrip.backgroundColor || ''}
-                                            fallback="Standard blå"
-                                            onChange={(color) => editor.updateDraft({ 
-                                                uspStrip: { ...uspStrip, backgroundColor: color } 
+                                            onChange={(color) => editor.updateDraft({
+                                                uspStrip: { ...uspStrip, backgroundColor: color }
                                             })}
                                             savedSwatches={editor.draft.savedSwatches}
                                             onSaveSwatch={(color) => {
@@ -5327,14 +5490,14 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             }}
                                         />
                                     )}
-                                    
+
                                     {uspStrip.useGradient && (
                                         <div className="space-y-3">
                                             <ColorPickerWithSwatches
                                                 label="Gradient start"
                                                 value={uspStrip.gradientFrom || '#0EA5E9'}
-                                                onChange={(color) => editor.updateDraft({ 
-                                                    uspStrip: { ...uspStrip, gradientFrom: color } 
+                                                onChange={(color) => editor.updateDraft({
+                                                    uspStrip: { ...uspStrip, gradientFrom: color }
                                                 })}
                                                 savedSwatches={editor.draft.savedSwatches}
                                                 onSaveSwatch={(color) => {
@@ -5352,8 +5515,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             <ColorPickerWithSwatches
                                                 label="Gradient slut"
                                                 value={uspStrip.gradientTo || '#6366F1'}
-                                                onChange={(color) => editor.updateDraft({ 
-                                                    uspStrip: { ...uspStrip, gradientTo: color } 
+                                                onChange={(color) => editor.updateDraft({
+                                                    uspStrip: { ...uspStrip, gradientTo: color }
                                                 })}
                                                 savedSwatches={editor.draft.savedSwatches}
                                                 onSaveSwatch={(color) => {
@@ -5399,8 +5562,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <ColorPickerWithSwatches
                                         label="Ikonfarve"
                                         value={uspStrip.iconColor || uspStrip.textColor || '#FFFFFF'}
-                                        onChange={(color) => editor.updateDraft({ 
-                                            uspStrip: { ...uspStrip, iconColor: color } 
+                                        onChange={(color) => editor.updateDraft({
+                                            uspStrip: { ...uspStrip, iconColor: color }
                                         })}
                                         savedSwatches={editor.draft.savedSwatches}
                                         onSaveSwatch={saveUSPStripSwatch}
@@ -5409,8 +5572,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <ColorPickerWithSwatches
                                         label="Overskriftsfarve"
                                         value={uspStrip.titleColor || uspStrip.textColor || '#FFFFFF'}
-                                        onChange={(color) => editor.updateDraft({ 
-                                            uspStrip: { ...uspStrip, titleColor: color } 
+                                        onChange={(color) => editor.updateDraft({
+                                            uspStrip: { ...uspStrip, titleColor: color }
                                         })}
                                         savedSwatches={editor.draft.savedSwatches}
                                         onSaveSwatch={saveUSPStripSwatch}
@@ -5419,8 +5582,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <ColorPickerWithSwatches
                                         label="Beskrivelsesfarve"
                                         value={uspStrip.descriptionColor || uspStrip.textColor || '#FFFFFF'}
-                                        onChange={(color) => editor.updateDraft({ 
-                                            uspStrip: { ...uspStrip, descriptionColor: color } 
+                                        onChange={(color) => editor.updateDraft({
+                                            uspStrip: { ...uspStrip, descriptionColor: color }
                                         })}
                                         savedSwatches={editor.draft.savedSwatches}
                                         onSaveSwatch={saveUSPStripSwatch}
@@ -5429,8 +5592,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <ColorPickerWithSwatches
                                         label="Fælles fallback-farve"
                                         value={uspStrip.textColor || '#FFFFFF'}
-                                        onChange={(color) => editor.updateDraft({ 
-                                            uspStrip: { ...uspStrip, textColor: color } 
+                                        onChange={(color) => editor.updateDraft({
+                                            uspStrip: { ...uspStrip, textColor: color }
                                         })}
                                         savedSwatches={editor.draft.savedSwatches}
                                         onSaveSwatch={saveUSPStripSwatch}
@@ -5444,24 +5607,26 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <FontSelector
                                         label="Overskrifter"
                                         value={uspStrip.titleFont || 'Poppins'}
-                                        onChange={(v) => editor.updateDraft({ 
-                                            uspStrip: { ...uspStrip, titleFont: v } 
+                                        onChange={(v) => editor.updateDraft({
+                                            uspStrip: { ...uspStrip, titleFont: v }
                                         })}
                                     />
                                     <FontSelector
                                         label="Beskrivelser"
                                         value={uspStrip.descriptionFont || 'Inter'}
-                                        onChange={(v) => editor.updateDraft({ 
-                                            uspStrip: { ...uspStrip, descriptionFont: v } 
+                                        onChange={(v) => editor.updateDraft({
+                                            uspStrip: { ...uspStrip, descriptionFont: v }
                                         })}
                                     />
                                 </div>
+
+                                </details>
 
                                 {/* USP Items */}
                                 <div className="space-y-3 border-t pt-4">
                                     <div className="flex items-center justify-between gap-3">
                                         <div>
-                                            <h4 className="text-xs font-medium text-muted-foreground uppercase">USP Punkter</h4>
+                                            <h4 className="text-xs font-medium text-muted-foreground uppercase">Fordele</h4>
                                             <p className="text-[11px] text-muted-foreground">{uspItems.length}/{maxUSPItems}</p>
                                         </div>
                                         {uspItems.length < maxUSPItems && (
@@ -5472,16 +5637,16 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         )}
                                     </div>
                                     {uspItems.map((item: any, index: number) => (
-                                        <div 
-                                            key={item.id} 
+                                        <div
+                                            key={item.id}
                                             id={`site-design-focus-usp-item-${item.id}`}
                                             className="p-3 bg-muted/30 rounded-lg space-y-3"
                                         >
                                             <div className="flex items-center justify-between">
                                                 <span className="text-sm font-medium">{index + 1}. {item.title || 'USP punkt'}</span>
                                                 <div className="flex items-center gap-1">
-                                                    <Switch 
-                                                        checked={item.enabled !== false} 
+                                                    <Switch
+                                                        checked={item.enabled !== false}
                                                         onCheckedChange={(checked) => {
                                                             const newItems = [...uspItems];
                                                             newItems[index] = { ...item, enabled: checked };
@@ -5501,7 +5666,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             {item.enabled !== false && (
                                                 <>
                                                     {/* Icon Selection */}
-                                                    <div 
+                                                    <div
                                                         id={`site-design-focus-usp-item-${item.id}-icon`}
                                                         className="space-y-2"
                                                     >
@@ -5562,15 +5727,15 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                                 </>
                                                             );
                                                         })()}
-                                                        
+
                                                         {/* Custom Icon Upload */}
                                                         {item.icon === 'custom' && (
                                                             <div className="space-y-2 pt-2">
                                                                 {item.customIconUrl && (
                                                                     <div className="flex items-center gap-2">
-                                                                        <img 
-                                                                            src={item.customIconUrl} 
-                                                                            alt="Custom icon" 
+                                                                        <img
+                                                                            src={item.customIconUrl}
+                                                                            alt="Custom icon"
                                                                             className="h-8 w-8 object-contain border rounded p-1"
                                                                         />
                                                                         <Button
@@ -5593,7 +5758,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                                     onChange={async (e) => {
                                                                         const file = e.target.files?.[0];
                                                                         if (!file) return;
-                                                                        
+
                                                                         // Upload using the branding adapter
                                                                         try {
                                                                             const url = await editor.uploadAsset(file, 'usp-icon');
@@ -5611,9 +5776,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                             </div>
                                                         )}
                                                     </div>
-                                                    
+
                                                     {/* Title Textarea */}
-                                                    <div 
+                                                    <div
                                                         id={`site-design-focus-usp-item-${item.id}-title`}
                                                         className="space-y-1"
                                                     >
@@ -5629,9 +5794,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                             className="text-sm min-h-[60px] resize-none"
                                                         />
                                                     </div>
-                                                    
+
                                                     {/* Description Textarea */}
-                                                    <div 
+                                                    <div
                                                         id={`site-design-focus-usp-item-${item.id}-description`}
                                                         className="space-y-1"
                                                     >
@@ -5679,15 +5844,15 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                             </div>
                         </div>
-                        
+
                         {/* Enable/Disable */}
                         <div id="site-design-focus-seo-content" className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
                             <Label className="text-sm">Vis SEO sektion</Label>
-                            <Switch 
-                                checked={seoContent.enabled !== false} 
-                                onCheckedChange={(checked) => editor.updateDraft({ 
-                                    seoContent: { ...seoContent, enabled: checked } 
-                                })} 
+                            <Switch
+                                checked={seoContent.enabled !== false}
+                                onCheckedChange={(checked) => editor.updateDraft({
+                                    seoContent: { ...seoContent, enabled: checked }
+                                })}
                             />
                         </div>
 
@@ -5699,9 +5864,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <ColorPickerWithSwatches
                                         label="Baggrundsfarve"
                                         value={seoContent.backgroundColor || ''}
-                                        fallback="Bruger sekundær farve"
-                                        onChange={(color) => editor.updateDraft({ 
-                                            seoContent: { ...seoContent, backgroundColor: color } 
+                                        onChange={(color) => editor.updateDraft({
+                                            seoContent: { ...seoContent, backgroundColor: color }
                                         })}
                                         savedSwatches={editor.draft.savedSwatches}
                                         onSaveSwatch={(color) => {
@@ -5722,15 +5886,15 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <div className="space-y-3 border-t pt-4">
                                     <h4 className="text-xs font-medium text-muted-foreground uppercase">Tekstblokke</h4>
                                     {seoContent.items?.map((item: any, index: number) => (
-                                        <div 
-                                            key={item.id} 
+                                        <div
+                                            key={item.id}
                                             id={`site-design-focus-seo-item-${item.id}`}
                                             className="p-3 bg-muted/30 rounded-lg space-y-3"
                                         >
                                             <div className="flex items-center justify-between">
                                                 <span className="text-sm font-medium">{index + 1}. {item.heading}</span>
-                                                <Switch 
-                                                    checked={item.enabled !== false} 
+                                                <Switch
+                                                    checked={item.enabled !== false}
                                                     onCheckedChange={(checked) => {
                                                         const newItems = [...(seoContent.items || [])];
                                                         newItems[index] = { ...item, enabled: checked };
@@ -5741,7 +5905,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             {item.enabled !== false && (
                                                 <>
                                                     {/* Heading */}
-                                                    <div 
+                                                    <div
                                                         id={`site-design-focus-seo-item-${item.id}-heading`}
                                                         className="space-y-1"
                                                     >
@@ -5757,9 +5921,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                             className="text-sm min-h-[50px] resize-none"
                                                         />
                                                     </div>
-                                                    
+
                                                     {/* Text */}
-                                                    <div 
+                                                    <div
                                                         id={`site-design-focus-seo-item-${item.id}-text`}
                                                         className="space-y-1"
                                                     >
@@ -5793,6 +5957,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
 	                const applyFontPreset = (preset: typeof DEFAULT_BRANDING.fontPresets[number]) => {
 	                    editor.updateDraft(buildFontPresetThemePatch(editor.draft, preset.fonts));
 	                    toast.success("Font preset anvendt");
+	                };
+	                const applyTypographyFonts = (fonts: typeof DEFAULT_BRANDING.fonts) => {
+	                    editor.updateDraft(buildFontPresetThemePatch(editor.draft, fonts));
 	                };
 	                return (
 	                    <div className="space-y-3 px-3 pb-6">
@@ -5869,8 +6036,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         label="Overskrifter"
                                         inline
                                         value={editor.draft.fonts.heading}
-                                        onChange={(v) => editor.updateDraft({
-                                            fonts: { ...editor.draft.fonts, heading: v }
+                                        onChange={(v) => applyTypographyFonts({
+                                            ...editor.draft.fonts,
+                                            heading: v,
                                         })}
                                     />
                                 </div>
@@ -5881,8 +6049,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         label="Brødtekst"
                                         inline
                                         value={editor.draft.fonts.body}
-                                        onChange={(v) => editor.updateDraft({
-                                            fonts: { ...editor.draft.fonts, body: v }
+                                        onChange={(v) => applyTypographyFonts({
+                                            ...editor.draft.fonts,
+                                            body: v,
                                         })}
                                     />
                                 </div>
@@ -5893,8 +6062,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         label="Priser"
                                         inline
                                         value={editor.draft.fonts.pricing}
-                                        onChange={(v) => editor.updateDraft({
-                                            fonts: { ...editor.draft.fonts, pricing: v }
+                                        onChange={(v) => applyTypographyFonts({
+                                            ...editor.draft.fonts,
+                                            pricing: v,
                                         })}
                                     />
                                 </div>
@@ -5975,39 +6145,40 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                             </div>
                         </div>
-                        <div className="space-y-4 pt-2">
-                            <div className="rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-xs leading-5 text-muted-foreground">
-	                                Farvesæt opdaterer nu de delte tema-farver samt header, sidebaggrund, produktknapper, matrix, prisboks og hover-tilstande.
+                        <div className="space-y-3 pt-2">
+                            <div className="rounded-md border border-border/60 bg-muted/25 px-2.5 py-2 text-[11px] leading-4 text-muted-foreground">
+		                                Farvesæt opdaterer nu de delte tema-farver samt header, sidebaggrund, produktknapper, matrix, prisboks og hover-tilstande.
                             </div>
                             {!isColorsFocusMode && (
                                 <Card className="overflow-hidden">
-                                    <CardHeader className="space-y-1 p-3 pb-0">
+                                    <CardHeader className="space-y-1 p-2.5 pb-0">
                                         <CardTitle className="text-sm">Farvesæt</CardTitle>
-                                        <CardDescription className="text-xs text-muted-foreground">
+                                        <CardDescription className="text-[11px] leading-4 text-muted-foreground">
                                             Vælg et samlet sæt med sikre tekst/flade-kontraster, eller gem de aktuelle farver som et nyt preset.
                                         </CardDescription>
                                     </CardHeader>
-                                    <CardContent className="space-y-3 p-3 pt-3">
-                                        <div className="grid gap-2">
+                                    <CardContent className="space-y-2 p-2.5 pt-2">
+                                        <div className="grid grid-cols-2 gap-2">
                                             {colorPresets.map((preset) => (
                                                 <div
                                                     key={preset.id}
-                                                    className="rounded-lg border bg-background p-2"
+                                                    className="rounded-md border bg-background p-1.5"
                                                 >
-                                                    <div className="flex items-center justify-between gap-2">
+                                                    <div className="flex items-start justify-between gap-1.5">
                                                         <button
                                                             type="button"
+                                                            title={preset.name}
                                                             className="min-w-0 flex-1 text-left"
                                                             onClick={() => applyColorPreset(preset)}
                                                         >
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="truncate text-xs font-semibold">{preset.name}</span>
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="truncate text-[11px] font-semibold leading-4">{preset.name}</span>
                                                                 {preset.isSystem ? (
                                                                     <Badge variant="outline" className="h-4 rounded-sm px-1 text-[9px] uppercase">Demo</Badge>
                                                                 ) : null}
                                                             </div>
-                                                            <div className="mt-2 flex h-6 overflow-hidden rounded border">
-                                                                {BRANDING_COLOR_KEYS.map((key) => (
+                                                            <div className="mt-1.5 flex h-4 overflow-hidden rounded border">
+                                                                {BRANDING_COLOR_KEYS.slice(0, 7).map((key) => (
                                                                     <span
                                                                         key={key}
                                                                         className="flex-1"
@@ -6019,19 +6190,21 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                         </button>
                                                         <div className="flex shrink-0 items-center gap-1">
                                                             <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                className="h-7 px-2 text-[11px]"
+                                                                size="icon"
+                                                                variant="ghost"
+                                                                className="h-8 w-8"
                                                                 onClick={() => applyColorPreset(preset)}
+                                                                title="Brug farvesæt"
                                                             >
-                                                                Brug
+                                                                <Check className="h-3.5 w-3.5" />
                                                             </Button>
                                                             {!preset.isSystem && (
                                                                 <Button
                                                                     size="icon"
                                                                     variant="ghost"
-                                                                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
                                                                     onClick={() => removeColorPreset(preset.id)}
+                                                                    title="Slet farvesæt"
                                                                 >
                                                                     <Trash2 className="h-3.5 w-3.5" />
                                                                 </Button>
@@ -6042,9 +6215,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             ))}
                                         </div>
 
-                                        <div className="rounded-lg border border-dashed p-3">
-                                            <div className="space-y-2">
-                                                <Label className="text-xs">Gem aktuelle farver som preset</Label>
+                                        <div className="rounded-md border border-dashed p-2">
+                                            <div className="space-y-1.5">
+                                                <Label className="text-[11px]">Gem aktuelle farver som preset</Label>
                                                 <div className="flex gap-2">
                                                     <Input
                                                         value={colorPresetName}
@@ -6076,8 +6249,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 }
 
                                 return (
-                                <div key={group.title} className="space-y-3 rounded-lg border p-3">
-                                    <div className="space-y-1">
+                                <div key={group.title} className="space-y-2 rounded-md border p-2.5">
+                                    <div className="space-y-0.5">
                                         <div className="flex items-center gap-2">
                                             <h4 className="text-sm font-semibold">{group.title}</h4>
                                             {group.badge ? (
@@ -6086,29 +6259,30 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                 </Badge>
                                             ) : null}
                                         </div>
-                                        <p className="text-xs text-muted-foreground">{group.description}</p>
+                                        <p className="text-[11px] leading-4 text-muted-foreground">{group.description}</p>
                                     </div>
                                     <Separator />
-                                    <div className="space-y-3">
+                                    <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
                                         {visibleFields.map((field, index) => {
                                             const value = editor.draft.colors[field.key];
                                             return (
                                                 <div
                                                     key={field.key}
                                                     id={`site-design-focus-colors-${field.key}`}
-                                                    className={index === 0 ? "space-y-1.5" : "space-y-1.5 border-t border-border/60 pt-3"}
+                                                    className="rounded-md border border-border/50 bg-background/60 p-2"
                                                 >
-                                                    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4">
-                                                        <div className="space-y-1 pr-2">
-                                                            <p className="text-sm font-medium leading-5">{field.label}</p>
-                                                            <p className="text-xs leading-5 text-muted-foreground">
+                                                    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2">
+                                                        <div className="min-w-0 space-y-0.5 pr-1">
+                                                            <p className="truncate text-xs font-medium leading-4">{field.label}</p>
+                                                            <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">
                                                                 {field.description}
                                                             </p>
                                                         </div>
-                                                        <div className="flex flex-col items-end gap-1 pt-0.5">
+                                                        <div className="flex flex-col items-end gap-0.5">
                                                             <ColorPickerWithSwatches
                                                                 value={value}
                                                                 onChange={(color) => editor.updateDraft({
+                                                                    ...(field.key === 'primary' ? applyMainButtonSettings(editor.draft, { ...getMainButtonSettings(editor.draft), bgColor: color }) : {}),
                                                                     colors: { ...editor.draft.colors, [field.key]: color }
                                                                 })}
                                                                 compact={true}
@@ -6117,7 +6291,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                                 onSaveSwatch={saveColorSwatch}
                                                                 onRemoveSwatch={removeColorSwatch}
                                                             />
-                                                            <span className="text-[11px] font-mono uppercase text-muted-foreground">
+                                                            <span className="text-[10px] font-mono uppercase text-muted-foreground">
                                                                 {String(value)}
                                                             </span>
                                                         </div>
@@ -6330,6 +6504,14 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 const pictureButtons = editor.draft.productPage?.matrix?.pictureButtons
                     || DEFAULT_BRANDING.productPage.matrix.pictureButtons;
                 const productPage = editor.draft.productPage || DEFAULT_BRANDING.productPage;
+                const headingConfig = {
+                    ...DEFAULT_BRANDING.productPage.heading,
+                    ...(productPage.heading || {}),
+                    subtext: {
+                        ...DEFAULT_BRANDING.productPage.heading.subtext,
+                        ...(productPage.heading?.subtext || {}),
+                    },
+                };
                 const matrixConfig = {
                     ...DEFAULT_BRANDING.productPage.matrix,
                     ...(productPage.matrix || {}),
@@ -6425,7 +6607,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     },
                 };
                 const resolveOrderButton = (
-                    button: typeof orderButtons.primary,
+                    button: typeof orderButtons.secondary,
                     fallback: typeof orderButtonFallbacks.primary,
                 ) => ({
                     bgColor: button?.bgColor || fallback.bgColor,
@@ -6456,8 +6638,41 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 ...currentMatrix,
                                 ...updates,
                             },
+                    },
+                });
+                };
+                const updateProductHeading = (updates: Omit<Partial<typeof DEFAULT_BRANDING.productPage.heading>, 'subtext'> & {
+                    subtext?: Partial<typeof DEFAULT_BRANDING.productPage.heading.subtext>;
+                }) => {
+                    const currentProductPage = editor.draft.productPage || DEFAULT_BRANDING.productPage;
+                    const currentHeading = {
+                        ...DEFAULT_BRANDING.productPage.heading,
+                        ...(currentProductPage.heading || {}),
+                        subtext: {
+                            ...DEFAULT_BRANDING.productPage.heading.subtext,
+                            ...(currentProductPage.heading?.subtext || {}),
+                        },
+                    };
+                    editor.updateDraft({
+                        productPage: {
+                            ...currentProductPage,
+                            heading: {
+                                ...currentHeading,
+                                ...updates,
+                                subtext: updates.subtext
+                                    ? {
+                                        ...currentHeading.subtext,
+                                        ...updates.subtext,
+                                    }
+                                    : currentHeading.subtext,
+                            },
                         },
                     });
+                };
+                const updateProductHeadingSubtext = (
+                    updates: Partial<typeof DEFAULT_BRANDING.productPage.heading.subtext>,
+                ) => {
+                    updateProductHeading({ subtext: updates });
                 };
                 const updatePricePanel = (updates: Partial<typeof DEFAULT_BRANDING.productPage.pricePanel>) => {
                     const currentProductPage = editor.draft.productPage || DEFAULT_BRANDING.productPage;
@@ -6504,6 +6719,21 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     ...currentOrderButtons[buttonKey],
                                     ...updates,
                                 },
+                            },
+                        },
+                    });
+                };
+                const updateOrderButtons = (
+                    updates: Partial<typeof DEFAULT_BRANDING.productPage.orderButtons>,
+                ) => {
+                    const currentProductPage = editor.draft.productPage || DEFAULT_BRANDING.productPage;
+                    const currentOrderButtons = currentProductPage.orderButtons || DEFAULT_BRANDING.productPage.orderButtons;
+                    editor.updateDraft({
+                        productPage: {
+                            ...currentProductPage,
+                            orderButtons: {
+                                ...currentOrderButtons,
+                                ...updates,
                             },
                         },
                     });
@@ -6634,6 +6864,33 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     || field.key === "downloadButtonBorder"
                     || field.key === "downloadButtonHoverBorder"
                 );
+                const isProductPageFocusMode = Boolean(focusedTargetId?.startsWith("site-design-focus-product-page"));
+                const productPageFocusMatches = (...targetIds: string[]) => Boolean(focusedTargetId && targetIds.includes(focusedTargetId));
+                const shouldShowProductPageTarget = (...targetIds: string[]) => !isProductPageFocusMode || productPageFocusMatches(...targetIds);
+                const pricePanelTargetIds = [
+                    "site-design-focus-product-page-price-panel",
+                    "site-design-focus-product-page-price-panel-box",
+                    "site-design-focus-product-page-price-panel-title",
+                    "site-design-focus-product-page-price-panel-download-button",
+                    "site-design-focus-product-page-price-panel-text",
+                    "site-design-focus-product-page-price-panel-price",
+                    "site-design-focus-product-page-price-panel-delivery-card",
+                    "site-design-focus-product-page-price-panel-badge",
+                ];
+                const orderButtonTargetIds = [
+                    "site-design-focus-product-page-order-buttons",
+                    "site-design-focus-product-page-order-primary",
+                    "site-design-focus-product-page-order-secondary",
+                    "site-design-focus-product-page-order-selected",
+                ];
+                const shouldShowPricePanelPart = (...targetIds: string[]) =>
+                    !isProductPageFocusMode
+                    || focusedTargetId === "site-design-focus-product-page-price-panel"
+                    || productPageFocusMatches(...targetIds);
+                const shouldShowOrderButtonPart = (...targetIds: string[]) =>
+                    !isProductPageFocusMode
+                    || focusedTargetId === "site-design-focus-product-page-order-buttons"
+                    || productPageFocusMatches(...targetIds);
 
                 return (
                     <div className="space-y-3 px-3 pb-6">
@@ -6646,6 +6903,144 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={closeSection}>Luk</Button>
                             </div>
                         </div>
+                        {shouldShowProductPageTarget("site-design-focus-product-page-heading") && (
+                        <Card id="site-design-focus-product-page-heading">
+                            <CardHeader className="space-y-1">
+                                <CardTitle className="text-sm">Produkttitel og beskrivelse</CardTitle>
+                                <CardDescription className="text-xs text-muted-foreground">
+                                    Styrer teksten over produktvalgene. En tom titel bruger stadig produktets eget navn.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                                    Klik på titlen i previewet for at lande direkte her. Titel-override er fælles for produktsidens design; tom titel viser den valgte produktside med produktets rigtige navn.
+                                </div>
+
+                                <div className="space-y-4 rounded-lg border border-border/60 p-4">
+                                    <div className="space-y-1">
+                                        <h4 className="text-sm font-medium">Titel</h4>
+                                        <p className="text-xs text-muted-foreground">Tekst, skrifttype, størrelse og farve på overskriften.</p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="product-page-heading-title">Titeltekst</Label>
+                                        <Input
+                                            id="product-page-heading-title"
+                                            value={headingConfig.customText || ""}
+                                            placeholder="Tom = brug produktets navn"
+                                            onChange={(event) => updateProductHeading({ customText: event.target.value })}
+                                        />
+                                    </div>
+                                    <div className="flex justify-end">
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 text-xs"
+                                            onClick={() => updateProductHeading({ customText: "" })}
+                                        >
+                                            Brug produktnavn
+                                        </Button>
+                                    </div>
+                                    <FontSelector
+                                        label="Titel skrifttype"
+                                        value={headingConfig.font || editor.draft.fonts.heading || "Poppins"}
+                                        onChange={(font) => updateProductHeading({ font })}
+                                    />
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <Label>Titelstørrelse</Label>
+                                            <span className="text-xs text-muted-foreground">{headingConfig.sizePx || 36}px</span>
+                                        </div>
+                                        <Slider
+                                            min={24}
+                                            max={72}
+                                            step={1}
+                                            value={[headingConfig.sizePx || 36]}
+                                            onValueChange={([value]) => updateProductHeading({ sizePx: value })}
+                                        />
+                                    </div>
+                                    <ColorPickerWithSwatches
+                                        label="Titelfarve"
+                                        value={headingConfig.color || editor.draft.colors.headingText || "#1F2937"}
+                                        onChange={(color) => updateProductHeading({ color })}
+                                        savedSwatches={editor.draft.savedSwatches}
+                                        onSaveSwatch={(color) => {
+                                            const swatches = editor.draft.savedSwatches || [];
+                                            if (!swatches.includes(color) && swatches.length < 20) {
+                                                editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                            }
+                                        }}
+                                        onRemoveSwatch={(color) => {
+                                            editor.updateDraft({
+                                                savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                            });
+                                        }}
+                                    />
+                                </div>
+
+                                <div className="space-y-4 rounded-lg border border-border/60 p-4">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="space-y-1">
+                                            <h4 className="text-sm font-medium">Ekstra tekst over valgene</h4>
+                                            <p className="text-xs text-muted-foreground">En valgfri tekstlinje mellem titlen og produktets normale beskrivelse.</p>
+                                        </div>
+                                        <Switch
+                                            checked={Boolean(headingConfig.subtext.enabled)}
+                                            onCheckedChange={(enabled) => updateProductHeadingSubtext({ enabled })}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="product-page-heading-subtext">Tekst</Label>
+                                        <Textarea
+                                            id="product-page-heading-subtext"
+                                            value={headingConfig.subtext.text || ""}
+                                            placeholder="Skriv en kort produkttekst, kampagnetekst eller forklaring"
+                                            rows={3}
+                                            disabled={!headingConfig.subtext.enabled}
+                                            onChange={(event) => updateProductHeadingSubtext({ text: event.target.value })}
+                                        />
+                                    </div>
+                                    <FontSelector
+                                        label="Tekst skrifttype"
+                                        value={headingConfig.subtext.font || editor.draft.fonts.body || "Poppins"}
+                                        onChange={(font) => updateProductHeadingSubtext({ font })}
+                                    />
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <Label>Tekststørrelse</Label>
+                                            <span className="text-xs text-muted-foreground">{headingConfig.subtext.sizePx || 18}px</span>
+                                        </div>
+                                        <Slider
+                                            min={12}
+                                            max={32}
+                                            step={1}
+                                            value={[headingConfig.subtext.sizePx || 18]}
+                                            disabled={!headingConfig.subtext.enabled}
+                                            onValueChange={([value]) => updateProductHeadingSubtext({ sizePx: value })}
+                                        />
+                                    </div>
+                                    <ColorPickerWithSwatches
+                                        label="Tekstfarve"
+                                        value={headingConfig.subtext.color || editor.draft.colors.bodyText || "#475569"}
+                                        onChange={(color) => updateProductHeadingSubtext({ color })}
+                                        savedSwatches={editor.draft.savedSwatches}
+                                        onSaveSwatch={(color) => {
+                                            const swatches = editor.draft.savedSwatches || [];
+                                            if (!swatches.includes(color) && swatches.length < 20) {
+                                                editor.updateDraft({ savedSwatches: [...swatches, color] });
+                                            }
+                                        }}
+                                        onRemoveSwatch={(color) => {
+                                            editor.updateDraft({
+                                                savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
+                                            });
+                                        }}
+                                    />
+                                </div>
+                            </CardContent>
+                        </Card>
+                        )}
+                        {shouldShowProductPageTarget("site-design-focus-product-page-box") && (
                         <Card id="site-design-focus-product-page-box">
                             <CardHeader className="space-y-1">
                                 <CardTitle className="text-sm">Prismatrix-boks</CardTitle>
@@ -6734,6 +7129,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 </div>
                             </CardContent>
                         </Card>
+                        )}
+                        {shouldShowProductPageTarget("site-design-focus-product-page-matrix-top-row") && (
                         <Card id="site-design-focus-product-page-matrix-top-row">
                             <CardHeader className="space-y-1">
                                 <CardTitle className="text-sm">Prismatrix top-række</CardTitle>
@@ -6745,6 +7142,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 {matrixTopRowFields.map(renderMatrixField)}
                             </CardContent>
                         </Card>
+                        )}
+                        {shouldShowProductPageTarget("site-design-focus-product-page-matrix-vertical") && (
                         <Card id="site-design-focus-product-page-matrix-vertical">
                             <CardHeader className="space-y-1">
                                 <CardTitle className="text-sm">Prismatrix venstre kolonne</CardTitle>
@@ -6756,6 +7155,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 {matrixVerticalFields.map(renderMatrixField)}
                             </CardContent>
                         </Card>
+                        )}
+                        {shouldShowProductPageTarget("site-design-focus-product-page-matrix-pricing") && (
                         <Card id="site-design-focus-product-page-matrix-pricing">
                             <CardHeader className="space-y-1">
                                 <CardTitle className="text-sm">Prismatrix priser</CardTitle>
@@ -6767,6 +7168,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 {matrixPricingFields.map(renderMatrixField)}
                             </CardContent>
                         </Card>
+                        )}
+                        {shouldShowProductPageTarget("site-design-focus-product-page-matrix-buttons") && (
                         <Card id="site-design-focus-product-page-matrix-buttons">
                             <CardHeader className="space-y-1">
                                 <CardTitle className="text-sm">Prismatrix knapper</CardTitle>
@@ -6778,6 +7181,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 {matrixButtonFields.map(renderMatrixField)}
                             </CardContent>
                         </Card>
+                        )}
+                        {shouldShowProductPageTarget("site-design-focus-product-page-colors") && (
                         <Card id="site-design-focus-product-page-colors">
                             <CardHeader className="space-y-1">
                                 <CardTitle className="text-sm">Farver for prismatrixen</CardTitle>
@@ -6832,6 +7237,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 })}
                             </CardContent>
                         </Card>
+                        )}
+                        {shouldShowProductPageTarget(...pricePanelTargetIds) && (
                         <Card id="site-design-focus-product-page-price-panel">
                             <CardHeader className="space-y-1">
                                 <CardTitle className="text-sm">Prisberegner</CardTitle>
@@ -6840,9 +7247,12 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                <div className="rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                                    Brug denne sektion til højrepanelet med priser, levering, badges og total.
-                                </div>
+                                {!isProductPageFocusMode && (
+                                    <div className="rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                                        Brug denne sektion til højrepanelet med priser, levering, badges og total.
+                                    </div>
+                                )}
+                                {shouldShowPricePanelPart("site-design-focus-product-page-price-panel-box") && (
                                 <div id="site-design-focus-product-page-price-panel-box" className="space-y-4 rounded-lg border border-border/60 p-4">
                                     <div>
                                         <h4 className="text-sm font-medium">Prisberegner-boks</h4>
@@ -6966,7 +7376,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         {pricePanelBoxFields.map(renderPricePanelField)}
                                     </div>
                                 </div>
-                                {pricePanelTitleField && (
+                                )}
+                                {pricePanelTitleField && shouldShowPricePanelPart("site-design-focus-product-page-price-panel-title") && (
                                     <div id="site-design-focus-product-page-price-panel-title" className="space-y-3 rounded-lg border border-border/60 p-4">
                                         <div>
                                             <h4 className="text-sm font-medium">Titel</h4>
@@ -6975,6 +7386,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         {renderPricePanelField(pricePanelTitleField)}
                                     </div>
                                 )}
+                                {shouldShowPricePanelPart("site-design-focus-product-page-price-panel-download-button") && (
                                 <div id="site-design-focus-product-page-price-panel-download-button" className="space-y-3 rounded-lg border border-border/60 p-4">
                                     <div>
                                         <h4 className="text-sm font-medium">“Download tilbud”-knap</h4>
@@ -6984,6 +7396,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         {pricePanelDownloadButtonFields.map(renderPricePanelField)}
                                     </div>
                                 </div>
+                                )}
+                                {shouldShowPricePanelPart("site-design-focus-product-page-price-panel-text") && (
                                 <div id="site-design-focus-product-page-price-panel-text" className="space-y-3 rounded-lg border border-border/60 p-4">
                                     <div>
                                         <h4 className="text-sm font-medium">Informationstekst</h4>
@@ -6991,7 +7405,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     </div>
                                     {pricePanelTextFields.map(renderPricePanelField)}
                                 </div>
-                                {pricePanelPriceField && (
+                                )}
+                                {pricePanelPriceField && shouldShowPricePanelPart("site-design-focus-product-page-price-panel-price") && (
                                     <div id="site-design-focus-product-page-price-panel-price" className="space-y-3 rounded-lg border border-border/60 p-4">
                                         <div>
                                             <h4 className="text-sm font-medium">Priser</h4>
@@ -7000,6 +7415,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         {renderPricePanelField(pricePanelPriceField)}
                                     </div>
                                 )}
+                                {shouldShowPricePanelPart("site-design-focus-product-page-price-panel-delivery-card") && (
                                 <div id="site-design-focus-product-page-price-panel-delivery-card" className="space-y-3 rounded-lg border border-border/60 p-4">
                                     <div>
                                         <h4 className="text-sm font-medium">Leveringskort</h4>
@@ -7007,6 +7423,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     </div>
                                     {pricePanelDeliveryCardFields.map(renderPricePanelField)}
                                 </div>
+                                )}
+                                {shouldShowPricePanelPart("site-design-focus-product-page-price-panel-badge") && (
                                 <div id="site-design-focus-product-page-price-panel-badge" className="space-y-3 rounded-lg border border-border/60 p-4">
                                     <div>
                                         <h4 className="text-sm font-medium">Tidstæller</h4>
@@ -7014,8 +7432,11 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     </div>
                                     {pricePanelBadgeFields.map(renderPricePanelField)}
                                 </div>
+                                )}
                             </CardContent>
                         </Card>
+                        )}
+                        {shouldShowProductPageTarget("site-design-focus-product-page-picture-buttons") && (
                         <Card id="site-design-focus-product-page-picture-buttons">
                             <CardHeader className="space-y-1">
                                 <CardTitle className="text-sm">Billedknapper (matrix)</CardTitle>
@@ -7157,6 +7578,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 </div>
                             </CardContent>
                         </Card>
+                        )}
+                        {shouldShowProductPageTarget(...orderButtonTargetIds) && (
                         <Card id="site-design-focus-product-page-order-buttons">
                             <CardHeader className="space-y-1">
                                 <CardTitle className="text-sm">Bestillingsknapper</CardTitle>
@@ -7165,6 +7588,45 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
+                                <div className="space-y-4 rounded-lg border bg-muted/20 p-3">
+                                    <h4 className="text-sm font-medium">Form og typografi</h4>
+                                    <FontSelector
+                                        label="Skrifttype"
+                                        inline
+                                        value={orderButtons.font || "Inter"}
+                                        onChange={(font) => updateOrderButtons({ font })}
+                                    />
+                                    <div className="space-y-2">
+                                        <Label>Tekststørrelse ({orderButtons.fontSizePx ?? 16}px)</Label>
+                                        <Slider min={11} max={28} step={1} value={[orderButtons.fontSizePx ?? 16]} onValueChange={([fontSizePx]) => updateOrderButtons({ fontSizePx })} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Skrifttykkelse</Label>
+                                        <Select value={String(orderButtons.fontWeight ?? 600)} onValueChange={(value) => updateOrderButtons({ fontWeight: Number(value) })}>
+                                            <SelectTrigger><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="400">Normal</SelectItem>
+                                                <SelectItem value="500">Medium</SelectItem>
+                                                <SelectItem value="600">Semibold</SelectItem>
+                                                <SelectItem value="700">Fed</SelectItem>
+                                                <SelectItem value="800">Ekstra fed</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Runding ({orderButtons.radiusPx ?? 10}px)</Label>
+                                        <Slider min={0} max={40} step={1} value={[orderButtons.radiusPx ?? 10]} onValueChange={([radiusPx]) => updateOrderButtons({ radiusPx })} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Kant ({orderButtons.borderWidthPx ?? 1}px)</Label>
+                                        <Slider min={0} max={6} step={1} value={[orderButtons.borderWidthPx ?? 1]} onValueChange={([borderWidthPx]) => updateOrderButtons({ borderWidthPx })} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Lodret luft ({orderButtons.paddingYPx ?? 16}px)</Label>
+                                        <Slider min={8} max={28} step={1} value={[orderButtons.paddingYPx ?? 16]} onValueChange={([paddingYPx]) => updateOrderButtons({ paddingYPx })} />
+                                    </div>
+                                </div>
+                                {shouldShowOrderButtonPart("site-design-focus-product-page-order-primary") && (
                                 <div id="site-design-focus-product-page-order-primary" className="space-y-3 rounded-lg border p-3">
                                     <div className="space-y-1">
                                         <h4 className="text-sm font-medium">“Bestil nu!”</h4>
@@ -7241,7 +7703,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         />
                                     </div>
                                 </div>
+                                )}
 
+                                {shouldShowOrderButtonPart("site-design-focus-product-page-order-secondary") && (
                                 <div id="site-design-focus-product-page-order-secondary" className="space-y-3 rounded-lg border p-3">
                                     <div className="space-y-1">
                                         <h4 className="text-sm font-medium">“Design online”</h4>
@@ -7352,7 +7816,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         />
                                     </div>
                                 </div>
+                                )}
 
+                                {shouldShowOrderButtonPart("site-design-focus-product-page-order-selected") && (
                                 <div id="site-design-focus-product-page-order-selected" className="space-y-3 rounded-lg border p-3">
                                     <div className="space-y-1">
                                         <h4 className="text-sm font-medium">“Klar til design”</h4>
@@ -7429,8 +7895,10 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         />
                                     </div>
                                 </div>
+                                )}
                             </CardContent>
                         </Card>
+                        )}
                     </div>
                 );
             }
@@ -7442,6 +7910,10 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 ) {
                     return (
                         <ProductOptionSectionBoxEditor
+                            key={`${editor.entityId}:${focusedProductOption.productId}:${focusedProductOption.sectionId}`}
+                            tenantId={editor.entityId}
+                            pricingPreview={productPricingPreview}
+                            persistedStyling={persistedProductPricing}
                             productId={focusedProductOption.productId}
                             sectionId={focusedProductOption.sectionId}
                             sectionName={contextualEditor.sectionName}
@@ -7457,6 +7929,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
                                 });
                             }}
+                            onPricingStructureChange={handleProductOptionPricingStructureChange}
                             onBack={() => {
                                 setContextualEditor(null);
                                 setFocusedProductOption({
@@ -7473,6 +7946,10 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 if (focusedProductOption?.productId && focusedProductOption.sectionId && focusedProductOption.valueId) {
                     return (
                         <ProductOptionButtonEditor
+                            key={`${editor.entityId}:${focusedProductOption.productId}:${focusedProductOption.sectionId}:${focusedProductOption.valueId}`}
+                            pricingPreview={productPricingPreview}
+                            persistedStyling={persistedProductPricing}
+                            tenantId={editor.entityId}
                             productId={focusedProductOption.productId}
                             sectionId={focusedProductOption.sectionId}
                             valueId={focusedProductOption.valueId}
@@ -7489,6 +7966,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
                                 });
                             }}
+                            onPricingStructureChange={handleProductOptionPricingStructureChange}
                             onBack={() => {
                                 setFocusedProductOption({
                                     productId: focusedProductOption.productId,
@@ -7509,7 +7987,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         onPreviewProductChange={({ path }) => {
                             navigatePreviewTo(path);
                         }}
-                        onPreviewPricingStructureChange={setProductPricingPreview}
+                        onPreviewPricingStructureChange={handleProductOptionPricingStructureChange}
+                        pricingPreview={productPricingPreview}
                         persistedPricingStructure={persistedProductPricing}
                         focusedProductId={focusedProductOption?.productId || null}
                         focusedSectionId={focusedProductOption?.sectionId || null}
@@ -7633,7 +8112,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 value={item.icon || "truck"}
                                 onValueChange={(value) => {
                                     const nextItems = [...uspItems];
-                                    nextItems[itemIndex] = { ...item, icon: value };
+                                    if (!USP_ICON_OPTIONS.some(option => option.value === value)) return;
+                                    nextItems[itemIndex] = { ...item, icon: value as USPIconType };
                                     editor.updateDraft({
                                         uspStrip: {
                                             ...uspStrip,
@@ -7727,6 +8207,10 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
             return (
                 <Card className="absolute right-6 top-6 z-30 w-[360px] border-border/70 bg-background/95 shadow-2xl backdrop-blur animate-in fade-in-0 zoom-in-95 slide-in-from-right-4 duration-200 max-h-[80vh] overflow-y-auto">
                     <ProductOptionButtonEditor
+                        key={`${editor.entityId}:${contextualEditor.productId}:${contextualEditor.sectionId}:${contextualEditor.valueId}`}
+                        pricingPreview={productPricingPreview}
+                        persistedStyling={persistedProductPricing}
+                        tenantId={editor.entityId}
                         productId={contextualEditor.productId}
                         sectionId={contextualEditor.sectionId}
                         valueId={contextualEditor.valueId}
@@ -7743,6 +8227,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 savedSwatches: (editor.draft.savedSwatches || []).filter(c => c !== color)
                             });
                         }}
+                        onPricingStructureChange={handleProductOptionPricingStructureChange}
                         onBack={() => {
                             setContextualEditor(null);
                             setClearSelectionSignal((prev) => prev + 1);
@@ -7756,116 +8241,21 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     };
 
     return (
-        <div className="flex flex-col h-[calc(100vh-4rem)] -m-6">
-            {/* Main Content Area */}
-            <div className="flex-1 flex overflow-hidden relative min-h-0">
-                {/* Left Sidebar - Collapsible */}
-                <div
-                    className={`
-                        absolute inset-y-0 left-0 z-10 w-96 flex-shrink-0 bg-background border-r transform transition-transform duration-300 ease-in-out
-                        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-                        lg:relative lg:translate-x-0
-                        overflow-hidden
-                        branding-sidebar
-                    `}
-                >
-                    <div className="h-full flex flex-col">
-                        <div className="px-3 py-2.5 border-b flex items-center justify-between bg-muted/20">
-                            <h2 className="font-extrabold text-2xl text-foreground px-1">
-                                {activeSection ? 'Redigerer' : 'Værktøjer'}
-                            </h2>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 lg:hidden" onClick={() => setSidebarOpen(false)}>
-                                <X className="h-3.5 w-3.5" />
-                            </Button>
-                        </div>
-                        <div className="border-b bg-white/90 px-2.5 py-2 space-y-2">
-                            <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                        Preview side
-                                    </div>
-                                    <div className="text-xs font-semibold text-foreground truncate">
-                                        {currentPreviewPageLabel}
-                                    </div>
-                                </div>
-                                <div className="flex flex-col items-end gap-1 shrink-0">
-                                    <Badge variant="secondary" className="rounded-sm px-1.5 py-0 text-[10px]">
-                                        {currentPreviewPageTypeLabel}
-                                    </Badge>
-                                    {activeSection && (
-                                        <Badge variant="outline" className="rounded-sm px-1.5 py-0 text-[10px] max-w-[160px] truncate">
-                                            {SECTION_LABELS[activeSection] || activeSection}
-                                        </Badge>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="flex flex-wrap gap-1.5">
-                                {PREVIEW_PAGE_LINKS.map((page) => {
-                                    const isActive = page.action === "first-product"
-                                        ? isProductPreviewPage
-                                        : page.path === currentPreviewPage
-                                            || (page.path === "/produkter" && currentPreviewPage === "/shop");
-                                    return (
-                                        <Button
-                                            key={`${page.label}-${page.path}-${page.action || "path"}`}
-                                            variant="outline"
-                                            size="sm"
-                                            className={
-                                                isActive
-                                                    ? "h-6 px-2 text-[11px] rounded-sm border-slate-300 bg-slate-900 text-white hover:bg-slate-800 hover:text-white"
-                                                    : "h-6 px-2 text-[11px] rounded-sm border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
-                                            }
-                                            onClick={() => {
-                                                if (page.action === "first-product") {
-                                                    navigatePreviewToFirstProduct();
-                                                } else {
-                                                    navigatePreviewTo(page.path);
-                                                }
-                                            }}
-                                        >
-                                            {page.label}
-                                        </Button>
-                                    );
-                                })}
-                            </div>
-                            <div className="space-y-1">
-                                <div className="text-[11px] font-medium text-muted-foreground">
-                                    Værktøjer på denne side
-                                </div>
-                                <div className="flex flex-wrap gap-1">
-                                    {allowedSectionLabels.map((label) => (
-                                        <Badge key={label} variant="outline" className="rounded-sm px-1.5 py-0 text-[10px] font-normal">
-                                            {label}
-                                        </Badge>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                        <ScrollArea className="flex-1">
-                            <div className="py-2">
-                                {renderSidebarContent()}
-                            </div>
-                        </ScrollArea>
-                    </div>
-                </div>
+        <div ref={workspaceRef} className="workspace-site-design-v2 flex flex-col">
+            <SiteDesignWorkspace
+                title={editor.mode === 'master' ? 'Designskabeloner til shops' : 'Site Design'}
+                description={editor.mode === 'master' ? 'Genbrugelige udgangspunkter til shops. Den enkelte shop redigeres i Site Design.' : `Design for ${editor.entityName}. Tilpas siden, og se ændringerne med det samme.`}
+                status={editor.hasUnsavedChanges ? "Du har ændringer, der ikke er gemt" : isDraftLive ? "Live version er opdateret" : "Du redigerer en kladde"}
+                actions={<>
+                    <Button variant="ghost" size="sm" onClick={editor.undo} disabled={!editor.canUndo || editor.isSaving} title="Fortryd seneste designændring"><Undo2 className="mr-1 h-4 w-4" />Fortryd</Button>
+                    <Button variant="ghost" size="sm" onClick={editor.redo} disabled={!editor.canRedo || editor.isSaving} title="Gentag designændring"><Redo2 className="mr-1 h-4 w-4" />Gentag</Button>
+                    <Button variant="outline" size="sm" onClick={saveDraftWithProductSettings} disabled={editor.isSaving}>Gem kladde</Button>
+                    <Button size="sm" onClick={() => setShowPublishDialog(true)} disabled={editor.isSaving}><Send className="mr-2 h-4 w-4" />Publicér</Button>
+                </>}
+                moreActions={<>
+                    <Button variant="ghost" size="sm" onClick={() => editor.replaceDraft(editor.published)} disabled={editor.isSaving || isDraftLive}>Tilbage til publiceret design</Button>
+                    <Button variant="ghost" size="sm" onClick={() => setShowResetDialog(true)}>Gendan standarddesign</Button>
 
-                {/* Main Preview Area */}
-                <div className="flex-1 bg-muted/10 relative flex flex-col">
-                    {/* Toggle Sidebar Button (visible when closed on mobile) */}
-                    {!sidebarOpen && (
-                        <Button
-                            variant="secondary"
-                            size="icon"
-                            className="absolute top-4 left-4 z-20 lg:hidden shadow-md"
-                            onClick={() => setSidebarOpen(true)}
-                        >
-                            <ChevronRight className="h-4 w-4" />
-                        </Button>
-                    )}
-
-                    <div className="flex-1 p-8 overflow-hidden flex flex-col">
-                        {/* ACTION BAR - aligned with preview frame */}
-                        <div className="flex flex-wrap items-center gap-2 p-3 bg-card border rounded-t-lg mb-0">
                             {/* 1. Gem design */}
                             <Button
                                 variant="outline"
@@ -7919,8 +8309,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             setLoadingSavedDesigns(true);
                                             // Fetch saved designs and tenants
                                             Promise.all([
-                                                supabase.from('premade_designs' as any).select('*').order('created_at', { ascending: false }),
-                                                supabase.from('tenants' as any).select('id, name').neq('id', '00000000-0000-0000-0000-000000000000')
+                                                supabase.from('premade_designs').select('*').order('created_at', { ascending: false }),
+                                                supabase.from('tenants').select('id, name').neq('id', '00000000-0000-0000-0000-000000000000')
                                             ]).then(([designsRes, tenantsRes]) => {
                                                 if (!designsRes.error) setSavedPremadeDesigns(designsRes.data || []);
                                                 if (!tenantsRes.error) setTenantList(tenantsRes.data || []);
@@ -7939,30 +8329,13 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     size="sm"
                                     onClick={() => {
                                         setShowPremadeDesignsDialog(true);
-                                        // Fetch designs when button is clicked
-                                        setLoadingPremadeDesigns(true);
-                                        supabase
-                                            .from('premade_designs' as any)
-                                            .select('*')
-                                            .eq('is_visible', true)
-                                            .order('created_at', { ascending: false })
-                                            .then(({ data, error }) => {
-                                                console.log('Premade designs fetch result:', { data, error });
-                                                if (error) {
-                                                    console.error('Error fetching premade designs:', error);
-                                                    toast.error('Kunne ikke hente designs');
-                                                }
-                                                if (data) {
-                                                    setAvailablePremadeDesigns(data);
-                                                }
-                                                setLoadingPremadeDesigns(false);
-                                            });
+                                        void loadPremadeDesigns();
                                     }}
                                     disabled={editor.isSaving}
                                     className="gap-2"
                                 >
                                     <LayoutTemplate className="h-4 w-4" />
-                                    Premade Designs
+                                    Designskabeloner
                                 </Button>
                             )}
 
@@ -7975,62 +8348,106 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                 />
                             )}
 
-                            <div className="hidden lg:flex items-center rounded-md border bg-muted/40 px-2.5 py-1">
-                                <span className="text-xs text-muted-foreground">
-                                    {isDraftLive
-                                        ? 'Live version er opdateret'
-                                        : 'Du redigerer kladde (ikke live endnu)'}
-                                </span>
-                            </div>
 
-                            <div className="flex-1" />
+                </>}
+                navigation={<SiteDesignNavigation
+                    currentPage={currentPreviewPage}
+                    activeSection={activeSection}
+                    sections={Array.from(allowedSections).map(id => ({ id, label: id === "order-flow" ? "Bestillingsflow" : SECTION_LABELS[id] || id }))}
+                    onNavigate={path => {
+                        if (path === "/produkt") {
+                            const product = currentPreviewProduct || featuredProducts.find(item => item.slug);
+                            if (product) navigatePreviewToProduct(product.slug);
+                            else setPreviewNavigationRequest({ id: Date.now(), type: "first-product" });
+                        } else {
+                            navigatePreviewTo(path);
+                            if (getSiteDesignPreviewPathname(path) === '/produkter') {
+                                closeSection();
+                                setActiveSection('products');
+                                setSidebarOpen(true);
+                            }
+                        }
+                    }}
+                    onSectionChange={section => {
+                        closeSection();
+                        setActiveSection(section);
+                        setSidebarOpen(true);
+                        const targets: Record<string, string> = { banner: 'forside.hero.media', showcase: 'forside.banner2', 'usp-strip': 'usp-strip', header: 'header', footer: 'footer', products: 'forside.products', 'featured-products': 'forside.products.featured' };
+                        if (targets[section]) setSectionFocusRequest({ id: Date.now(), target: targets[section] });
+                        if (section === 'order-flow' && !getOrderFlowPreviewPage(currentPreviewPage)) navigatePreviewToOrderStep('calculator');
+                        if (section === 'products' && !isHomePreviewPage) navigatePreviewTo('/produkter');
+                        if (section === 'featured-products' && !['/', '/shop'].includes(previewPathname)) navigatePreviewTo('/');
+                    }}
+                    productSelect={<>
+                        <Label htmlFor="site-design-product-preview">Vælg produkt</Label>
+                                <Select
+                                    value={currentPreviewProduct?.slug || ""}
+                                    onValueChange={navigatePreviewToProduct}
+                                    disabled={loadingFeaturedProducts || featuredProducts.length === 0}
+                                >
+                                    <SelectTrigger
+                                        id="site-design-product-preview"
+                                        className="h-7 min-w-0 text-xs"
+                                    >
+                                        <SelectValue
+                                            placeholder={
+                                                loadingFeaturedProducts
+                                                    ? "Henter produkter..."
+                                                    : featuredProducts.length === 0
+                                                        ? "Ingen produkter"
+                                                        : "Vælg produkt"
+                                            }
+                                        />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {featuredProducts
+                                            .filter((product) => Boolean(product.slug))
+                                            .map((product) => (
+                                                <SelectItem key={product.id} value={product.slug}>
+                                                    {product.name}
+                                                </SelectItem>
+                                            ))}
+                                    </SelectContent>
+                                </Select>
 
-                            {/* 3. Fortryd */}
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => editor.discardDraft()}
-                                disabled={!editor.hasUnsavedChanges || editor.isSaving}
-                                className="gap-2 text-muted-foreground hover:text-foreground"
-                            >
-                                <RotateCcw className="h-4 w-4" />
-                                Fortryd
-                            </Button>
-
-                            {/* 4. Publicér */}
-                            <Button
-                                size="sm"
-                                onClick={() => setShowPublishDialog(true)}
-                                disabled={editor.isSaving}
-                                className="gap-2"
-                            >
-                                <Send className="h-4 w-4" />
-                                Publicér
-                            </Button>
-                        </div>
-
-                        {/* Preview Frame */}
-                        <div className="relative flex-1 w-full">
-                            {renderContextualEditor()}
-                            <div className="h-full w-full bg-white rounded-b-lg border border-t-0 overflow-hidden">
-                                <SiteDesignPreviewFrame
+                    </>}
+                />}
+                inspectorTitle={activeSection === "main-buttons" ? "Fælles knapper" : activeSection === "theme" ? "Shopdesign" : activeSection === "order-flow" ? "Bestillingsflow" : SECTION_LABELS[activeSection || ""] || "Vælg en indstilling"}
+                inspectorOpen={sidebarOpen}
+                onInspectorClose={() => setSidebarOpen(false)}
+                onInspectorOpen={() => setSidebarOpen(true)}
+                inspector={activeSection ? <>
+                    {(['header', 'banner', 'products', 'featured-products', 'product-page-matrix', 'order-flow'].includes(activeSection)) && <SharedButtonLocalControls
+                        draft={editor.draft} updateDraft={editor.updateDraft} role="cta"
+                        buttonKey={activeSection === 'header' ? 'header' : activeSection === 'banner' ? 'hero' : activeSection === 'products' ? 'catalogue' : activeSection === 'featured-products' ? 'featured' : 'order'}
+                        title={activeSection === 'header' ? 'headerknapper' : activeSection === 'banner' ? 'bannerknapper' : activeSection === 'products' ? 'produktknapper' : activeSection === 'featured-products' ? 'fremhævede knapper' : 'bestillingsknapper'}
+                    />}
+                    {activeSection === 'product-page-matrix' && <SharedButtonLocalControls draft={editor.draft} updateDraft={editor.updateDraft} role="selection" buttonKey="matrix" title="prismatricens valgknapper" />}
+                    {renderSidebarContent()}</> : <p className="sd-inspector-empty">Vælg en indstilling i venstre side, eller aktivér Redigér og klik på et element i previewet.</p>}
+            >
+                                <SiteDesignPreviewFrame presentation="workspace" featuredSlideId={selectedFeaturedSlideId}
                                     branding={editor.draft}
                                     previewUrl={`/preview-shop?draft=1&preview_mode=1&tenantId=${editor.entityId}&editor=site-design-v2`}
                                     tenantName={editor.entityName}
                                     onSaveDraft={saveDraftWithProductSettings}
                                     onResetDesign={() => setShowResetDialog(true)}
                                     navigationRequest={previewNavigationRequest}
+                                    sectionFocusRequest={sectionFocusRequest}
                                     productPricingPreview={productPricingPreview}
-                                    onPreviewPathChange={setCurrentPreviewPage}
+                                    onPreviewPathChange={path => {
+                                        setCurrentPreviewPage(path);
+                                        if (getSiteDesignPreviewPathname(path) === '/produkter' && previewPathname !== '/produkter') {
+                                            closeSection();
+                                            setActiveSection('products');
+                                            setSidebarOpen(true);
+                                        }
+                                    }}
                                     editMode={previewEditMode}
                                     onEditModeChange={setPreviewEditMode}
                                     clearSelectionSignal={clearSelectionSignal}
+                                    previewProducts={featuredProducts}
                                 />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            </SiteDesignWorkspace>
 
             {/* --- DIALOGS (Copied from V1) --- */}
             {/* 1. Save Design Modal */}
@@ -8156,21 +8573,17 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     <AlertDialogHeader>
                         <AlertDialogTitle>Nulstil til standard?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Dette vil fjerne alle dine branding-tilpasninger og gendanne standardindstillingerne.
+                            Standarddesignet Refined Familiar indlæses i din kladde. Shopnavn, logo, tekster, produktvalg og priser bevares.
                             <br /><br />
-                            Vi gemmer en automatisk sikkerhedskopi før vi nulstiller.
+                            Du kan fortryde ændringen. Kunderne ser først ændringerne, når du vælger Publicér.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>Annuller</AlertDialogCancel>
                         <AlertDialogAction
                             onClick={async () => {
-                                await editor.resetToDefault();
-                                // Also clear any pending paid items since we're resetting to default
-                                if (editor.mode === 'tenant' && paidItems.hasPendingItems) {
-                                    await paidItems.clearPendingItems();
-                                    toast.success('Design nulstillet og indkøbskurv ryddet');
-                                }
+                                editor.replaceDraft(standardSiteDesign(editor.draft));
+                                toast.success('Standarddesign indlæst i kladden — kan fortrydes');
                                 setShowResetDialog(false);
                             }}
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -8187,12 +8600,24 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     <AlertDialogHeader>
                         <AlertDialogTitle className="flex items-center gap-2">
                             <Send className="h-5 w-5 text-primary" />
-                            Publicér branding?
+                            {editor.mode === "master" ? "Publicér skabelon?" : "Publicér shopdesign?"}
                         </AlertDialogTitle>
-                        <AlertDialogDescription className="space-y-4">
+                        <AlertDialogDescription asChild>
+                          <div className="space-y-4">
                             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
-                                <strong>Bemærk:</strong> Publicering vil ændre din live hjemmeside øjeblikkeligt.
+                                {editor.mode === "master" ? "Skabelonens publicerede version opdateres. Eksisterende shops ændres ikke automatisk. Gem som skabelon gør designet tilgængeligt i biblioteket." : "Publicering vil ændre din live hjemmeside øjeblikkeligt."}
                             </div>
+                            <section aria-label="Layouts der publiceres" className="rounded-md border p-3">
+                                <h3 className="mb-2 font-medium text-foreground">Forside og produktoversigt</h3>
+                                <p className="mb-4 text-xs">{PRODUCT_PRESENTATIONS.find(item => item.id === editor.draft.forside?.productsSection?.presentation)?.name || 'Temaets oprindelige produktvisning'}</p>
+                                <h3 className="mb-2 font-medium text-foreground">Bestillingsflow</h3>
+                                <dl className="space-y-1.5 text-xs">
+                                    {ORDER_FLOW_DESIGNS.map(item => {
+                                        const design = resolveOrderFlowDesign(item.page, editor.draft);
+                                        return <div key={item.page} className="flex justify-between gap-3"><dt>{item.label}</dt><dd>{design} · {design === item.default ? 'Standard' : 'Alternativ'}</dd></div>;
+                                    })}
+                                </dl>
+                            </section>
 
                             {/* Recent Publishes Section */}
                             {editor.history.length > 0 && (
@@ -8242,6 +8667,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     Tip: Klik på en seneste udgave ovenfor for at genbruge navnet.
                                 </p>
                             </div>
+                          </div>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -8262,7 +8688,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                             Gem til ressourcer
                         </DialogTitle>
                         <DialogDescription>
-                            Gem dette design som en premade design skabelon, der kan tildeles til lejere.
+                            Gem en gratis skabelon. Synlige skabeloner kan bruges af alle shops; skjulte skabeloner tildeles af Webprinter.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
@@ -8286,14 +8712,16 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label htmlFor="resource-design-price">Pris (kr)</Label>
+                                <Label htmlFor="resource-design-price">Gratis skabelon</Label>
                                 <Input
                                     id="resource-design-price"
                                     type="number"
                                     min="0"
                                     placeholder="0 = Gratis"
-                                    value={resourceDesignPrice}
-                                    onChange={(e) => setResourceDesignPrice(Number(e.target.value) || 0)}
+                                    value={0}
+                                    readOnly
+                                    disabled
+
                                 />
                             </div>
                             <div className="space-y-2">
@@ -8336,7 +8764,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             thumbnail_url: thumbnailUrl,
                                             branding_data: editor.draft,
                                             is_visible: resourceDesignVisible,
-                                            price: resourceDesignPrice,
+                                            price: 0,
                                             created_by: user?.id,
                                         });
 
@@ -8345,7 +8773,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     toast.success(`Design "${resourceDesignName}" gemt til ressourcer! ${resourceDesignVisible ? 'Synlig for lejere.' : 'Skjult indtil publiceret.'}`, { id: 'save-design' });
                                     setResourceDesignName("");
                                     setResourceDesignDescription("");
-                                    setResourceDesignPrice(0);
+
                                     setResourceDesignVisible(true);
                                     setShowSaveToResourcesDialog(false);
                                 } catch (error: any) {
@@ -8372,24 +8800,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 onOpenChange={(open) => {
                     setShowPremadeDesignsDialog(open);
                     if (open) {
-                        // Fetch designs when dialog opens
-                        setLoadingPremadeDesigns(true);
-                        supabase
-                            .from('premade_designs' as any)
-                            .select('*')
-                            .eq('is_visible', true)
-                            .order('created_at', { ascending: false })
-                            .then(({ data, error }) => {
-                                console.log('Premade designs fetch result:', { data, error });
-                                if (error) {
-                                    console.error('Error fetching premade designs:', error);
-                                    toast.error('Kunne ikke hente designs');
-                                }
-                                if (data) {
-                                    setAvailablePremadeDesigns(data);
-                                }
-                                setLoadingPremadeDesigns(false);
-                            });
+                        void loadPremadeDesigns();
                     }
                 }}
             >
@@ -8397,10 +8808,10 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <LayoutTemplate className="h-5 w-5 text-primary" />
-                            Premade Designs
+                            Designskabeloner
                         </DialogTitle>
                         <DialogDescription>
-                            Vælg et forudlavet design at anvende på din hjemmeside. Dit nuværende design erstattes.
+                            Gratis skabeloner og skabeloner tildelt af Webprinter kan anvendes på kladden. Du kan fortryde ændringen før publicering.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="py-4">
@@ -8411,7 +8822,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         ) : availablePremadeDesigns.length === 0 ? (
                             <div className="border-2 border-dashed rounded-lg p-8 text-center text-muted-foreground">
                                 <LayoutTemplate className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                                <p className="text-sm">Ingen premade designs tilgængelige</p>
+                                <p className="text-sm">Ingen designskabeloner tilgængelige</p>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -8424,7 +8835,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                 <LayoutTemplate className="w-16 h-16 text-primary/30" />
                                             )}
                                             {design.price > 0 && (
-                                                <Badge className="absolute top-2 right-2">{design.price} kr</Badge>
+                                                <Badge className="absolute top-2 right-2">{design.assignedToShop ? "Tildelt din shop" : "Kræver tildeling"}</Badge>
                                             )}
                                             {design.price === 0 && (
                                                 <Badge variant="secondary" className="absolute top-2 right-2">Gratis</Badge>
@@ -8437,29 +8848,17 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                             )}
                                             <Button
                                                 className="w-full"
+                                                disabled={design.price > 0 && !design.assignedToShop && !paidItems.isItemPurchased('premade_design', design.id)}
                                                 onClick={async () => {
+                                                    if (design.price > 0 && !design.assignedToShop && !paidItems.isItemPurchased('premade_design', design.id)) {
+                                                        toast.error('Kontakt Webprinter for at få denne skabelon tildelt din shop.');
+                                                        return;
+                                                    }
                                                     if (design.branding_data) {
                                                         // Apply the design to current draft
                                                         editor.updateDraft(design.branding_data);
 
-                                                        // If design has a price, add to pending purchases
-                                                        if (design.price > 0 && !paidItems.isItemPurchased('premade_design', design.id)) {
-                                                            await paidItems.addPendingItem({
-                                                                type: 'premade_design',
-                                                                itemId: design.id,
-                                                                name: design.name,
-                                                                price: design.price,
-                                                                thumbnailUrl: design.thumbnail_url,
-                                                            });
-                                                            toast.success(
-                                                                `Design "${design.name}" anvendt! Husk: ${design.price} kr skal betales ved publicering.`,
-                                                                { duration: 5000 }
-                                                            );
-                                                        } else if (paidItems.isItemPurchased('premade_design', design.id)) {
-                                                            toast.success(`Design "${design.name}" anvendt! (Allerede købt)`);
-                                                        } else {
-                                                            toast.success(`Design "${design.name}" anvendt!`);
-                                                        }
+                                                        toast.success(`Design "${design.name}" anvendt på kladden.`);
 
                                                         setShowPremadeDesignsDialog(false);
                                                     } else {
@@ -8467,8 +8866,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                     }
                                                 }}
                                             >
-                                                {design.price > 0 && !paidItems.isItemPurchased('premade_design', design.id) ? (
-                                                    <>Anvend design ({design.price} kr)</>
+                                                {design.price > 0 && !design.assignedToShop && !paidItems.isItemPurchased('premade_design', design.id) ? (
+                                                    <>Kontakt Webprinter for tildeling</>
                                                 ) : paidItems.isItemPurchased('premade_design', design.id) ? (
                                                     <>Anvend design ✓</>
                                                 ) : (
@@ -8497,7 +8896,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     if (open) {
                         setLoadingSavedDesigns(true);
                         supabase
-                            .from('premade_designs' as any)
+                            .from('premade_designs')
                             .select('*')
                             .order('created_at', { ascending: false })
                             .then(({ data, error }) => {
@@ -8515,7 +8914,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                             Mine Gemte Skabeloner
                         </DialogTitle>
                         <DialogDescription>
-                            Administrer dine gemte premade designs. Rediger, slet, eller tildel til lejere.
+                            Administrer gemte designskabeloner og deres tilgængelighed for shops.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="py-4">
@@ -8603,19 +9002,19 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                                     className="h-8 px-2 text-sm border rounded-md bg-background"
                                                                     defaultValue=""
                                                                     onChange={async (e) => {
-                                                                        const tenantId = e.target.value;
-                                                                        if (tenantId) {
-                                                                            const { data: { user } } = await supabase.auth.getUser();
-                                                                            await supabase
-                                                                                .from('tenant_premade_designs' as any)
-                                                                                .upsert({
-                                                                                    tenant_id: tenantId,
-                                                                                    design_id: design.id,
-                                                                                    granted_by: user?.id
-                                                                                });
+                                                                        const select = e.currentTarget;
+                                                                        const tenantId = select.value;
+                                                                        if (!tenantId) return;
+                                                                        select.disabled = true;
+                                                                        try {
+                                                                            await assignDesignToShop(tenantId, design.id);
                                                                             const tenant = tenantList.find(t => t.id === tenantId);
                                                                             toast.success(`Tildelt til ${tenant?.name || 'lejer'}`);
-                                                                            e.target.value = '';
+                                                                        } catch (error) {
+                                                                            toast.error('Designet blev ikke tildelt. Kontrollér masteradgang og prøv igen.');
+                                                                        } finally {
+                                                                            select.value = '';
+                                                                            select.disabled = false;
                                                                         }
                                                                     }}
                                                                 >
@@ -8663,13 +9062,14 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                                 />
                                                             </div>
                                                             <div>
-                                                                <Label htmlFor="edit-price" className="text-xs">Pris (kr)</Label>
+                                                                <Label htmlFor="edit-price" className="text-xs">Tidligere pris (bevares)</Label>
                                                                 <Input
                                                                     id="edit-price"
                                                                     type="number"
                                                                     min="0"
                                                                     value={editingDesign.price}
-                                                                    onChange={(e) => setEditingDesign(prev => prev ? { ...prev, price: Number(e.target.value) || 0 } : null)}
+                                                                    readOnly
+                                                                    disabled
                                                                     className="h-9"
                                                                 />
                                                             </div>

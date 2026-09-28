@@ -142,7 +142,7 @@ export async function installSitePackageTemplates(params: {
   }
 
   const { data: existingRows, error: existingError } = await supabase
-    .from('designer_templates' as any)
+    .from('designer_templates')
     .select('name, template_type, category')
     .eq('tenant_id', tenantId)
     .ilike('category', `Sites: ${sitePackage.name}%`);
@@ -164,11 +164,11 @@ export async function installSitePackageTemplates(params: {
   if (rowsToInsert.length > 0) {
     const chunks = chunkArray(rowsToInsert, 100);
     for (const chunk of chunks) {
-      let { error } = await supabase.from('designer_templates' as any).insert(chunk);
+      let { error } = await supabase.from('designer_templates').insert(chunk);
       if (error && String(error.message || '').toLowerCase().includes('weight_gsm')) {
         // Backward compatibility for databases that have not applied the weight_gsm migration.
         const fallbackChunk = chunk.map(({ weight_gsm, ...rest }) => rest);
-        const retry = await supabase.from('designer_templates' as any).insert(fallbackChunk);
+        const retry = await supabase.from('designer_templates').insert(fallbackChunk);
         error = retry.error;
       }
       if (error) throw error;

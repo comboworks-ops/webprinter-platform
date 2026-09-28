@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, Truck, ShoppingCart, Clock, Package } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { unavailableOptionAnchor } from '@/lib/products/optionAvailability';
 
 // Define anchor zones that can have tooltips - now includes dynamic IDs
 export interface AnchorZone {
@@ -23,14 +24,8 @@ export const BASE_ANCHOR_ZONES: AnchorZone[] = [
     { id: 'checkout_button', label: 'Checkout Button', labelDa: 'Til bestilling' },
 ];
 
-export interface TooltipConfig {
-    anchor: string;
-    icon: 'info' | 'question' | 'lightbulb' | 'star';
-    color: string;
-    animation: 'fade' | 'slide' | 'bounce';
-    text: string;
-    link?: string;
-}
+export type { TooltipConfig } from '@/components/ProductTooltipIcon';
+import type { TooltipConfig } from '@/components/ProductTooltipIcon';
 
 interface DeliveryOption {
     id: string;
@@ -77,6 +72,7 @@ export function ProductPagePreview({
     const [priceMatrix, setPriceMatrix] = useState<PriceMatrixRow[]>([]);
     const [deliveryOptions, setDeliveryOptions] = useState<DeliveryOption[]>([]);
     const [loading, setLoading] = useState(true);
+    const [availabilityAnchors, setAvailabilityAnchors] = useState<AnchorZone[]>([]);
 
     // Load product data
     useEffect(() => {
@@ -88,7 +84,7 @@ export function ProductPagePreview({
             try {
                 // Load product with pricing structure
                 const { data: product } = await supabase
-                    .from('products' as any)
+                    .from('products')
                     .select('*, banner_config')
                     .eq('id', productId)
                     .single();
@@ -98,7 +94,7 @@ export function ProductPagePreview({
                 // Load attribute groups/values (formats, materials)
                 // NOTE: product_attributes is a legacy table and may not exist in current tenants.
                 const { data: attributes, error: attributesError } = await supabase
-                    .from('product_attribute_groups' as any)
+                    .from('product_attribute_groups')
                     .select('id, name, kind, sort_order, values:product_attribute_values(id, name, sort_order, enabled)')
                     .eq('product_id', productId)
                     .order('sort_order');
@@ -146,6 +142,27 @@ export function ProductPagePreview({
 
                 // Load pricing structure for quantities
                 const pricingStructure = (product as any).pricing_structure;
+                const optionLayout = pricingStructure as { layout_rows?: { columns?: {
+                    id: string; groupId: string; title?: string; labelOverride?: string; ui_mode?: string;
+                    valueIds?: string[]; valueSettings?: Record<string, { displayName?: string }>;
+                }[] }[] } | null;
+                const optionGroups = (attributes || []) as { id: string; name: string; values: {
+                    id: string; name: string; enabled?: boolean;
+                }[] }[];
+                const sections = optionLayout?.layout_rows?.flatMap(row => row.columns || []) || [];
+                const optionAnchors: AnchorZone[] = [];
+                sections.forEach(section => {
+                    if (section.ui_mode === 'hidden') return;
+                    const group = optionGroups.find(item => item.id === section.groupId);
+                    const sectionName = section.labelOverride || section.title || group?.name || 'Valg';
+                    (section.valueIds || []).forEach((id: string) => {
+                        const value = (group?.values || []).find(item => item.id === id && item.enabled !== false);
+                        if (!value) return;
+                        const label = `${sectionName}: ${section.valueSettings?.[id]?.displayName || value.name}`;
+                        optionAnchors.push({ id: unavailableOptionAnchor(section.id, id), label, labelDa: label });
+                    });
+                });
+                setAvailabilityAnchors(optionAnchors);
                 if (pricingStructure?.quantities) {
                     setQuantities(pricingStructure.quantities);
                 }
@@ -186,7 +203,7 @@ export function ProductPagePreview({
 
     // Compute all available anchor zones (base + dynamic)
     const allAnchorZones = useMemo(() => {
-        const zones = [...BASE_ANCHOR_ZONES];
+        const zones = [...BASE_ANCHOR_ZONES, ...availabilityAnchors];
 
         // Add material-specific anchors
         materials.forEach(m => {
@@ -204,7 +221,7 @@ export function ProductPagePreview({
         });
 
         return zones;
-    }, [materials, formats, deliveryOptions]);
+    }, [materials, formats, deliveryOptions, availabilityAnchors]);
 
     // Report anchors to parent
     useEffect(() => {

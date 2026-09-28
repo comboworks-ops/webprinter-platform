@@ -1,6 +1,6 @@
 /**
  * White Label Webshop Feature Page
- * 
+ *
  * Platform marketing page describing the white-label webshop feature.
  */
 
@@ -22,7 +22,7 @@ const PlatformWhiteLabel = () => {
     ];
 
     return (
-        <div className="min-h-screen flex flex-col font-sans">
+        <div className="platform-page min-h-screen flex flex-col font-sans">
             <SEO
                 title="White Label Webshop | Webprinter Platform"
                 description="Lav din egen brandede webshop for tryksager. Dit domæne, dit design, din forretning."

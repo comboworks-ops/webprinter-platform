@@ -1,4 +1,4 @@
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 
 interface InvoiceData {
     invoiceNumber: string;
@@ -6,6 +6,7 @@ interface InvoiceData {
     date: Date;
     dueDate?: Date;
     customer: {
+        billingDetails?: string;
         name: string;
         email: string;
         phone?: string;
@@ -106,19 +107,13 @@ export function generateInvoicePDF(data: InvoiceData): jsPDF {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...textColor);
     doc.setFontSize(11);
-    doc.text(data.customer.name, 20, y);
-    y += 5;
-
-    doc.setFontSize(9);
-    doc.setTextColor(...grayColor);
-    if (data.customer.address) {
-        doc.text(data.customer.address, 20, y);
-        y += 5;
-    }
-    if (data.customer.zip || data.customer.city) {
-        doc.text(`${data.customer.zip || ''} ${data.customer.city || ''}`.trim(), 20, y);
-        y += 5;
-    }
+    // Saved billing text may include commas in company names and addresses.
+    const billingLines = doc.splitTextToSize(data.customer.billingDetails || [
+        data.customer.name, data.customer.address,
+        [data.customer.zip, data.customer.city].filter(Boolean).join(' '), data.customer.country,
+    ].filter(Boolean).join('\n'), pageWidth - 40);
+    doc.text(billingLines, 20, y);
+    y += billingLines.length * 6;
     doc.text(data.customer.email, 20, y);
     if (data.customer.phone) {
         y += 5;
@@ -160,11 +155,12 @@ export function generateInvoicePDF(data: InvoiceData): jsPDF {
 
     for (const item of data.items) {
         doc.setTextColor(...textColor);
-        doc.text(item.description, colX.description, y);
+        const descriptionLines = doc.splitTextToSize(item.description, colX.quantity - colX.description - 5);
+        doc.text(descriptionLines, colX.description, y);
         doc.text(item.quantity.toString(), colX.quantity, y);
         doc.text(formatCurrency(item.unitPrice, data.currency), colX.unitPrice, y);
         doc.text(formatCurrency(item.total, data.currency), colX.total, y, { align: 'right' });
-        y += 8;
+        y += Math.max(8, descriptionLines.length * 5 + 3);
     }
 
     y += 5;
@@ -225,7 +221,7 @@ export function generateInvoicePDF(data: InvoiceData): jsPDF {
     }
 
     // Bank details
-    if (data.company.bankName && data.company.bankAccount) {
+    if (!data.isPaid && data.company.bankName && data.company.bankAccount) {
         y += 10;
         doc.setFontSize(9);
         doc.setFont('helvetica', 'bold');

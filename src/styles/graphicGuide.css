@@ -1,0 +1,118 @@
+.graphic-guide {
+  --guide-accent: var(--brand-primary, var(--print-blue, hsl(var(--primary))));
+  --guide-ink: var(--print-ink, hsl(var(--foreground)));
+  --guide-muted: hsl(var(--muted-foreground));
+  --guide-line: hsl(var(--border));
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: var(--ui-space-12) var(--ui-page-gutter) var(--ui-space-8);
+  color: var(--guide-ink);
+  font-size: var(--ui-body-size);
+  line-height: var(--ui-body-leading);
+}
+.graphic-guide button, .graphic-guide a { -webkit-tap-highlight-color: transparent; }
+.graphic-guide button:focus-visible, .graphic-guide a:focus-visible, .graphic-guide summary:focus-visible, .graphic-guide-zoom-scroll:focus-visible {
+  outline: 2px solid var(--guide-accent); outline-offset: 4px;
+}
+.graphic-guide-intro { margin-bottom: var(--ui-space-10); }
+.graphic-guide .graphic-guide-eyebrow { margin: 0 0 12px; font-size: 13px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--guide-muted); }
+.graphic-guide-intro h1 { margin: 0 0 12px; font-size: var(--ui-title-hero); line-height: 1.1; font-weight: 750; letter-spacing: -.045em; }
+.graphic-guide-intro > p:last-child { margin: 0; font-size: clamp(1rem, 1.65vw, 1.375rem); color: var(--guide-muted); }
+.graphic-guide-layout { display: grid; grid-template-columns: 268px minmax(0, 1fr); gap: 40px; align-items: start; }
+.graphic-guide-nav { min-width: 0; border-right: 1px solid var(--guide-line); padding-right: 24px; }
+.graphic-guide-nav h2 { margin: 2px 0 20px; font-size: 19px; font-weight: 650; letter-spacing: -.025em; }
+.graphic-guide-nav ol { margin: 0; padding: 0; list-style: none; }
+.graphic-guide-nav li + li { border-top: 1px solid var(--guide-line); }
+.graphic-guide-nav button { width: 100%; display: flex; align-items: center; gap: 14px; min-height: 76px; margin: 5px 0; padding: 16px 12px; border-radius: 5px; font-size: 15px; text-align: left; overflow-wrap: anywhere; transition: background-color 120ms ease; }
+.graphic-guide-nav button svg { width: 27px; height: 27px; flex: none; }
+.graphic-guide-nav button:hover { background: color-mix(in srgb, var(--guide-accent) 5%, transparent); }
+.graphic-guide-nav button[aria-current="step"] { background: color-mix(in srgb, var(--guide-accent) 9%, transparent); color: var(--guide-accent); font-weight: 650; }
+.graphic-guide-nav-note { margin: 22px 12px 0; font-size: 13px; color: var(--guide-muted); line-height: 1.6; }
+.graphic-guide-lesson { min-width: 0; }
+.graphic-guide-lesson-heading { min-height: 100px; padding-bottom: 22px; }
+.graphic-guide-lesson-heading h2 { margin: 0 0 10px; font-size: clamp(1.5rem, 2.45vw, 2.125rem); line-height: 1.2; font-weight: 700; letter-spacing: -.035em; scroll-margin-top: 150px; }
+.graphic-guide-lesson-heading h2:focus { outline: none; }
+.graphic-guide-lesson-heading p { margin: 0; color: var(--guide-muted); font-size: 17px; line-height: 1.55; max-width: 68ch; }
+.graphic-guide-figure { margin: 0; }
+.graphic-guide-comparison-labels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.graphic-guide-comparison-labels p { display: flex; align-items: center; gap: 10px; margin: 0; padding: 14px 18px; font-weight: 650; font-size: 16px; background: hsl(var(--muted) / .45); border-radius: 5px 5px 0 0; }
+.graphic-guide-comparison-labels p + p { background: color-mix(in srgb, var(--guide-accent) 7%, transparent); }
+.graphic-guide-comparison-labels svg { height: 26px; width: 26px; flex: none; padding: 4px; border-radius: 50%; background: #c23842; color: white; stroke-width: 3px; }
+.graphic-guide-comparison-labels .graphic-guide-example-good { color: var(--guide-accent); }
+.graphic-guide-example-good svg { background: var(--guide-accent); }
+.graphic-guide-image { display: block; width: 100%; height: clamp(260px, 29vw, 400px); object-fit: contain; background: #fff; }
+.graphic-guide-figure figcaption { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 5px 0 8px; font-size: 12px; color: var(--guide-muted); }
+.graphic-guide-zoom { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--guide-accent); font-size: 13px; }
+.graphic-guide-zoom svg { width: 15px; height: 15px; }
+.graphic-guide-tips { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 8px; }
+.graphic-guide-tips h3 { margin: 0 0 5px; font-size: 16px; font-weight: 650; letter-spacing: -.015em; }
+.graphic-guide-tips p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--guide-muted); }
+.graphic-guide-note { margin: 18px 0 0; font-size: 12px; line-height: 1.6; color: var(--guide-muted); }
+.graphic-guide-controls { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 18px; margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--guide-line); }
+.graphic-guide-secondary-controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.graphic-guide .graphic-guide-text-action { display: inline-flex; align-items: center; gap: 9px; min-height: 44px; color: var(--guide-accent); font-size: 14px; text-align: left; }
+.graphic-guide-text-action svg { width: 19px; height: 19px; flex: none; }
+.graphic-guide-back { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; color: var(--guide-muted); font-size: 14px; }
+.graphic-guide-back svg { width: 16px; height: 16px; }
+.graphic-guide-next-controls { display: flex; align-items: center; gap: 18px; margin-left: auto; }
+.graphic-guide-progress { white-space: nowrap; font-size: 13px; color: var(--guide-muted); }
+.graphic-guide .graphic-guide-primary { display: inline-flex; justify-content: center; align-items: center; gap: 14px; min-height: 50px; padding: 12px 20px; border-radius: 5px; background: var(--guide-accent); color: #fff !important; font-size: 14px; font-weight: 600; text-align: center; transition: filter 120ms ease; }
+.graphic-guide-primary:hover { filter: brightness(.92); }
+.graphic-guide-primary svg { width: 19px; height: 19px; flex: none; }
+.graphic-guide-support { margin-top: var(--ui-space-12); }
+.graphic-guide-disclosure { border-top: 1px solid var(--guide-line); scroll-margin-top: 150px; }
+.graphic-guide-disclosure > summary { display: flex; align-items: center; gap: 14px; min-height: 70px; padding: 18px 0; font-size: 15px; font-weight: 550; cursor: pointer; list-style: none; }
+.graphic-guide-disclosure > summary::-webkit-details-marker { display: none; }
+.graphic-guide-disclosure > summary > svg { width: 21px; height: 21px; flex: none; color: var(--guide-accent); }
+.graphic-guide-disclosure > summary > svg:last-child { margin-left: auto; width: 17px; }
+.graphic-guide-disclosure[open] > summary > svg:last-child { transform: rotate(180deg); }
+.graphic-guide-disclosure-body { padding: 0 0 24px; }
+.graphic-guide-disclosure-body > p { max-width: 68ch; margin: 0 0 16px; font-size: 15px; color: var(--guide-muted); }
+.graphic-guide-details-content { max-width: 1024px; }
+.graphic-guide-details-content section, .graphic-guide-help { scroll-margin-top: 150px; }
+.graphic-guide-details-content table { display: block; max-width: 100%; overflow-x: auto; }
+.graphic-guide-help { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-top: 1px solid var(--guide-line); padding: 20px 0 0; font-size: 14px; }
+.graphic-guide-help p { display: flex; align-items: center; gap: 10px; margin: 0; }
+.graphic-guide-help svg { width: 18px; height: 18px; flex: none; }
+.graphic-guide-help a { display: inline-flex; align-items: center; gap: 5px; color: var(--guide-accent); min-height: 44px; }
+.graphic-guide-zoom-dialog { width: calc(100vw - 32px); max-width: 1200px; max-height: calc(100dvh - 32px); overflow-y: auto; }
+.graphic-guide-zoom-scroll { overflow: auto; max-height: 65dvh; background: #fff; }
+.graphic-guide-zoom-scroll img { width: 100%; min-width: 800px; max-width: none; height: auto; }
+.graphic-guide-zoom-note { margin: 0; font-size: 13px; color: hsl(var(--muted-foreground)); }
+@media (max-width: 1100px) {
+  .graphic-guide-layout { grid-template-columns: 196px minmax(0, 1fr); gap: 24px; }
+  .graphic-guide-nav { padding-right: 14px; }
+  .graphic-guide-nav button { padding: 14px 9px; gap: 9px; font-size: 14px; }
+  .graphic-guide-nav button svg { width: 22px; height: 22px; }
+  .graphic-guide-nav h2 { font-size: 17px; }
+  .graphic-guide-lesson-heading p { font-size: 16px; }
+  .graphic-guide-comparison-labels p { padding: 12px; font-size: 14px; }
+}
+@media (max-width: 760px) {
+  .graphic-guide { padding-top: 28px; }
+  .graphic-guide-intro { margin-bottom: 28px; }
+  .graphic-guide-layout { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .graphic-guide-nav { padding: 0; border-right: 0; }
+  .graphic-guide-nav h2 { margin: 0 0 10px; }
+  .graphic-guide-nav ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 10px; }
+  .graphic-guide-nav li + li { border: 0; }
+  .graphic-guide-nav button { min-height: 48px; height: 100%; margin: 0; padding: 10px; font-size: 14px; }
+  .graphic-guide-nav-note { display: none; }
+  .graphic-guide-lesson-heading { min-height: 0; padding-bottom: 20px; }
+  .graphic-guide-image { height: auto; aspect-ratio: 1400 / 740; }
+  .graphic-guide-comparison-labels { gap: 8px; }
+  .graphic-guide-comparison-labels p { align-items: flex-start; gap: 6px; font-size: 12px; line-height: 1.4; padding: 10px 8px; }
+  .graphic-guide-comparison-labels svg { width: 19px; height: 19px; padding: 3px; }
+  .graphic-guide-tips { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .graphic-guide-note { font-size: 12px; }
+  .graphic-guide-controls { margin-top: 20px; padding-top: 14px; gap: 12px; }
+  .graphic-guide-secondary-controls { width: 100%; justify-content: space-between; }
+  .graphic-guide-next-controls { width: 100%; justify-content: space-between; gap: 10px; }
+  .graphic-guide .graphic-guide-primary { padding: 12px; gap: 8px; font-size: 13px; }
+  .graphic-guide-support { margin-top: 32px; }
+  .graphic-guide-disclosure > summary { font-size: 14px; gap: 10px; }
+  .graphic-guide-zoom-dialog { padding: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .graphic-guide *, .graphic-guide-zoom-dialog { scroll-behavior: auto; transition: none; animation: none; }
+}

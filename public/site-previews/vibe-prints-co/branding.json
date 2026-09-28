@@ -1,0 +1,766 @@
+{
+  "logo_url": null,
+  "fonts": {
+    "heading": "Poppins",
+    "body": "Inter",
+    "pricing": "Roboto Mono",
+    "title": "Poppins",
+    "subtitle": "Poppins",
+    "description": "Inter",
+    "system": "Inter",
+    "button": "Inter"
+  },
+  "colors": {
+    "primary": "#0EA5E9",
+    "secondary": "#F1F5F9",
+    "background": "#F8FAFC",
+    "card": "#FFFFFF",
+    "dropdown": "#FFFFFF",
+    "hover": "#0284C7",
+    "backgroundType": "solid",
+    "backgroundGradientType": "linear",
+    "backgroundGradientStart": "#F8FAFC",
+    "backgroundGradientEnd": "#E2E8F0",
+    "backgroundGradientAngle": 135,
+    "backgroundGradientUseMiddle": false,
+    "backgroundGradientMiddle": "#FFFFFF",
+    "titleText": "#1F2937",
+    "subtitleText": "#1F2937",
+    "headingText": "#1F2937",
+    "bodyText": "#4B5563",
+    "pricingText": "#0EA5E9",
+    "linkText": "#0EA5E9",
+    "systemText": "#1F2937",
+    "buttonText": "#FFFFFF",
+    "tabInactiveBg": "#F1F5F9",
+    "tabInactiveHoverBg": "#E2E8F0",
+    "tabActiveHoverBg": "#0284C7"
+  },
+  "savedSwatches": [],
+  "hero": {
+    "recommendedWidthPx": 1920,
+    "recommendedHeightPx": 600,
+    "mediaType": "images",
+    "fitMode": "cover",
+    "images": [
+      {
+        "id": "default-1",
+        "url": "/hero-print.jpg",
+        "alt": "Professionelt tryk",
+        "sortOrder": 0,
+        "headline": "Professionelt tryk – hurtig levering i hele Danmark",
+        "subline": "Flyers, foldere, plakater, bannere m.m. — beregn prisen direkte.",
+        "ctaText": "Se tryksager",
+        "ctaLink": "#tryksager"
+      },
+      {
+        "id": "default-2",
+        "url": "/hero-banner.jpg",
+        "alt": "Storformat print",
+        "sortOrder": 1,
+        "headline": "Storformat print i topkvalitet",
+        "subline": "Bannere, beachflag, skilte og messeudstyr – til konkurrencedygtige priser.",
+        "ctaText": "Se storformat",
+        "ctaLink": "#storformat"
+      },
+      {
+        "id": "default-3",
+        "url": "/hero-flyer.jpg",
+        "alt": "Billige tryksager",
+        "sortOrder": 2,
+        "headline": "Billige tryksager online",
+        "subline": "Bestil nemt og hurtigt – personlig service og dansk produktion.",
+        "ctaText": "Beregn pris",
+        "ctaLink": "/prisberegner"
+      }
+    ],
+    "videos": [],
+    "media": [
+      "/hero-print.jpg",
+      "/hero-banner.jpg",
+      "/hero-flyer.jpg"
+    ],
+    "type": "slideshow",
+    "slideshow": {
+      "enabled": true,
+      "transition": "fade",
+      "autoplay": true,
+      "intervalMs": 5000
+    },
+    "transition": "fade",
+    "parallax": false,
+    "videoSettings": {
+      "fitMode": "cover",
+      "parallaxEnabled": false,
+      "muted": true,
+      "loop": true
+    },
+    "overlay_color": "#000000",
+    "overlay_opacity": 0.3,
+    "overlay": {
+      "title": "Billige tryksager online",
+      "subtitle": "Professionelt tryk med hurtig levering til hele Danmark",
+      "titleColor": "#FFFFFF",
+      "subtitleColor": "rgba(255, 255, 255, 0.9)",
+      "showButtons": true,
+      "buttons": [
+        {
+          "id": "default-cta-1",
+          "label": "Se produkter",
+          "variant": "primary",
+          "linkType": "ALL_PRODUCTS",
+          "target": {},
+          "textColor": "#FFFFFF",
+          "bgColor": "#0EA5E9",
+          "bgOpacity": 1
+        },
+        {
+          "id": "default-cta-2",
+          "label": "Kontakt os",
+          "variant": "secondary",
+          "linkType": "INTERNAL_PAGE",
+          "target": {
+            "path": "/kontakt"
+          },
+          "textColor": "#FFFFFF"
+        }
+      ]
+    }
+  },
+  "header": {
+    "logoType": "text",
+    "logoText": "WebPrinter",
+    "logoFont": "Poppins",
+    "logoTextColor": "#1F2937",
+    "logoImageUrl": null,
+    "logoLink": "/",
+    "navItems": [
+      {
+        "id": "home",
+        "label": "Hjem",
+        "href": "/",
+        "isVisible": true,
+        "order": 0
+      },
+      {
+        "id": "products",
+        "label": "Produkter",
+        "href": "/produkter",
+        "isVisible": true,
+        "order": 1
+      },
+      {
+        "id": "grafisk",
+        "label": "Grafisk vejledning",
+        "href": "/grafisk-vejledning",
+        "isVisible": true,
+        "order": 2
+      },
+      {
+        "id": "contact",
+        "label": "Kontakt",
+        "href": "/kontakt",
+        "isVisible": true,
+        "order": 3
+      },
+      {
+        "id": "about",
+        "label": "Om os",
+        "href": "/om-os",
+        "isVisible": true,
+        "order": 4
+      }
+    ],
+    "dropdownMode": "IMAGE_AND_TEXT",
+    "dropdownImageSize": "normal",
+    "fontId": "Inter",
+    "bgColor": "#FFFFFF",
+    "bgOpacity": 0.95,
+    "textColor": "#1F2937",
+    "hoverTextColor": "#0EA5E9",
+    "activeTextColor": "#0284C7",
+    "actionHoverTextColor": "#0EA5E9",
+    "actionHoverBgColor": "rgba(14, 165, 233, 0.1)",
+    "autoContrastText": true,
+    "transparentOverHero": true,
+    "style": "solid",
+    "height": "md",
+    "alignment": "left",
+    "dropdownBgColor": "#FFFFFF",
+    "dropdownBgOpacity": 0.95,
+    "dropdownHoverColor": "#F3F4F6",
+    "dropdownShowBorder": true,
+    "dropdownCategoryFontId": "Inter",
+    "dropdownCategoryColor": "#6B7280",
+    "dropdownProductFontId": "Inter",
+    "dropdownProductColor": "#1F2937",
+    "scroll": {
+      "sticky": true,
+      "hideOnScroll": false,
+      "fadeOnScroll": false,
+      "shrinkOnScroll": false,
+      "heightPx": 72,
+      "collapsedHeightPx": 56
+    },
+    "cta": {
+      "enabled": false,
+      "label": "Kontakt os",
+      "href": "/kontakt",
+      "variant": "filled",
+      "bgColor": "#0EA5E9",
+      "textColor": "#FFFFFF",
+      "hoverBgColor": "#0284C7"
+    }
+  },
+  "footer": {
+    "style": "minimal",
+    "background": "themeDark",
+    "bgColor": "#1F2937",
+    "gradientStart": "#1F2937",
+    "gradientEnd": "#0F172A",
+    "gradientAngle": 135,
+    "text": "Din professionelle tryksagspartner.",
+    "copyrightText": "© {year} {shopName}. Alle rettigheder forbeholdes.",
+    "showCopyright": true,
+    "links": [
+      {
+        "id": "privacy",
+        "label": "Privatlivspolitik",
+        "href": "/privatliv",
+        "isVisible": true,
+        "order": 0
+      },
+      {
+        "id": "terms",
+        "label": "Handelsbetingelser",
+        "href": "/vilkaar",
+        "isVisible": true,
+        "order": 1
+      },
+      {
+        "id": "contact",
+        "label": "Kontakt",
+        "href": "/kontakt",
+        "isVisible": true,
+        "order": 2
+      },
+      {
+        "id": "grafisk",
+        "label": "Grafisk vejledning",
+        "href": "/grafisk-vejledning",
+        "isVisible": true,
+        "order": 3
+      }
+    ],
+    "social": {
+      "facebook": {
+        "enabled": true,
+        "url": "https://facebook.com/"
+      },
+      "instagram": {
+        "enabled": true,
+        "url": "https://instagram.com/"
+      },
+      "linkedin": {
+        "enabled": true,
+        "url": "https://linkedin.com/"
+      },
+      "twitter": {
+        "enabled": false,
+        "url": ""
+      },
+      "youtube": {
+        "enabled": true,
+        "url": "https://youtube.com/"
+      }
+    },
+    "showSocialIcons": true
+  },
+  "contactPage": {
+    "headingFont": "Poppins",
+    "bodyFont": "Inter",
+    "formFont": "Inter",
+    "headingColor": "#1F2937",
+    "bodyTextColor": "#4B5563",
+    "formTextColor": "#1F2937",
+    "backgroundEnabled": false,
+    "backgroundColor": "#F8FAFC",
+    "infoBoxBackground": "#F1F5F9",
+    "infoBoxTextColor": "#1F2937",
+    "infoBoxBorderColor": "#E2E8F0",
+    "formBox": {
+      "enabled": false,
+      "backgroundColor": "#FFFFFF",
+      "borderColor": "#E2E8F0"
+    },
+    "map": {
+      "enabled": false,
+      "imageUrl": "",
+      "placement": "inline",
+      "boxBackground": "#F1F5F9",
+      "boxBorderColor": "#E2E8F0"
+    },
+    "formRecipientEmail": "",
+    "contactInfo": {
+      "phone": "",
+      "email": "",
+      "name": "",
+      "address": "",
+      "cvr": ""
+    }
+  },
+  "aboutPage": {
+    "title": "Hvem er Webprinter.dk",
+    "description": "Vi er specialister i tryksager – fra visitkort til bannere. Hos Webprinter.dk kombinerer vi moderne produktion med klassisk håndværk og personlig service. Vi leverer til hele Danmark – hurtigt og konkurrencedygtigt.",
+    "textAlign": "center",
+    "media": {
+      "type": "none",
+      "position": "above",
+      "imageUrl": "",
+      "gallery": [],
+      "galleryLayout": "grid",
+      "imageStyle": "rounded"
+    },
+    "features": {
+      "enabled": true,
+      "cardBackground": "#0EA5E9",
+      "cardTextColor": "#FFFFFF",
+      "hoverBackground": "#0284C7",
+      "hoverTextColor": "#FFFFFF",
+      "hoverEffect": "lift",
+      "items": [
+        {
+          "id": "about-feature-1",
+          "title": "Kvalitet",
+          "description": "Topkvalitet i alle vores produkter med moderne printteknik",
+          "iconType": "icon",
+          "iconName": "award",
+          "linkUrl": "",
+          "openInNewTab": false
+        },
+        {
+          "id": "about-feature-2",
+          "title": "Personlig rådgivning",
+          "description": "Eksperter der hjælper dig med at vælge den rigtige løsning",
+          "iconType": "icon",
+          "iconName": "users",
+          "linkUrl": "",
+          "openInNewTab": false
+        },
+        {
+          "id": "about-feature-3",
+          "title": "Bæredygtighed",
+          "description": "Vi tager ansvar for miljøet i vores produktion",
+          "iconType": "icon",
+          "iconName": "leaf",
+          "linkUrl": "",
+          "openInNewTab": false
+        },
+        {
+          "id": "about-feature-4",
+          "title": "Levering til tiden",
+          "description": "Hurtig behandling og præcise leveringstider",
+          "iconType": "icon",
+          "iconName": "clock",
+          "linkUrl": "",
+          "openInNewTab": false
+        }
+      ]
+    }
+  },
+  "forside": {
+    "showBanner": true,
+    "productsSection": {
+      "enabled": true,
+      "columns": 4,
+      "layoutStyle": "cards",
+      "showStorformatTab": true,
+      "button": {
+        "style": "default",
+        "bgColor": "#0EA5E9",
+        "hoverBgColor": "#0284C7",
+        "textColor": "#FFFFFF",
+        "hoverTextColor": "#FFFFFF",
+        "font": "Poppins",
+        "animation": "none"
+      },
+      "background": {
+        "type": "solid",
+        "color": "#FFFFFF",
+        "gradientStart": "#FFFFFF",
+        "gradientEnd": "#F1F5F9",
+        "gradientAngle": 135,
+        "opacity": 1
+      }
+    },
+    "contentBlocks": [
+      {
+        "id": "block-1",
+        "enabled": false,
+        "heading": "Velkommen til Danmarks Billigste tryksager",
+        "headingFont": "Poppins",
+        "headingColor": "#1F2937",
+        "text": "",
+        "textFont": "Inter",
+        "textColor": "#4B5563",
+        "gallery": [],
+        "mediaType": "single",
+        "imagePosition": "left",
+        "textAlign": "center",
+        "placement": "below_products",
+        "cta": {
+          "enabled": false,
+          "label": "",
+          "href": "",
+          "bgColor": "#0EA5E9",
+          "textColor": "#FFFFFF",
+          "hoverBgColor": "#0284C7",
+          "hoverTextColor": "#FFFFFF",
+          "font": "Poppins",
+          "style": "solid",
+          "size": "md"
+        }
+      }
+    ],
+    "banner2": {
+      "enabled": true,
+      "autoPlay": false,
+      "showArrows": true,
+      "showDots": true,
+      "slides": [
+        {
+          "id": "banner2-slide-1",
+          "enabled": true,
+          "durationSeconds": 5,
+          "items": [
+            {
+              "id": "banner2-item-1",
+              "enabled": true,
+              "title": "Hurtig levering",
+              "description": "Express-muligheder til hele Danmark",
+              "titleFont": "Poppins",
+              "titleColor": "#FFFFFF",
+              "descriptionFont": "Inter",
+              "descriptionColor": "#E5E7EB",
+              "iconType": "icon",
+              "iconName": "Truck",
+              "groupAnimation": "none",
+              "titleAnimation": "none",
+              "descriptionAnimation": "none",
+              "iconAnimation": "none"
+            },
+            {
+              "id": "banner2-item-2",
+              "enabled": true,
+              "title": "Kvalitet til skarpe priser",
+              "description": "25+ års erfaring med professionelt tryk",
+              "titleFont": "Poppins",
+              "titleColor": "#FFFFFF",
+              "descriptionFont": "Inter",
+              "descriptionColor": "#E5E7EB",
+              "iconType": "icon",
+              "iconName": "Award",
+              "groupAnimation": "none",
+              "titleAnimation": "none",
+              "descriptionAnimation": "none",
+              "iconAnimation": "none"
+            },
+            {
+              "id": "banner2-item-3",
+              "enabled": true,
+              "title": "Personlig rådgivning",
+              "description": "Tlf: 71 99 11 10",
+              "titleFont": "Poppins",
+              "titleColor": "#FFFFFF",
+              "descriptionFont": "Inter",
+              "descriptionColor": "#E5E7EB",
+              "iconType": "icon",
+              "iconName": "Phone",
+              "groupAnimation": "none",
+              "titleAnimation": "none",
+              "descriptionAnimation": "none",
+              "iconAnimation": "none"
+            }
+          ]
+        }
+      ],
+      "background": {
+        "type": "solid",
+        "color": "#0EA5E9",
+        "gradientStart": "#0EA5E9",
+        "gradientEnd": "#0284C7",
+        "gradientAngle": 135,
+        "animated": false,
+        "animatedSpeed": "slow",
+        "animatedStart": "#0EA5E9",
+        "animatedMiddle": "#38BDF8",
+        "animatedEnd": "#0284C7"
+      }
+    },
+    "lowerInfo": {
+      "enabled": true,
+      "items": [
+        {
+          "id": "lower-info-1",
+          "enabled": true,
+          "title": "Billige tryksager online",
+          "description": "Webprinter.dk gør det nemt at bestille flyers, foldere, visitkort og hæfter i høj kvalitet til lave priser. Beregn din pris direkte online og få levering i hele Danmark.",
+          "titleFont": "Poppins",
+          "titleColor": "#1F2937",
+          "descriptionFont": "Inter",
+          "descriptionColor": "#4B5563",
+          "mediaType": "none",
+          "mediaAlign": "center",
+          "textAlign": "center",
+          "gallery": []
+        },
+        {
+          "id": "lower-info-2",
+          "enabled": true,
+          "title": "Storformat print til enhver opgave",
+          "description": "Fra bannere og beachflag til skilte og tekstilprint – vi producerer storformat i topkvalitet. Alt printes med UV-bestandige farver og professionel finish.",
+          "titleFont": "Poppins",
+          "titleColor": "#1F2937",
+          "descriptionFont": "Inter",
+          "descriptionColor": "#4B5563",
+          "mediaType": "none",
+          "mediaAlign": "center",
+          "textAlign": "center",
+          "gallery": []
+        },
+        {
+          "id": "lower-info-3",
+          "enabled": true,
+          "title": "Dansk trykkeri med hurtig levering",
+          "description": "Vi har over 25 års erfaring og leverer både til erhverv og private. Kontakt os i dag og oplev service, kvalitet og konkurrencedygtige priser.",
+          "titleFont": "Poppins",
+          "titleColor": "#1F2937",
+          "descriptionFont": "Inter",
+          "descriptionColor": "#4B5563",
+          "mediaType": "none",
+          "mediaAlign": "center",
+          "textAlign": "center",
+          "gallery": []
+        }
+      ],
+      "layout": "grid",
+      "background": {
+        "type": "solid",
+        "color": "#F8FAFC",
+        "gradientStart": "#F8FAFC",
+        "gradientEnd": "#E2E8F0",
+        "gradientAngle": 135
+      }
+    }
+  },
+  "productPage": {
+    "orderButtons": {
+      "font": "Inter",
+      "animation": "none",
+      "primary": {
+        "bgColor": "#0EA5E9",
+        "hoverBgColor": "#0284C7",
+        "textColor": "#FFFFFF",
+        "hoverTextColor": "#FFFFFF"
+      },
+      "secondary": {
+        "bgColor": "#FFFFFF",
+        "hoverBgColor": "#F1F5F9",
+        "textColor": "#1F2937",
+        "hoverTextColor": "#1F2937",
+        "borderColor": "#E2E8F0",
+        "hoverBorderColor": "#CBD5E1"
+      },
+      "selected": {
+        "bgColor": "#16A34A",
+        "hoverBgColor": "#15803D",
+        "textColor": "#FFFFFF",
+        "hoverTextColor": "#FFFFFF"
+      }
+    },
+    "matrix": {
+      "font": "Inter",
+      "headerBg": "#F1F5F9",
+      "headerText": "#1F2937",
+      "rowHeaderBg": "#FFFFFF",
+      "rowHeaderText": "#1F2937",
+      "cellBg": "#FFFFFF",
+      "cellText": "#1F2937",
+      "cellHoverBg": "#E2E8F0",
+      "cellHoverText": "#1F2937",
+      "selectedBg": "#0EA5E9",
+      "selectedText": "#FFFFFF",
+      "borderColor": "#E2E8F0"
+    }
+  },
+  "grafiskVejledning": {
+    "header": {
+      "headerLabel": "",
+      "title": "Grafisk Vejledning",
+      "description": "Alt du skal vide for at levere korrekte trykfiler – fra offsettryk til storformat, spotlak, folie og konturskæring."
+    },
+    "checklist": {
+      "title": "Hurtig Tjekliste – Før du sender",
+      "items": [
+        "PDF-format (helst PDF/X-4)",
+        "Korrekt færdigt format + beskæring (bleed)",
+        "CMYK farverum (ikke RGB til offsettryk)",
+        "Korrekt opløsning (offset vs storformat)",
+        "Skrifttyper indlejret eller konverteret til kurver",
+        "Billeder indlejret/linket korrekt",
+        "Én fil = ét job med korrekt sideantal",
+        "Filnavn + ordrereference"
+      ]
+    },
+    "toc": {
+      "title": "Indholdsfortegnelse",
+      "font": "Inter",
+      "boxBackground": "#F1F5F9",
+      "boxTextColor": "#1F2937",
+      "items": [
+        {
+          "id": "toc-offsettryk",
+          "label": "Offsettryk (flyers, foldere, plakater)",
+          "anchor": "offsettryk",
+          "images": []
+        },
+        {
+          "id": "toc-cmyk-rgb",
+          "label": "CMYK vs RGB + farveforventninger",
+          "anchor": "cmyk-rgb",
+          "images": []
+        },
+        {
+          "id": "toc-storformat",
+          "label": "Storformat / Wide-format",
+          "anchor": "storformat",
+          "images": []
+        },
+        {
+          "id": "toc-efterbehandling",
+          "label": "Efterbehandling af bannere",
+          "anchor": "efterbehandling",
+          "images": []
+        },
+        {
+          "id": "toc-spotlak",
+          "label": "Specielle Effekter (Spotlak, Folie, CutContour, Hvidt Blæk)",
+          "anchor": "spotlak",
+          "images": []
+        },
+        {
+          "id": "toc-trykmetoder",
+          "label": "Silketryk vs Digitaltryk",
+          "anchor": "trykmetoder",
+          "images": []
+        },
+        {
+          "id": "toc-tekstiltryk",
+          "label": "Tekstiltryk: DTG & DTF",
+          "anchor": "tekstiltryk",
+          "images": []
+        },
+        {
+          "id": "toc-pdf-eksport",
+          "label": "PDF-eksport guide",
+          "anchor": "pdf-eksport",
+          "images": []
+        },
+        {
+          "id": "toc-skabeloner",
+          "label": "Skabeloner (PDF)",
+          "anchor": "skabeloner",
+          "images": []
+        },
+        {
+          "id": "toc-kontakt",
+          "label": "Support & Kontakt",
+          "anchor": "kontakt",
+          "images": []
+        }
+      ]
+    }
+  },
+  "navigation": {
+    "dropdown_images": true
+  },
+  "pageExtras": {
+    "about": {
+      "contentBlocks": [],
+      "lowerInfo": {
+        "enabled": false,
+        "items": [],
+        "layout": "grid",
+        "background": {
+          "type": "solid",
+          "color": "#F8FAFC",
+          "gradientStart": "#F8FAFC",
+          "gradientEnd": "#E2E8F0",
+          "gradientAngle": 135
+        }
+      }
+    },
+    "contact": {
+      "contentBlocks": [],
+      "lowerInfo": {
+        "enabled": false,
+        "items": [],
+        "layout": "grid",
+        "background": {
+          "type": "solid",
+          "color": "#F8FAFC",
+          "gradientStart": "#F8FAFC",
+          "gradientEnd": "#E2E8F0",
+          "gradientAngle": 135
+        }
+      }
+    },
+    "grafisk": {
+      "contentBlocks": [],
+      "lowerInfo": {
+        "enabled": false,
+        "items": [],
+        "layout": "grid",
+        "background": {
+          "type": "solid",
+          "color": "#F8FAFC",
+          "gradientStart": "#F8FAFC",
+          "gradientEnd": "#E2E8F0",
+          "gradientAngle": 135
+        }
+      }
+    },
+    "product": {
+      "contentBlocks": [],
+      "lowerInfo": {
+        "enabled": false,
+        "items": [],
+        "layout": "grid",
+        "background": {
+          "type": "solid",
+          "color": "#F8FAFC",
+          "gradientStart": "#F8FAFC",
+          "gradientEnd": "#E2E8F0",
+          "gradientAngle": 135
+        }
+      }
+    }
+  },
+  "pages": {
+    "items": []
+  },
+  "productImages": {
+    "setId": "default",
+    "hueRotate": 0,
+    "saturate": 100
+  },
+  "selectedIconPackId": "classic",
+  "favicon": {
+    "type": "preset",
+    "presetId": "default",
+    "presetColor": "#0EA5E9",
+    "customUrl": null
+  },
+  "themeId": "classic",
+  "themeSettings": {}
+}

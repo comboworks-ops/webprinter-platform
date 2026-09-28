@@ -1,0 +1,22 @@
+/* Shared shop tokens apply inside the product slot and the branded dialog. */
+.print-preview-surface { min-width: 0; padding: 0 var(--ui-space-3, 12px) var(--ui-space-3, 12px); }
+.print-preview-surface .flat-print-viewer { color: hsl(var(--foreground)); }
+.print-preview-surface .flat-print-stage { background: radial-gradient(ellipse at 50% 36%, hsl(var(--card)), hsl(var(--secondary))); border-radius: var(--radius, 8px); }
+.print-preview-surface .flat-print-controls button { color: hsl(var(--foreground)); background: hsl(var(--card)); border-color: hsl(var(--border)); border-radius: var(--radius, 6px); }
+.print-preview-surface .flat-print-controls button:hover { background: hsl(var(--secondary)); }
+.print-preview-surface .flat-print-controls button:focus-visible,
+.print-preview-surface .half-fold-slider input:focus-visible,
+.print-preview-surface .flat-print-stage:focus-visible { outline-color: hsl(var(--ring)); }
+.print-preview-surface .half-fold-slider input { accent-color: hsl(var(--primary)); }
+.print-preview-surface .half-fold-slider > div,
+.print-preview-surface .roll-fold-step { color: hsl(var(--muted-foreground)); }
+.print-preview-compact .flat-print-stage { height: clamp(240px, 35dvh, 340px); min-height: 220px; }
+.print-preview-compact .flat-print-controls { gap: 4px; }
+.print-preview-compact .flat-print-controls button { font-size: 11px; min-height: 28px; padding: 4px 7px; }
+.print-preview-compact .half-fold-slider { margin-top: 8px; }
+.print-preview-compact .half-fold-slider label, .print-preview-compact .roll-fold-step { font-size: 11px; }
+.product-print-media .product-folder-variant { white-space: normal; }
+@media (pointer: coarse), (max-width: 640px) {
+  .print-preview-compact .flat-print-controls button { min-height: 44px; }
+  .product-print-media .product-folder-media-switch button[role=tab] { min-height: 44px; }
+}

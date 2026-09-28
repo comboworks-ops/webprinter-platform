@@ -9,7 +9,6 @@ export interface BrandingPaletteColors {
     bodyText?: string;
     pricingText?: string;
     linkText?: string;
-    [key: string]: string | undefined;
 }
 
 export const BRANDING_PALETTE_LABELS: Record<string, string> = {

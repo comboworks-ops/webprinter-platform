@@ -23,6 +23,11 @@ Frontend helper:
 Supabase function:
 - `pricing-read`
 
+Deployment config:
+- `[functions.pricing-read] verify_jwt = false`
+- The function is public read-only and must answer browser `OPTIONS` preflight
+  with CORS headers before product price previews call it.
+
 ## Request Body
 
 ```json
@@ -78,6 +83,8 @@ At least one of `slug` or `productId` is required.
 - The endpoint reads `generic_product_prices` only.
 - It normalizes `selectionMap` and common legacy ids from `extra_data`.
 - This is a validation/debug-friendly read API, not a replacement for all frontend pricing behavior yet.
+- `scripts/check-supabase-function-exposure.js` verifies the public-read JWT/CORS
+  guardrails for this function before deployment.
 
 ## Rollback
 

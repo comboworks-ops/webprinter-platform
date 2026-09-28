@@ -1,0 +1,347 @@
+{
+  "standard": "Open Workspace, original option 3",
+  "choices": {
+    "create": {
+      "title": "Opret produkt",
+      "key": "create_parallel",
+      "option": 2,
+      "src": "images/create_parallel.png"
+    },
+    "productinfo": {
+      "title": "Produktinfo",
+      "key": "product_info_editorial",
+      "option": 1,
+      "src": "images/product_info_editorial.png"
+    },
+    "matrix": {
+      "title": "Produkt & Priser – Matrix",
+      "key": "matrix_context",
+      "option": 2,
+      "src": "images/matrix_context.png"
+    },
+    "delivery": {
+      "title": "Bestilling og levering",
+      "key": "delivery_methods",
+      "option": 3,
+      "src": "images/delivery_methods.png"
+    },
+    "options": {
+      "title": "Valgmuligheder",
+      "key": "options_workspace",
+      "option": 2,
+      "src": "images/options_workspace.png"
+    },
+    "fields": {
+      "title": "Felter",
+      "key": "fields_preview",
+      "option": 3,
+      "src": "images/fields_preview.png"
+    },
+    "productseo": {
+      "title": "Produkt SEO & Meta",
+      "key": "productseo_first",
+      "option": 2,
+      "src": "images/productseo_first.png"
+    },
+    "tooltips": {
+      "title": "Tooltips",
+      "key": "tooltips_split",
+      "option": 1,
+      "src": "images/tooltips_split.png"
+    },
+    "storformat": {
+      "title": "Storformat priser",
+      "key": "storformat_preview",
+      "option": 3,
+      "src": "images/storformat_preview.png"
+    },
+    "orders": {
+      "title": "Ordrer",
+      "key": "orders_1",
+      "option": 2,
+      "src": "images/orders_1.png"
+    },
+    "orderdetail": {
+      "title": "Ordredetaljer",
+      "key": "orderdetail_1",
+      "option": 2,
+      "src": "images/orderdetail_1.png"
+    },
+    "messages": {
+      "title": "Beskeder",
+      "key": "messages_1",
+      "option": 2,
+      "src": "images/messages_1.png"
+    },
+    "companyhub": {
+      "title": "Firmahub",
+      "key": "companyhub_2",
+      "option": 3,
+      "src": "images/companyhub_2.png"
+    },
+    "modules": {
+      "title": "Shop moduler",
+      "key": "modules_1",
+      "option": 2,
+      "src": "images/modules_1.png"
+    },
+    "sitedesign": {
+      "title": "Site Design V2",
+      "key": "sitedesign_0",
+      "option": 1,
+      "src": "images/sitedesign_0.png"
+    },
+    "branding": {
+      "title": "Branding",
+      "key": "branding_0",
+      "option": 1,
+      "src": "images/branding_0.png"
+    },
+    "brandingclassic": {
+      "title": "Klassisk branding",
+      "key": "brandingclassic_1",
+      "option": 2,
+      "src": "images/brandingclassic_1.png"
+    },
+    "icons": {
+      "title": "Produktbilleder",
+      "key": "icons_0",
+      "option": 1,
+      "src": "images/icons_0.png"
+    },
+    "sites": {
+      "title": "Sites",
+      "key": "sites_0",
+      "option": 1,
+      "src": "images/sites_0.png"
+    },
+    "designer": {
+      "title": "Print Designer",
+      "key": "designer_1",
+      "option": 2,
+      "src": "images/designer_1.png"
+    },
+    "designlibrary": {
+      "title": "Design Bibliotek",
+      "key": "designlibrary_1",
+      "option": 2,
+      "src": "images/designlibrary_1.png"
+    },
+    "formattemplates": {
+      "title": "Templatebibliotek",
+      "key": "formattemplates_0",
+      "option": 1,
+      "src": "images/formattemplates_0.png"
+    },
+    "colorprofiles": {
+      "title": "Farveprofiler",
+      "key": "colorprofiles_1",
+      "option": 2,
+      "src": "images/colorprofiles_1.png"
+    },
+    "seomanager": {
+      "title": "SEO Manager",
+      "key": "seomanager_0",
+      "option": 1,
+      "src": "images/seomanager_0.png"
+    },
+    "aiseo": {
+      "title": "AI SEO",
+      "key": "aiseo_2",
+      "option": 3,
+      "src": "images/aiseo_2.png"
+    },
+    "domain": {
+      "title": "Domæne",
+      "key": "domain_1",
+      "option": 2,
+      "src": "images/domain_1.png"
+    },
+    "subscription": {
+      "title": "Abonnement",
+      "key": "subscription_2",
+      "option": 3,
+      "src": "images/subscription_2.png"
+    },
+    "settings": {
+      "title": "Indstillinger",
+      "key": "settings_0",
+      "option": 1,
+      "src": "images/settings_0.png"
+    },
+    "payment": {
+      "title": "Betaling",
+      "key": "payment_0",
+      "option": 1,
+      "src": "images/payment_0.png"
+    },
+    "tenants": {
+      "title": "Lejere",
+      "key": "tenants_0",
+      "option": 1,
+      "src": "images/tenants_0.png"
+    },
+    "updates": {
+      "title": "Systemopdateringer",
+      "key": "updates_1",
+      "option": 2,
+      "src": "images/updates_1.png"
+    },
+    "tenantupdates": {
+      "title": "Indbakke",
+      "key": "tenantupdates_0",
+      "option": 1,
+      "src": "images/tenantupdates_0.png"
+    },
+    "assets": {
+      "title": "Ikonbibliotek",
+      "key": "assets_1",
+      "option": 2,
+      "src": "images/assets_1.png"
+    },
+    "resources": {
+      "title": "Ressourcer",
+      "key": "resources_1",
+      "option": 2,
+      "src": "images/resources_1.png"
+    },
+    "masterbranding": {
+      "title": "Platform Master Design",
+      "key": "masterbranding_0",
+      "option": 1,
+      "src": "images/masterbranding_0.png"
+    },
+    "mastertemplates": {
+      "title": "Master skabeloner",
+      "key": "mastertemplates_1",
+      "option": 2,
+      "src": "images/mastertemplates_1.png"
+    },
+    "tenanttemplates": {
+      "title": "Skabeloner",
+      "key": "tenanttemplates_1",
+      "option": 2,
+      "src": "images/tenanttemplates_1.png"
+    },
+    "platformseo": {
+      "title": "Platform SEO",
+      "key": "platformseo_1",
+      "option": 2,
+      "src": "images/platformseo_1.png"
+    },
+    "supplierbank": {
+      "title": "Supplier Bank",
+      "key": "supplierbank_1",
+      "option": 2,
+      "src": "images/supplierbank_1.png"
+    },
+    "production": {
+      "title": "Printproduktion",
+      "key": "production_0",
+      "option": 1,
+      "src": "images/production_0.png"
+    },
+    "podadmin": {
+      "title": "POD v1 administration",
+      "key": "podadmin_1",
+      "option": 2,
+      "src": "images/podadmin_1.png"
+    },
+    "podcatalog": {
+      "title": "POD v1 katalog",
+      "key": "podcatalog_1",
+      "option": 2,
+      "src": "images/podcatalog_1.png"
+    },
+    "podorders": {
+      "title": "POD v1 ordrer",
+      "key": "podorders_1",
+      "option": 2,
+      "src": "images/podorders_1.png"
+    },
+    "podbilling": {
+      "title": "POD v1 betaling",
+      "key": "podbilling_1",
+      "option": 2,
+      "src": "images/podbilling_1.png"
+    },
+    "pod2admin": {
+      "title": "POD v2 administration",
+      "key": "pod2admin_0",
+      "option": 1,
+      "src": "images/pod2admin_0.png"
+    },
+    "pod2wizard": {
+      "title": "POD v2 variant og layout",
+      "key": "pod2wizard_2",
+      "option": 3,
+      "src": "images/pod2wizard_2.png"
+    },
+    "pod2catalog": {
+      "title": "POD v2 katalog",
+      "key": "pod2catalog_1",
+      "option": 2,
+      "src": "images/pod2catalog_1.png"
+    },
+    "pod2orders": {
+      "title": "POD v2 ordrer",
+      "key": "pod2orders_2",
+      "option": 3,
+      "src": "images/pod2orders_2.png"
+    },
+    "pod2billing": {
+      "title": "POD v2 betaling",
+      "key": "pod2billing_1",
+      "option": 2,
+      "src": "images/pod2billing_1.png"
+    },
+    "pod3": {
+      "title": "Flyer Alarm POD3",
+      "key": "pod3_2",
+      "option": 3,
+      "src": "images/pod3_2.png"
+    },
+    "products": {
+      "title": "Produktoversigt",
+      "key": "products_register",
+      "option": 1,
+      "src": "images/products_register.png"
+    },
+    "readiness": {
+      "title": "Driftsklarhed",
+      "key": "readiness_1",
+      "option": 2,
+      "src": "images/readiness_1.png"
+    },
+    "categories": {
+      "title": "Kategorier",
+      "key": "categories_0",
+      "option": 1,
+      "src": "images/categories_0.png"
+    },
+    "pricingmodules": {
+      "title": "Prismoduler",
+      "key": "pricingmodules_0",
+      "option": 1,
+      "src": "images/pricingmodules_0.png"
+    },
+    "machines": {
+      "title": "Maskin-beregning",
+      "key": "machines_0",
+      "option": 1,
+      "src": "images/machines_0.png"
+    },
+    "costtest": {
+      "title": "Kosttest",
+      "key": "costtest_2",
+      "option": 3,
+      "src": "images/costtest_2.png"
+    },
+    "jobpool": {
+      "title": "Jobpulje",
+      "key": "jobpool_1",
+      "option": 2,
+      "src": "images/jobpool_1.png"
+    }
+  }
+}

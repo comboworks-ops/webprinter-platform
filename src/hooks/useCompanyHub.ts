@@ -12,7 +12,7 @@ export function useCompanyHub(tenantId?: string) {
         queryFn: async () => {
             if (!tenantId) return [];
             const { data, error } = await supabase
-                .from("company_accounts" as any)
+                .from("company_accounts")
                 .select("*")
                 .eq("tenant_id", tenantId)
                 .order("name");
@@ -69,22 +69,23 @@ export function useCompanyHub(tenantId?: string) {
         },
     });
 
-    const hubItemsQuery = (companyId?: string) => useQuery({
+    const useHubItemsQuery = (companyId?: string) => useQuery({
         queryKey: ["company_hub_items", companyId],
         queryFn: async () => {
             if (!companyId) return [];
             const { data, error } = await supabase
-                .from("company_hub_items" as any)
+                .from("company_hub_items")
                 .select(`
                     *,
-                    product:products(name)
+                    product:products(name, slug)
                 `)
                 .eq("company_id", companyId)
                 .order("sort_order");
             if (error) throw error;
             return (data as any[]).map(item => ({
                 ...item,
-                product_name: item.product?.name
+                product_name: item.product?.name,
+                product_slug: item.product?.slug
             })) as (HubItem & { product_name: string })[];
         },
         enabled: !!companyId,
@@ -137,12 +138,12 @@ export function useCompanyHub(tenantId?: string) {
         },
     });
 
-    const membersQuery = (companyId?: string) => useQuery({
+    const useMembersQuery = (companyId?: string) => useQuery({
         queryKey: ["company_members", companyId],
         queryFn: async () => {
             if (!companyId) return [];
             const { data, error } = await supabase
-                .from("company_members" as any)
+                .from("company_members")
                 .select(`
                     *,
                     profile:profiles(first_name, last_name, email)
@@ -196,7 +197,7 @@ export function useCompanyHub(tenantId?: string) {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return [];
             const { data, error } = await supabase
-                .from("company_members" as any)
+                .from("company_members")
                 .select("company:company_accounts(*)")
                 .eq("user_id", user.id);
             if (error) throw error;
@@ -210,7 +211,7 @@ export function useCompanyHub(tenantId?: string) {
             if (!tenantId) return [];
             // Try roles first
             const { data: roleUsers } = await supabase
-                .from("user_roles" as any)
+                .from("user_roles")
                 .select(`
                     user_id,
                     profile:profiles(first_name, last_name, email)
@@ -225,7 +226,7 @@ export function useCompanyHub(tenantId?: string) {
 
             if (users.length === 0) {
                 const { data: profiles } = await supabase
-                    .from("profiles" as any)
+                    .from("profiles")
                     .select("id, first_name, last_name, email")
                     .limit(50);
                 users = (profiles || []).map((p: any) => ({
@@ -244,11 +245,11 @@ export function useCompanyHub(tenantId?: string) {
         createCompanyMutation,
         updateCompanyMutation,
         deleteCompanyMutation,
-        hubItemsQuery,
+        useHubItemsQuery,
         createHubItemMutation,
         updateHubItemMutation,
         deleteHubItemMutation,
-        membersQuery,
+        useMembersQuery,
         addMemberMutation,
         removeMemberMutation,
         myMembershipsQuery,

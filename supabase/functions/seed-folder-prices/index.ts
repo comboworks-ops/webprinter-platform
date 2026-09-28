@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { optionsResponse } from '../_shared/http.ts';
 import { requireLocalOnly } from '../_shared/localOnly.ts';
@@ -73,11 +74,11 @@ Deno.serve(async (req) => {
   try {
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      readSupabaseKey((name) => Deno.env.get(name), "secret") ?? ''
     );
 
     const priceRecords = [];
-    
+
     for (const [format, papers] of Object.entries(folderPrices)) {
       for (const [paper, foldTypes] of Object.entries(papers)) {
         for (const [foldType, quantities] of Object.entries(foldTypes)) {
@@ -96,18 +97,18 @@ Deno.serve(async (req) => {
 
     const { data, error } = await supabaseClient
       .from('folder_prices')
-      .upsert(priceRecords, { 
+      .upsert(priceRecords, {
         onConflict: 'format,paper,fold_type,quantity',
-        ignoreDuplicates: false 
+        ignoreDuplicates: false
       });
 
     if (error) throw error;
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         message: `Seeded ${priceRecords.length} folder prices`,
-        count: priceRecords.length 
+        count: priceRecords.length
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -116,9 +117,9 @@ Deno.serve(async (req) => {
     console.error('Error seeding folder prices:', error);
     return new Response(
       JSON.stringify({ error: errorMessage }),
-      { 
-        status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
     );
   }

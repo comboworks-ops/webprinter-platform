@@ -1,3 +1,4 @@
+import { StorefrontTooltipLayer } from "@/components/StorefrontTooltipLayer";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -24,6 +25,8 @@ import MyOrders from "./pages/MyOrders";
 import MyAccount from "./pages/MyAccount";
 import MyAddresses from "./pages/MyAddresses";
 import MySettings from "./pages/MySettings";
+import MyDesigns from "./pages/MyDesigns";
+import { CustomerAccountProvider } from "./components/account/CustomerAccountContext";
 import TenantSignup from "./pages/TenantSignup";
 import PreviewStorefront from "./pages/PreviewStorefront";
 import PreviewShop from "./pages/PreviewShop";
@@ -50,6 +53,7 @@ import { CookieConsentProvider, CookieBanner, CookieSettingsDialog } from "@/com
 import { PlatformSeoHead } from "@/components/platform-seo/PlatformSeoHead";
 import { SupabaseDataSyncBridge } from "@/components/system/SupabaseDataSyncBridge";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { IS_ISOLATED_PREVIEW, IS_ISOLATED_CHECKOUT_TEST } from "@/lib/isolatedPreview";
 
 const queryClient = new QueryClient();
 
@@ -108,8 +112,9 @@ const AnimatedRoutes = () => {
   const shouldReduceMotion = useReducedMotion();
   const shopSettings = useShopSettings();
   const pageTransitionStyle = String((shopSettings.data?.branding as any)?.themeSettings?.pageTransitionStyle || "subtle-fade");
+  const isAccountRoute = location.pathname === "/mine-ordrer" || location.pathname.startsWith("/min-konto");
   const isHeavyAppRoute = location.pathname.startsWith("/admin") || location.pathname.startsWith("/designer");
-  const transition = getPageTransition(pageTransitionStyle, Boolean(shouldReduceMotion || isHeavyAppRoute));
+  const transition = getPageTransition(pageTransitionStyle, Boolean(shouldReduceMotion || isHeavyAppRoute || isAccountRoute));
 
   return (
     <AnimatePresence mode="wait" initial={false}>
@@ -160,11 +165,14 @@ const AnimatedRoutes = () => {
           <Route path="/opret-shop" element={<TenantSignup />} />
           <Route path="/profil" element={<Profile />} />
           <Route path="/company" element={<CompanyHub />} />
-          <Route path="/mine-ordrer" element={<MyOrders />} />
-          <Route path="/min-konto" element={<MyAccount />} />
-          <Route path="/min-konto/ordrer" element={<MyOrders />} />
-          <Route path="/min-konto/adresser" element={<MyAddresses />} />
-          <Route path="/min-konto/indstillinger" element={<MySettings />} />
+          <Route element={<CustomerAccountProvider />}>
+            <Route path="/mine-ordrer" element={<MyOrders />} />
+            <Route path="/min-konto" element={<MyAccount />} />
+            <Route path="/min-konto/ordrer" element={<MyOrders />} />
+            <Route path="/min-konto/designs" element={<MyDesigns />} />
+            <Route path="/min-konto/adresser" element={<MyAddresses />} />
+            <Route path="/min-konto/indstillinger" element={<MySettings />} />
+          </Route>
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin/*" element={<Admin />} />
           <Route path="/sitemap.xml" element={<Sitemap />} />
@@ -192,11 +200,24 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            {IS_ISOLATED_PREVIEW && (
+              <aside aria-label="Testversion" className="border-b border-amber-200 bg-amber-50 py-2 text-center text-sm leading-relaxed text-amber-950" style={{ paddingInline: 'var(--ui-page-gutter, 1rem)' }}>
+                <strong>Testversion</strong> · {IS_ISOLATED_CHECKOUT_TEST
+                    ? "Kun Stripe-testbetalinger — ingen rigtige penge. Separat testdatabase; automatisk email er slået fra."
+                    : "Separat testdatabase. Betaling og udsendelse af emails er slået fra."}
+                <nav aria-label="Testbutikker" className="flex flex-wrap justify-center gap-x-4 gap-y-1">
+                  <a className="underline py-1" href="/shop?tenantId=00000000-0000-0000-0000-000000000000">Webprinter</a>
+                  <a className="underline py-1" href="/shop?tenantId=7bbbba1c-dd82-4fd7-a280-ddaafbbdd8ba">Salgsmapper</a>
+                  <a className="underline py-1" href="/shop?tenantId=7cb851f5-c792-40b1-a79a-1f7c7b5f668c">Onlinetryksager</a>
+                </nav>
+              </aside>
+            )}
             <CookieBanner />
             <CookieSettingsDialog />
             <PageTracker />
             <PlatformSeoHead />
             <AnimatedRoutes />
+            <StorefrontTooltipLayer />
           </BrowserRouter>
         </TooltipProvider>
       </CookieConsentProvider>

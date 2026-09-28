@@ -19,3 +19,6 @@ const rawPod2UseOrderSubmit = import.meta.env.VITE_USE_POD2_ORDER_SUBMIT;
 export const USE_POD2_ORDER_SUBMIT = rawPod2UseOrderSubmit === undefined
     ? true
     : readBooleanEnvFlag(rawPod2UseOrderSubmit);
+
+// Hosted Photopea stays opt-in in production. Local development exposes the pilot for verification.
+export const PHOTOPEA_PILOT_ENABLED = readBooleanEnvFlag(import.meta.env.VITE_PHOTOPEA_PILOT);

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,6 +10,7 @@ import { isPictureUiMode } from "@/lib/pricing/selectorStyling";
 import {
     DEFAULT_PICTURE_BUTTON_STYLING,
     DEFAULT_TEXT_BUTTON_STYLING,
+    DEFAULT_SELECTOR_BOX_STYLING,
     type PictureButtonStyling,
     type SelectorStyling,
     type TextButtonStyling,
@@ -18,10 +19,31 @@ import {
 type OptionSelectorStyleEditorProps = {
     className?: string;
     hideIntro?: boolean;
+    detachedLabels?: boolean;
     uiMode?: string;
     value?: SelectorStyling;
-    onChange: (value: SelectorStyling) => void;
+    onChange: (value: SelectorStyling, reset?: boolean) => void;
 };
+
+const colorHelp: Record<string, string> = {
+    Baggrund: 'Grundfarven, før kunden vælger feltet.',
+    'Hover baggrund': 'Baggrund når musen er over knappen.',
+    Tekst: 'Tekstfarven i det normale felt.',
+    'Hover tekst': 'Tekstfarven når musen er over knappen.',
+    'Valgt baggrund': 'Baggrund på kundens aktive valg.',
+    'Valgt tekst': 'Tekstfarven på kundens aktive valg.',
+    Kant: 'Rammen rundt om feltet.',
+    'Hover kant': 'Rammen når musen er over feltet.',
+    'Valgt kant': 'Rammen på kundens aktive valg.',
+    'Ring farve': 'Markeringen uden om det valgte felt.',
+};
+function StyleColorField(props: ComponentProps<typeof ColorPickerWithSwatches>) {
+    return <div className="flex min-w-0 items-center gap-3" role="group" aria-label={props.label}>
+        <ColorPickerWithSwatches {...props} />
+        <div className="min-w-0"><p className="text-xs font-medium">{props.label}</p>
+        {props.label && colorHelp[props.label] && <p className="text-[11px] leading-relaxed text-muted-foreground">{colorHelp[props.label]}</p>}</div>
+    </div>;
+}
 
 const savedSwatches: string[] = [];
 
@@ -33,7 +55,7 @@ function ColorHelpField({
     children: ReactNode;
 }) {
     return (
-        <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-2 items-start">
+        <div className="space-y-1">
             <div className="min-w-0">{children}</div>
             <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
                 {help}
@@ -45,12 +67,13 @@ function ColorHelpField({
 export function OptionSelectorStyleEditor({
     className,
     hideIntro = false,
+    detachedLabels = false,
     uiMode,
     value,
     onChange,
 }: OptionSelectorStyleEditorProps) {
-    const pictureMode = isPictureUiMode(uiMode);
-    const showButtonControls = uiMode === "buttons";
+    const pictureMode = isPictureUiMode(uiMode) || uiMode === "image_only" || uiMode === "text_below_image";
+    const showButtonControls = uiMode === "buttons" || uiMode === "text_only";
     const showPictureControls = pictureMode;
     const showNote = uiMode === "dropdown" || uiMode === "checkboxes" || uiMode === "hidden";
 
@@ -86,6 +109,7 @@ export function OptionSelectorStyleEditor({
 
     return (
         <div className={cn("max-w-full space-y-3 overflow-hidden rounded-md border bg-muted/20 p-2.5", className)}>
+            <button type="button" className="text-xs font-medium underline underline-offset-4" onClick={() => onChange({ textButtons: { ...DEFAULT_TEXT_BUTTON_STYLING }, pictureButtons: { ...DEFAULT_PICTURE_BUTTON_STYLING, labelOutsideImage: true }, selectorBox: { ...DEFAULT_SELECTOR_BOX_STYLING } }, true)}>Gendan standardudseende</button>
             {!hideIntro && (
                 <div className="space-y-1">
                     <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Udseende</div>
@@ -94,6 +118,11 @@ export function OptionSelectorStyleEditor({
                     </p>
                 </div>
             )}
+
+            <details className="rounded-md border p-2"><summary className="cursor-pointer text-xs font-medium">Sektionsboks — området omkring alle valg</summary><div className="mt-3 space-y-3">
+                {(['backgroundColor', 'borderColor'] as const).map(key => <StyleColorField key={key} compact label={key === 'backgroundColor' ? 'Sektionsbaggrund' : 'Sektionskant'} value={{ ...DEFAULT_SELECTOR_BOX_STYLING, ...value?.selectorBox }[key]} onChange={color => onChange({ ...value, selectorBox: { ...value?.selectorBox, [key]: color } })} />)}
+                {([['borderRadiusPx', 'Boksens hjørnerunding', 36], ['borderWidthPx', 'Boksens kantbredde', 6], ['paddingPx', 'Luft i sektionsboksen', 40]] as const).map(([key, label, max]) => <label key={key} className="block text-xs">{label} · {{ ...DEFAULT_SELECTOR_BOX_STYLING, ...value?.selectorBox }[key]} px<input className="mt-2 w-full" type="range" aria-label={label} min="0" max={max} step="1" value={{ ...DEFAULT_SELECTOR_BOX_STYLING, ...value?.selectorBox }[key]} onChange={event => onChange({ ...value, selectorBox: { ...value?.selectorBox, [key]: Number(event.target.value) } })} /></label>)}
+            </div></details>
 
             {showNote && (
                 <div className="rounded-md border bg-background/80 px-3 py-2 text-[11px] text-muted-foreground">
@@ -107,7 +136,7 @@ export function OptionSelectorStyleEditor({
                 <div className="space-y-4">
                     <div className="text-xs font-medium">Knapper</div>
                     <div className="grid gap-3">
-                        <ColorPickerWithSwatches
+                        <StyleColorField
                             compact
                             showFullSwatches={false}
                             savedSwatches={savedSwatches}
@@ -115,7 +144,7 @@ export function OptionSelectorStyleEditor({
                             value={textButtons.backgroundColor}
                             onChange={(color) => updateTextButton("backgroundColor", color)}
                         />
-                        <ColorPickerWithSwatches
+                        <StyleColorField
                             compact
                             showFullSwatches={false}
                             savedSwatches={savedSwatches}
@@ -123,7 +152,7 @@ export function OptionSelectorStyleEditor({
                             value={textButtons.hoverBackgroundColor}
                             onChange={(color) => updateTextButton("hoverBackgroundColor", color)}
                         />
-                        <ColorPickerWithSwatches
+                        <StyleColorField
                             compact
                             showFullSwatches={false}
                             savedSwatches={savedSwatches}
@@ -131,7 +160,7 @@ export function OptionSelectorStyleEditor({
                             value={textButtons.textColor}
                             onChange={(color) => updateTextButton("textColor", color)}
                         />
-                        <ColorPickerWithSwatches
+                        <StyleColorField
                             compact
                             showFullSwatches={false}
                             savedSwatches={savedSwatches}
@@ -139,7 +168,7 @@ export function OptionSelectorStyleEditor({
                             value={textButtons.hoverTextColor}
                             onChange={(color) => updateTextButton("hoverTextColor", color)}
                         />
-                        <ColorPickerWithSwatches
+                        <StyleColorField
                             compact
                             showFullSwatches={false}
                             savedSwatches={savedSwatches}
@@ -147,7 +176,7 @@ export function OptionSelectorStyleEditor({
                             value={textButtons.selectedBackgroundColor}
                             onChange={(color) => updateTextButton("selectedBackgroundColor", color)}
                         />
-                        <ColorPickerWithSwatches
+                        <StyleColorField
                             compact
                             showFullSwatches={false}
                             savedSwatches={savedSwatches}
@@ -155,7 +184,7 @@ export function OptionSelectorStyleEditor({
                             value={textButtons.selectedTextColor}
                             onChange={(color) => updateTextButton("selectedTextColor", color)}
                         />
-                        <ColorPickerWithSwatches
+                        <StyleColorField
                             compact
                             showFullSwatches={false}
                             savedSwatches={savedSwatches}
@@ -163,7 +192,7 @@ export function OptionSelectorStyleEditor({
                             value={textButtons.borderColor}
                             onChange={(color) => updateTextButton("borderColor", color)}
                         />
-                        <ColorPickerWithSwatches
+                        <StyleColorField
                             compact
                             showFullSwatches={false}
                             savedSwatches={savedSwatches}
@@ -178,10 +207,10 @@ export function OptionSelectorStyleEditor({
                     <div className="grid gap-4">
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                                <Label className="text-xs">Hjoernerunding</Label>
+                                <Label className="text-xs">Hjørnerunding</Label>
                                 <span className="text-[11px] text-muted-foreground">{textButtons.borderRadiusPx}px</span>
                             </div>
-                            <Slider
+                            <Slider aria-label="Hjørnerunding"
                                 min={0}
                                 max={36}
                                 step={1}
@@ -194,7 +223,7 @@ export function OptionSelectorStyleEditor({
                                 <Label className="text-xs">Kantbredde</Label>
                                 <span className="text-[11px] text-muted-foreground">{textButtons.borderWidthPx}px</span>
                             </div>
-                            <Slider
+                            <Slider aria-label="Kantbredde"
                                 min={0}
                                 max={6}
                                 step={1}
@@ -204,10 +233,10 @@ export function OptionSelectorStyleEditor({
                         </div>
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                                <Label className="text-xs">Tekststoerrelse</Label>
+                                <Label className="text-xs">Tekststørrelse</Label>
                                 <span className="text-[11px] text-muted-foreground">{textButtons.fontSizePx}px</span>
                             </div>
-                            <Slider
+                            <Slider aria-label="Tekststørrelse"
                                 min={10}
                                 max={22}
                                 step={1}
@@ -217,10 +246,10 @@ export function OptionSelectorStyleEditor({
                         </div>
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                                <Label className="text-xs">Knaphoejde</Label>
+                                <Label className="text-xs">Knaphøjde</Label>
                                 <span className="text-[11px] text-muted-foreground">{textButtons.minHeightPx}px</span>
                             </div>
-                            <Slider
+                            <Slider aria-label="Knaphøjde"
                                 min={28}
                                 max={72}
                                 step={2}
@@ -233,7 +262,7 @@ export function OptionSelectorStyleEditor({
                                 <Label className="text-xs">Padding</Label>
                                 <span className="text-[11px] text-muted-foreground">{textButtons.paddingPx}px</span>
                             </div>
-                            <Slider
+                            <Slider aria-label="Padding"
                                 min={4}
                                 max={24}
                                 step={1}
@@ -250,7 +279,7 @@ export function OptionSelectorStyleEditor({
                     <div className="space-y-1">
                         <div className="text-xs font-medium">Foto-valg</div>
                         <p className="text-[11px] text-muted-foreground">
-                            Billedestoerrelse styres med feltet “Billede” ovenfor. Hvis et valg mangler et foto, vises der automatisk en placeholder.
+                            Vælg billedstørrelse med skyderen ovenfor. Navnet vises uden for billedet. Manglende billeder vises som en pladsholder.
                         </p>
                     </div>
 
@@ -265,7 +294,7 @@ export function OptionSelectorStyleEditor({
                         />
                     </div>
 
-                    <div className="flex items-center justify-between rounded-md border bg-background/80 px-3 py-2">
+                    {!detachedLabels && <div className="flex items-center justify-between rounded-md border bg-background/80 px-3 py-2">
                         <div>
                             <div className="text-xs font-medium">Tekst udenfor billede</div>
                             <div className="text-[11px] text-muted-foreground">Vis navnet under billedfeltet i stedet for inde i selve billedboksen.</div>
@@ -274,12 +303,12 @@ export function OptionSelectorStyleEditor({
                             checked={pictureButtons.labelOutsideImage === true}
                             onCheckedChange={(checked) => updatePictureButton("labelOutsideImage", checked)}
                         />
-                    </div>
+                    </div>}
 
                     <div className="grid gap-3">
                         {!pictureButtons.transparentBackground && (
                             <ColorHelpField help="Fladen bag selve billedet eller placeholderen.">
-                                <ColorPickerWithSwatches
+                                <StyleColorField
                                     compact
                                     showFullSwatches={false}
                                     savedSwatches={savedSwatches}
@@ -290,7 +319,7 @@ export function OptionSelectorStyleEditor({
                             </ColorHelpField>
                         )}
                         <ColorHelpField help="Navnet paa valget under eller ved billedet.">
-                            <ColorPickerWithSwatches
+                            <StyleColorField
                                 compact
                                 showFullSwatches={false}
                                 savedSwatches={savedSwatches}
@@ -300,7 +329,7 @@ export function OptionSelectorStyleEditor({
                             />
                         </ColorHelpField>
                         <ColorHelpField help="Den normale ramme rundt om feltet.">
-                            <ColorPickerWithSwatches
+                            <StyleColorField
                                 compact
                                 showFullSwatches={false}
                                 savedSwatches={savedSwatches}
@@ -310,7 +339,7 @@ export function OptionSelectorStyleEditor({
                             />
                         </ColorHelpField>
                         <ColorHelpField help="Kanten naar feltet bliver holdt over.">
-                            <ColorPickerWithSwatches
+                            <StyleColorField
                                 compact
                                 showFullSwatches={false}
                                 savedSwatches={savedSwatches}
@@ -320,7 +349,7 @@ export function OptionSelectorStyleEditor({
                             />
                         </ColorHelpField>
                         <ColorHelpField help="Kanten paa det aktive eller valgte felt.">
-                            <ColorPickerWithSwatches
+                            <StyleColorField
                                 compact
                                 showFullSwatches={false}
                                 savedSwatches={savedSwatches}
@@ -330,7 +359,7 @@ export function OptionSelectorStyleEditor({
                             />
                         </ColorHelpField>
                         <ColorHelpField help="Den ydre ring naar valgt-effekt er sat til Ring.">
-                            <ColorPickerWithSwatches
+                            <StyleColorField
                                 compact
                                 showFullSwatches={false}
                                 savedSwatches={savedSwatches}
@@ -344,7 +373,7 @@ export function OptionSelectorStyleEditor({
                     <div className="grid gap-4">
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                                <Label className="text-xs">Tekststoerrelse</Label>
+                                <Label className="text-xs">Tekststørrelse</Label>
                                 <span className="text-[11px] text-muted-foreground">{pictureButtons.labelFontSizePx}px</span>
                             </div>
                             <Slider
@@ -392,7 +421,7 @@ export function OptionSelectorStyleEditor({
 
                     <div className="grid gap-3">
                         <ColorHelpField help="Overlay eller fyld ved hover-effekt = Farve.">
-                            <ColorPickerWithSwatches
+                            <StyleColorField
                                 compact
                                 showFullSwatches={false}
                                 savedSwatches={savedSwatches}
@@ -402,7 +431,7 @@ export function OptionSelectorStyleEditor({
                             />
                         </ColorHelpField>
                         <ColorHelpField help="Overlay eller fyld ved valgt-effekt = Farve.">
-                            <ColorPickerWithSwatches
+                            <StyleColorField
                                 compact
                                 showFullSwatches={false}
                                 savedSwatches={savedSwatches}
@@ -445,7 +474,7 @@ export function OptionSelectorStyleEditor({
                         </div>
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                                <Label className="text-xs">Hjoernerunding</Label>
+                                <Label className="text-xs">Hjørnerunding</Label>
                                 <span className="text-[11px] text-muted-foreground">{pictureButtons.imageBorderRadiusPx}px</span>
                             </div>
                             <Slider

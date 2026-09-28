@@ -1,4 +1,7 @@
-import { useState, useEffect, useMemo, useTransition, useCallback, memo, useRef } from 'react';
+import type { WorkspaceStructure } from '@/lib/products/productWorkspace';
+import { useProductSetupGuard } from '@/hooks/useProductSetupGuard';
+import { saveProductLayout } from '@/lib/products/productLayoutSave';
+import { useState, useEffect, useMemo, useTransition, useCallback, memo, useRef, type ReactNode } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +42,17 @@ import {
     type ThumbnailSizeMode
 } from "@/lib/pricing/thumbnailSizes";
 import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
+import { getBuiltInOptionImage } from "@/lib/pricing/builtInOptionImages";
+import {
+    buildDependencyFilteredPriceOnlyRows,
+    getDependencyFilteredCombinationKeys,
+    getDependencyFilteredGeneratorKeys,
+    getMatrixAdminPriceContext,
+    isDependencyFilteredMatrix,
+    preserveMatrixAdminPricingStructure,
+    type MatrixAdminPersistedPriceRow,
+} from "@/lib/pricing/matrixAdminPriceSafeguards";
+import { publishGenericPricesSafely } from "@/lib/pricing/safeGenericPricePublish";
 import { getThumbnailSizeFromUiMode, type SelectorStyling } from "@/lib/pricing/selectorStyling";
 import { TemplateConnectDialog } from "@/components/admin/TemplateConnectDialog";
 
@@ -62,6 +76,8 @@ const MAX_PERSISTED_GENERATOR_PRICE_ENTRIES = 1500;
 // Preset quantities for oplag
 const PRESET_QUANTITIES = [10, 25, 50, 100, 250, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000];
 const MAX_PREVIEW_ROWS = 500;
+const MAX_AUTO_RESTORE_PUBLISHED_PRICE_ROWS = 25000;
+const PUBLISHED_PRICE_PAGE_FALLBACK_SIZES = [1000, 500, 250, 100, 50] as const;
 
 function parsePublishedPriceCount(fingerprint?: string | null): number | null {
     if (!fingerprint || typeof fingerprint !== 'string') return null;
@@ -122,6 +138,11 @@ async function getCachedAuthUserId(): Promise<string | null> {
 }
 
 interface ProductAttributeBuilderProps {
+    surface?: 'all' | 'product' | 'prices';
+    workspaceDraft?: WorkspaceStructure;
+    workspaceSectionId?: string;
+    onWorkspaceApply?: (structure: WorkspaceStructure) => void;
+    onWorkspaceDirtyChange?: (dirty: boolean) => void;
     productId: string;
     tenantId: string;
     productName?: string;
@@ -459,20 +480,16 @@ function SortableValue({ value, displayName, rowId, sectionId, settings, onEdit,
     );
 }
 
-interface LayoutRow {
-    id: string;
-    title?: string;
-    description?: string;
-    sections: LayoutSection[];
-}
-
+type SelectionMode = 'required' | 'optional' | 'free';
+type LayoutAttributeType = 'products' | 'formats' | 'materials' | 'finishes';
+type DisplayMode = 'buttons' | 'dropdown' | 'checkboxes' | 'hidden' | 'small' | 'medium' | 'large' | 'xl' | 'xl_notext';
 interface LayoutSection {
     id: string;
+    sectionType: LayoutAttributeType;
+    ui_mode?: DisplayMode;
+    selection_mode?: SelectionMode;
     groupId: string;
-    sectionType: AttributeType;
     valueIds?: string[];
-    ui_mode: DisplayMode;
-    selection_mode: SelectionMode;
     valueSettings?: Record<string, ValueSetting>;
     selectorStyling?: SelectorStyling;
     thumbnailsEnabled?: boolean;
@@ -480,7 +497,17 @@ interface LayoutSection {
     thumbnail_custom_px?: number;
     title?: string;
     description?: string;
+    hideUnavailableValues?: boolean;
+    hide_unavailable_values?: boolean;
 }
+
+interface LayoutRow {
+    id: string;
+    sections: LayoutSection[];
+    title?: string;
+    description?: string;
+}
+
 
 function SortableGroupItem({
     group,
@@ -726,7 +753,16 @@ function SortableGroupItem({
     );
 }
 
+function WorkspaceBankAdvanced({ enabled, children }: { enabled: boolean; children: ReactNode }) {
+    return enabled ? <details className="pw-bank-advanced"><summary>Avanceret produktopsætning</summary>{children}</details> : <>{children}</>;
+}
+
 export function ProductAttributeBuilder({
+    surface = 'all',
+    workspaceDraft,
+    workspaceSectionId,
+    onWorkspaceApply,
+    onWorkspaceDirtyChange,
     productId,
     tenantId,
     productName = 'Produkt',
@@ -784,32 +820,7 @@ export function ProductAttributeBuilder({
     // Layout configuration for rows and sections
     // Each row can have 1-3 sections, each section contains product group IDs
     // Layout configuration
-    type AttributeType = 'products' | 'formats' | 'materials' | 'finishes';
-    type DisplayMode = 'buttons' | 'dropdown' | 'checkboxes' | 'hidden' | 'small' | 'medium' | 'large' | 'xl' | 'xl_notext';
-    type SelectionMode = 'required' | 'optional' | 'free';
-
-    interface LayoutSection {
-        id: string;
-        sectionType: AttributeType;
-        ui_mode?: DisplayMode;
-        selection_mode?: SelectionMode;
-        groupId: string;
-        valueIds?: string[];
-        valueSettings?: Record<string, ValueSetting>;
-        selectorStyling?: SelectorStyling;
-        thumbnailsEnabled?: boolean;
-        thumbnail_size?: ThumbnailSizeMode;
-        thumbnail_custom_px?: number;
-        title?: string;
-        description?: string;
-    }
-
-    interface LayoutRow {
-        id: string;
-        sections: LayoutSection[];
-        title?: string;
-        description?: string;
-    }
+    type AttributeType = LayoutAttributeType;
 
     interface VerticalAxisConfig {
         sectionId: string;
@@ -1166,7 +1177,7 @@ export function ProductAttributeBuilder({
     const [customOplag, setCustomOplag] = useState('');
 
     // Smart generator state
-    const [showGenerator, setShowGenerator] = useState(false);
+    const [showGenerator, setShowGenerator] = useState(surface === 'prices');
     const [genSelectedFormat, setGenSelectedFormat] = useState<string>('');
     const [genSelectedMaterial, setGenSelectedMaterial] = useState<string>('');
     const [genSelectedVariant, setGenSelectedVariant] = useState<string>('');
@@ -1419,20 +1430,44 @@ export function ProductAttributeBuilder({
     const [showCreateMaterialDialog, setShowCreateMaterialDialog] = useState(false);
     const [showCreateFinishDialog, setShowCreateFinishDialog] = useState(false);
     const [showCreateProductDialog, setShowCreateProductDialog] = useState(false);
-    const [libraryPanel, setLibraryPanel] = useState<'material' | 'finish' | 'product' | 'format'>('material');
+    const [libraryPanel, setLibraryPanel] = useState<'material' | 'finish' | 'product' | 'format'>(() => {
+        const section = workspaceDraft && workspaceSectionId
+            ? workspaceDraft.vertical_axis?.sectionId === workspaceSectionId
+                ? workspaceDraft.vertical_axis
+                : workspaceDraft.layout_rows?.flatMap((row: WorkspaceStructure) => row.columns || []).find((item: WorkspaceStructure) => item.id === workspaceSectionId)
+            : undefined;
+        return section?.sectionType === 'formats' ? 'format' : section?.sectionType === 'finishes' ? 'finish' : 'material';
+    });
     // Key used to force re-fetch of library browsers
     const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
     const hasLoadedStructureRef = useRef(false);
     const hasLoadedPublishedPricesRef = useRef(false);
+    const persistedPricingStructureRef = useRef<any>(null);
     const storageTrimWarnedRef = useRef(false);
     const storageQuotaWarnedRef = useRef(false);
     const [publishedPreviewReady, setPublishedPreviewReady] = useState(false);
+    const [publishedPriceLoadSkippedCount, setPublishedPriceLoadSkippedCount] = useState<number | null>(null);
+    const [loadingPublishedPrices, setLoadingPublishedPrices] = useState(false);
+    const [publishedPriceRows, setPublishedPriceRows] = useState<MatrixAdminPersistedPriceRow[]>([]);
     const pendingLocalGeneratorCacheRef = useRef<{
         generatorPrices: Record<string, any>;
         publishedPricesFingerprint: string | null;
     } | null>(null);
     const [savingMaterialLibrary, setSavingMaterialLibrary] = useState(false);
     const [savingFormatLibrary, setSavingFormatLibrary] = useState(false);
+    useEffect(() => {
+        if (!workspaceDraft || !hasLoadedStructureRef.current) return;
+        const type = { format: 'formats', material: 'materials', finish: 'finishes', product: 'products' }[libraryPanel];
+        const selected = selectedTarget?.type === 'vertical' ? verticalAxisConfig : layoutRows.flatMap(row => row.sections).find(section => section.id === selectedTarget?.id);
+        if (selected?.sectionType === type) return;
+        if (verticalAxisConfig.sectionType === type) setSelectedTarget({ type: 'vertical', id: 'vertical-axis' });
+        else {
+            const section = layoutRows.flatMap(row => row.sections).find(section => section.sectionType === type);
+            if (section) setSelectedTarget({ type: 'section', id: section.id });
+            else if (selectedTarget) setSelectedTarget(null);
+        }
+    }, [workspaceDraft, libraryPanel, verticalAxisConfig, layoutRows, selectedTarget]);
+
 
 
 
@@ -1446,51 +1481,172 @@ export function ProductAttributeBuilder({
 
     const fetchAllGenericProductPrices = useCallback(async () => {
         if (!productId) return [] as any[];
-        const pageSize = 1000;
-        let offset = 0;
-        const allRows: any[] = [];
+        let lastError: unknown = null;
 
-        while (true) {
-            const { data, error } = await supabase
-                .from('generic_product_prices')
-                .select('id, variant_name, variant_value, quantity, price_dkk, extra_data')
-                .eq('product_id', productId)
-                .order('id', { ascending: true })
-                .range(offset, offset + pageSize - 1);
+        const fetchAllGenericProductPricesWithPageSize = async (pageSize: number): Promise<any[]> => {
+            let offset = 0;
+            const allRows: any[] = [];
 
-            if (error) throw error;
-            if (!data || data.length === 0) break;
+            while (true) {
+                const { data, error } = await supabase
+                    .from('generic_product_prices')
+                    .select('id, variant_name, variant_value, quantity, price_dkk, extra_data')
+                    .eq('product_id', productId)
+                    .order('quantity', { ascending: true })
+                    .order('id', { ascending: true })
+                    .range(offset, offset + pageSize - 1);
 
-            allRows.push(...data);
-            if (data.length < pageSize) break;
-            offset += pageSize;
+                if (error) throw error;
+                if (!data || data.length === 0) break;
+
+                allRows.push(...data);
+                if (data.length < pageSize) break;
+                offset += pageSize;
+            }
+
+            return allRows;
+        };
+
+        for (const pageSize of PUBLISHED_PRICE_PAGE_FALLBACK_SIZES) {
+            try {
+                const data = await fetchAllGenericProductPricesWithPageSize(pageSize);
+                return Array.from(
+                    new Map(
+                        data.map((row) => [
+                            row.id ?? `${row.variant_name}|${row.variant_value}|${row.quantity}|${JSON.stringify(row.extra_data || {})}`,
+                            row,
+                        ])
+                    ).values()
+                );
+            } catch (error) {
+                lastError = error;
+                console.warn('[ProductAttributeBuilder] fetchAllGenericProductPrices failed for page size', pageSize, error);
+            }
         }
 
-        return Array.from(
-            new Map(
-                allRows.map((row) => [
-                    row.id ?? `${row.variant_name}|${row.variant_value}|${row.quantity}|${JSON.stringify(row.extra_data || {})}`,
-                    row,
-                ])
-            ).values()
-        );
+        if (lastError) throw lastError;
+        return [];
     }, [productId]);
+
+    const toIdArray = (value: unknown): string[] => {
+        if (Array.isArray(value)) {
+            return value.flatMap(item => toIdArray(item));
+        }
+        if (value == null) return [];
+        if (typeof value === 'object' && 'id' in (value as Record<string, unknown>)) {
+            const id = (value as Record<string, unknown>).id;
+            if (id == null) return [];
+            return [String(id)];
+        }
+        return [String(value)].filter(Boolean);
+    };
+
+    const resolveFormatMaterialFromPublishedRow = useCallback((
+        row: any,
+        formatValueIds: Set<string>,
+        materialValueIds: Set<string>,
+    ): { formatId?: string; materialId?: string } => {
+        const extra = row?.extra_data || {};
+        const selectionMap = (extra?.selectionMap && typeof extra.selectionMap === 'object')
+            ? extra.selectionMap
+            : {};
+
+        const pickMatchingId = (value: unknown, allowed: Set<string>) => {
+            return toIdArray(value).find((id) => allowed.has(id));
+        };
+
+        let formatId = String(extra.formatId || extra.format_id || '').trim();
+        if (!formatId) {
+            formatId = pickMatchingId(
+                [selectionMap.format, selectionMap.size, selectionMap.formatId, selectionMap.format_id, extra.verticalAxisValueId, extra.verticalAxis_value_id],
+                formatValueIds
+            ) || '';
+        }
+
+        let materialId = String(extra.materialId || extra.material_id || '').trim();
+
+        if (!materialId) {
+            materialId = pickMatchingId(
+                [selectionMap.material, selectionMap.materialId, selectionMap.material_id],
+                materialValueIds
+            ) || '';
+        }
+
+        if (!materialId) {
+            materialId = pickMatchingId(
+                [selectionMap.verticalAxis, selectionMap.verticalAxisValueId, selectionMap.verticalAxis_value_id, extra.verticalAxisValueId, extra.verticalAxis_value_id],
+                materialValueIds
+            ) || '';
+        }
+
+        if (!formatId || !materialId) {
+            const fallbackFromSelectionEntries = Object.entries(selectionMap)
+                .filter(([key]) => {
+                    const normalizedKey = String(key || '').toLowerCase();
+                    return !['format', 'material', 'variant', 'variantvalueids', 'variant_value_ids', 'formatid', 'materialid', 'format_id', 'material_id', 'size', 'sizeid', 'size_id'].includes(normalizedKey);
+                })
+                .flatMap(([, value]) => toIdArray(value));
+
+            if (!formatId) {
+                const selectionFormatCandidate = fallbackFromSelectionEntries.find((id) => formatValueIds.has(id));
+                if (selectionFormatCandidate) formatId = selectionFormatCandidate;
+            }
+
+            if (!materialId) {
+                const selectionMaterialCandidate = fallbackFromSelectionEntries.find((id) => materialValueIds.has(id));
+                if (selectionMaterialCandidate) materialId = selectionMaterialCandidate;
+            }
+        }
+
+        if (!formatId && row?.variant_name) {
+            const candidateFormatIds = String(row.variant_name)
+                .split('|')
+                .map(part => String(part).trim())
+                .filter(Boolean)
+                .filter((id) => formatValueIds.has(id));
+            if (candidateFormatIds.length > 0) formatId = candidateFormatIds[0];
+        }
+
+        if (!materialId && row?.variant_value) {
+            const candidate = String(row.variant_value).trim();
+            if (candidate && materialValueIds.has(candidate)) {
+                materialId = candidate;
+            }
+        }
+
+        if (!materialId && row?.variant_name) {
+            const candidateMaterialIds = String(row.variant_name)
+                .split('|')
+                .map(part => String(part).trim())
+                .filter(Boolean)
+                .filter((id) => materialValueIds.has(id));
+            if (candidateMaterialIds.length > 0) materialId = candidateMaterialIds[0];
+        }
+
+        return {
+            formatId: formatId || undefined,
+            materialId: materialId || undefined,
+        };
+    }, []);
 
     const resolveVariantIdFromPublishedRow = useCallback((
         row: any,
         formatValueIds: Set<string>,
         materialValueIds: Set<string>,
+        forcedFormatId?: string,
+        forcedMaterialId?: string,
     ): string => {
         const extra = row?.extra_data || {};
         const selectionMap = (extra?.selectionMap && typeof extra.selectionMap === 'object')
             ? extra.selectionMap
             : {};
 
-        const toIdArray = (value: unknown): string[] => {
-            if (Array.isArray(value)) return value.map(v => String(v)).filter(Boolean);
-            if (value == null) return [];
-            return [String(value)].filter(Boolean);
-        };
+        const isAxisValue = (id: string) => (
+            formatValueIds.has(id)
+            || materialValueIds.has(id)
+            || (!!forcedFormatId && id === forcedFormatId)
+            || (!!forcedMaterialId && id === forcedMaterialId)
+        );
 
         const normalizeVariantIds = (ids: string[]) =>
             Array.from(new Set(ids.map(id => String(id)).filter(Boolean))).sort();
@@ -1503,7 +1659,7 @@ export function ProductAttributeBuilder({
             ...toIdArray(selectionMap.variantValueIds),
         ];
         const filteredVariantValueIds = rawVariantValueIds.filter(
-            (id: string) => !formatValueIds.has(id) && !materialValueIds.has(id),
+            (id: string) => !isAxisValue(id),
         );
         if (filteredVariantValueIds.length > 0) {
             return normalizeVariantIds(filteredVariantValueIds).join('|');
@@ -1525,7 +1681,7 @@ export function ProductAttributeBuilder({
                 }
                 return toIdArray(value);
             })
-            .filter((id: string) => !formatValueIds.has(id) && !materialValueIds.has(id));
+            .filter((id: string) => !isAxisValue(id));
         if (selectionMapDerivedIds.length > 0) {
             return normalizeVariantIds(selectionMapDerivedIds).join('|');
         }
@@ -1535,7 +1691,7 @@ export function ProductAttributeBuilder({
             .split('|')
             .map(part => part.trim())
             .filter(Boolean)
-            .filter((id: string) => !formatValueIds.has(id) && !materialValueIds.has(id));
+            .filter((id: string) => !isAxisValue(id));
         if (variantNameDerivedIds.length > 0) {
             return normalizeVariantIds(variantNameDerivedIds).join('|');
         }
@@ -1545,14 +1701,14 @@ export function ProductAttributeBuilder({
 
     const fetchTemplates = async () => {
         if (!productId) return;
-        const { data } = await supabase.from('price_list_templates' as any).select('*').eq('product_id', productId).order('created_at', { ascending: false });
+        const { data } = await supabase.from('price_list_templates').select('*').eq('product_id', productId).order('created_at', { ascending: false });
         setBankTemplates(data || []);
     };
 
     const fetchAllTemplates = async () => {
         if (!tenantId) return;
         const { data } = await supabase
-            .from('price_list_templates' as any)
+            .from('price_list_templates')
             .select('*, product:products(name)' as any)
             .eq('tenant_id', tenantId)
             .order('created_at', { ascending: false });
@@ -1589,7 +1745,7 @@ export function ProductAttributeBuilder({
         setSavingMaterialLibrary(true);
         try {
             const { data: existing, error } = await supabase
-                .from('designer_templates' as any)
+                .from('designer_templates')
                 .select('id,name,category')
                 .eq('template_type', 'material')
                 .eq('is_active', true);
@@ -1667,7 +1823,7 @@ export function ProductAttributeBuilder({
         setSavingFormatLibrary(true);
         try {
             const { data: existing, error } = await supabase
-                .from('designer_templates' as any)
+                .from('designer_templates')
                 .select('id,name,category,width_mm,height_mm')
                 .eq('template_type', 'format')
                 .eq('is_active', true);
@@ -1740,6 +1896,26 @@ export function ProductAttributeBuilder({
     // Load persisted config on mount. Generator prices are only restored if the
     // browser cache was created from the same published price set.
     useEffect(() => {
+        if (!productId) return;
+
+        hasLoadedStructureRef.current = false;
+        hasLoadedPublishedPricesRef.current = false;
+        pendingLocalGeneratorCacheRef.current = null;
+
+        setGeneratorPrices({});
+        setPublishedPreviewReady(false);
+        setPublishedPriceLoadSkippedCount(null);
+        setLoadingPublishedPrices(false);
+        setSelectedSectionValues({});
+        setSelectedOplag([]);
+        setPreviewAmountPage(0);
+        setGenSelectedFormat('');
+        setGenSelectedMaterial('');
+        setGenSelectedVariant('');
+    }, [productId]);
+
+    useEffect(() => {
+        if (workspaceDraft) return;
         const storageKey = CONFIG_STORAGE_KEY + productId;
         let stored: string | null = null;
         try {
@@ -1795,9 +1971,9 @@ export function ProductAttributeBuilder({
                 if (cfg.productMarkups) setProductMarkups(cfg.productMarkups);
                 if (cfg.masterMarkup !== undefined) setMasterMarkup(cfg.masterMarkup);
                 if (cfg.genRounding) setGenRounding(cfg.genRounding);
-            } catch { }
+            } catch { /* Ignore invalid local cache and keep the current configuration. */ }
         }
-    }, [productId, publishedPricesFingerprint, setMaxHeightMm, setMaxWidthMm, setSizeMode]);
+    }, [productId, publishedPricesFingerprint, setMaxHeightMm, setMaxWidthMm, setSizeMode, workspaceDraft]);
 
     useEffect(() => {
         const pending = pendingLocalGeneratorCacheRef.current;
@@ -1814,7 +1990,7 @@ export function ProductAttributeBuilder({
 
     // Persist config changes (including generator state for full persistence)
     useEffect(() => {
-        if (!hasLoadedStructureRef.current) return;
+        if (!hasLoadedStructureRef.current || workspaceDraft) return;
         const trimmedGeneratorPrices = trimGeneratorPricesForStorage(generatorPrices);
         const generatorWasTrimmed = Object.keys(trimmedGeneratorPrices).length < Object.keys(generatorPrices).length;
 
@@ -1872,17 +2048,19 @@ export function ProductAttributeBuilder({
                 toast.warning('Browser-lager er næsten fuldt. Lokal cache blev gjort mindre for dette produkt.');
             }
         }
-    }, [sizeMode, formatDisplayMode, maxWidthMm, maxHeightMm, pricingVariantGroupId, verticalAxisConfig, layoutRows, productId, selectedOplag, generatorPrices, publishedPricesFingerprint, productMarkups, masterMarkup, genRounding]);
+    }, [sizeMode, formatDisplayMode, maxWidthMm, maxHeightMm, pricingVariantGroupId, verticalAxisConfig, layoutRows, productId, selectedOplag, generatorPrices, publishedPricesFingerprint, productMarkups, masterMarkup, genRounding, workspaceDraft]);
 
     const buildPricingStructure = useCallback(() => {
-        const verticalGroup = productAttrs.groups.find(g => {
+        const verticalGroup = productAttrs.groups.find(g => g.id === verticalAxisConfig.groupId)
+            || productAttrs.groups.find(g => {
             if (verticalAxisConfig.sectionType === 'formats') return g.kind === 'format';
             if (verticalAxisConfig.sectionType === 'materials') return g.kind === 'material';
             if (verticalAxisConfig.sectionType === 'finishes') return g.kind === 'finish';
+            if (verticalAxisConfig.sectionType === 'products') return g.kind === 'custom';
             return false;
         });
 
-        return {
+        const nextStructure = {
             mode: 'matrix_layout_v1' as const,
             version: 1,
             vertical_axis: {
@@ -1922,12 +2100,18 @@ export function ProductAttributeBuilder({
                         thumbnail_size: normalizeThumbnailSize(sec.thumbnail_size),
                         thumbnail_custom_px: normalizeThumbnailCustomPx(sec.thumbnail_custom_px),
                         title: sec.title || '',
-                        description: sec.description || ''
+                        description: sec.description || '',
+                        hideUnavailableValues: sec.hideUnavailableValues,
+                        hide_unavailable_values: sec.hide_unavailable_values,
                     };
                 })
             })),
             quantities: selectedOplag.sort((a, b) => a - b)
         };
+        return preserveMatrixAdminPricingStructure(
+            persistedPricingStructureRef.current,
+            nextStructure,
+        );
     }, [layoutRows, productAttrs.groups, selectedOplag, verticalAxisConfig]);
 
     const buildFallbackStructureFromTemplate = useCallback((spec: any) => {
@@ -2215,6 +2399,7 @@ export function ProductAttributeBuilder({
 
     const applyPricingStructure = useCallback((structure: any) => {
         if (!structure || structure.mode !== 'matrix_layout_v1') return;
+        persistedPricingStructureRef.current = structure;
         const vertical = structure.vertical_axis || {};
         const layoutRowsFromStructure = (structure.layout_rows || []).map((row: any, rowIndex: number) => {
             const columns = row.columns || row.sections || [];
@@ -2235,7 +2420,9 @@ export function ProductAttributeBuilder({
                     thumbnail_size: normalizeThumbnailSize(col.thumbnail_size),
                     thumbnail_custom_px: normalizeThumbnailCustomPx(col.thumbnail_custom_px),
                     title: col.title || '',
-                    description: col.description || ''
+                    description: col.description || '',
+                    hideUnavailableValues: col.hideUnavailableValues === true,
+                    hide_unavailable_values: col.hide_unavailable_values === true,
                 }))
             };
         });
@@ -2276,13 +2463,21 @@ export function ProductAttributeBuilder({
         if (!productId || hasLoadedStructureRef.current) return;
 
         const loadStructure = async () => {
+            if (workspaceDraft) {
+                applyPricingStructure(workspaceDraft);
+                setSelectedTarget({ type: !workspaceSectionId || workspaceDraft.vertical_axis?.sectionId === workspaceSectionId ? 'vertical' : 'section', id: !workspaceSectionId || workspaceDraft.vertical_axis?.sectionId === workspaceSectionId ? 'vertical-axis' : workspaceSectionId });
+                hasLoadedStructureRef.current = true;
+                return;
+            }
             const { data } = await supabase
                 .from('products')
                 .select('pricing_structure' as any)
                 .eq('id', productId)
+                .eq('tenant_id', tenantId)
                 .maybeSingle();
 
             const structure = (data as any)?.pricing_structure;
+            persistedPricingStructureRef.current = structure || null;
             // Always prefer persisted DB structure over local draft snapshot.
             // This avoids empty/broken layouts when stale localStorage points to removed group/value IDs.
             if (structure?.mode === 'matrix_layout_v1') {
@@ -2291,7 +2486,7 @@ export function ProductAttributeBuilder({
             hasLoadedStructureRef.current = true;
         };
         loadStructure();
-    }, [applyPricingStructure, productId]);
+    }, [applyPricingStructure, productId, tenantId, workspaceDraft, workspaceSectionId]);
 
     // Keep vertical axis values aligned with its section type (avoid mixed formats/materials/products)
     useEffect(() => {
@@ -2410,6 +2605,90 @@ export function ProductAttributeBuilder({
         }
     }, [hasUsableLocalGeneratorPrices]);
 
+    const loadPublishedPricesIntoGenerator = useCallback(async (options?: { manual?: boolean }) => {
+        setLoadingPublishedPrices(true);
+        setPublishedPriceLoadSkippedCount(null);
+
+        let data: any[] = [];
+        try {
+            data = await fetchAllGenericProductPrices();
+        } catch {
+            setPublishedPriceRows([]);
+            if (options?.manual) {
+                toast.error('Kunne ikke indlæse eksisterende priser til redigering');
+            }
+            hasLoadedPublishedPricesRef.current = true;
+            setPublishedPreviewReady(true);
+            setLoadingPublishedPrices(false);
+            return;
+        }
+
+        setPublishedPriceRows(data as MatrixAdminPersistedPriceRow[]);
+        if (!data || data.length === 0) {
+            hasLoadedPublishedPricesRef.current = true;
+            setPublishedPreviewReady(true);
+            setLoadingPublishedPrices(false);
+            return;
+        }
+
+        const formatValueIds = new Set<string>();
+        const materialValueIds = new Set<string>();
+        productAttrs.groups.forEach(group => {
+            if (group.kind === 'format') {
+                (group.values || []).forEach(value => formatValueIds.add(value.id));
+            }
+            if (group.kind === 'material') {
+                (group.values || []).forEach(value => materialValueIds.add(value.id));
+            }
+        });
+
+        const fallbackPrices: Record<string, any> = {};
+        const fallbackOplag = new Set<number>();
+        data.forEach((row: any) => {
+            const extra = row.extra_data || {};
+            const { formatId, materialId } = resolveFormatMaterialFromPublishedRow(row, formatValueIds, materialValueIds);
+            const variantId = resolveVariantIdFromPublishedRow(
+                row,
+                formatValueIds,
+                materialValueIds,
+                formatId,
+                materialId
+            );
+            if (!formatId || !materialId) return;
+            const qty = Number(row.quantity);
+            const price = Number(row.price_dkk);
+            if (!qty || !price) return;
+            const key = `${formatId}::${materialId}::${variantId || 'none'}::${qty}`;
+            fallbackPrices[key] = { price, markup: 0, isLocked: true };
+            fallbackOplag.add(qty);
+        });
+
+            const fallbackOplagSorted = Array.from(fallbackOplag).sort((a, b) => a - b);
+
+            if (Object.keys(fallbackPrices).length > 0) {
+                // Merge published prices into local draft cache so missing combinations
+                // are restored without overwriting in-progress local edits.
+                setGeneratorPrices(prev => {
+                    const merged = {
+                        ...fallbackPrices,
+                        ...(prev || {}),
+                    };
+                    return normalizeGeneratorPrices(merged);
+                });
+                setSelectedOplag(prev => {
+                    const intersection = prev.filter((qty) => fallbackOplag.has(qty)).sort((a, b) => a - b);
+                    if (intersection.length > 0) return intersection;
+                    return fallbackOplagSorted;
+                });
+                if (options?.manual) {
+                    toast.success(`Indlæste ${Object.keys(fallbackPrices).length.toLocaleString('da-DK')} priser til redigering`);
+                }
+            }
+        hasLoadedPublishedPricesRef.current = true;
+        setPublishedPreviewReady(true);
+        setLoadingPublishedPrices(false);
+    }, [fetchAllGenericProductPrices, normalizeGeneratorPrices, productAttrs.groups, resolveVariantIdFromPublishedRow]);
+
     useEffect(() => {
         if (!productId || productAttrs.loading) return;
         if (hasLoadedPublishedPricesRef.current) {
@@ -2427,69 +2706,23 @@ export function ProductAttributeBuilder({
             setPublishedPreviewReady(false);
         }
 
-        const loadPublishedPrices = async () => {
-            let data: any[] = [];
-            try {
-                data = await fetchAllGenericProductPrices();
-            } catch {
-                hasLoadedPublishedPricesRef.current = true;
-                setPublishedPreviewReady(true);
-                return;
-            }
-
-            if (!data || data.length === 0) {
-                hasLoadedPublishedPricesRef.current = true;
-                setPublishedPreviewReady(true);
-                return;
-            }
-
-            const formatValueIds = new Set<string>();
-            const materialValueIds = new Set<string>();
-            productAttrs.groups.forEach(group => {
-                if (group.kind === 'format') {
-                    (group.values || []).forEach(value => formatValueIds.add(value.id));
-                }
-                if (group.kind === 'material') {
-                    (group.values || []).forEach(value => materialValueIds.add(value.id));
-                }
-            });
-
-            const fallbackPrices: Record<string, any> = {};
-            const fallbackOplag = new Set<number>();
-            data.forEach((row: any) => {
-                const extra = row.extra_data || {};
-                const formatId = extra.formatId || extra.selectionMap?.format;
-                const materialId = extra.materialId || extra.selectionMap?.material;
-                const variantId = resolveVariantIdFromPublishedRow(row, formatValueIds, materialValueIds);
-                if (!formatId || !materialId) return;
-                const qty = Number(row.quantity);
-                const price = Number(row.price_dkk);
-                if (!qty || !price) return;
-                const key = `${formatId}::${materialId}::${variantId || 'none'}::${qty}`;
-                fallbackPrices[key] = { price, markup: 0, isLocked: false };
-                fallbackOplag.add(qty);
-            });
-
-            if (Object.keys(fallbackPrices).length > 0) {
-                // Merge published prices into local draft cache so missing combinations
-                // are restored without overwriting in-progress local edits.
-                setGeneratorPrices(prev => {
-                    const merged = {
-                        ...fallbackPrices,
-                        ...(prev || {}),
-                    };
-                    return normalizeGeneratorPrices(merged);
-                });
-                if (selectedOplag.length === 0) {
-                    setSelectedOplag(Array.from(fallbackOplag).sort((a, b) => a - b));
-                }
+        const expectedPublishedRowCount = parsePublishedPriceCount(publishedPricesFingerprint);
+        if (
+            expectedPublishedRowCount
+            && expectedPublishedRowCount > MAX_AUTO_RESTORE_PUBLISHED_PRICE_ROWS
+            && !hasUsableLocalGeneratorPrices
+        ) {
+            if (Object.keys(generatorPrices).length > 0 && Object.keys(generatorPrices).length < expectedPublishedRowCount) {
+                setGeneratorPrices({});
             }
             hasLoadedPublishedPricesRef.current = true;
+            setPublishedPriceLoadSkippedCount(expectedPublishedRowCount);
             setPublishedPreviewReady(true);
-        };
+            return;
+        }
 
-        loadPublishedPrices();
-    }, [fetchAllGenericProductPrices, productId, productAttrs.loading, generatorPrices, hasUsableLocalGeneratorPrices, normalizeGeneratorPrices, resolveVariantIdFromPublishedRow, selectedOplag.length]);
+        loadPublishedPricesIntoGenerator();
+    }, [generatorPrices, hasUsableLocalGeneratorPrices, loadPublishedPricesIntoGenerator, productAttrs.loading, productId, publishedPricesFingerprint]);
 
     // Transition for non-blocking updates (prevents UI blinking)
     const [isPending, startTransition] = useTransition();
@@ -2497,6 +2730,41 @@ export function ProductAttributeBuilder({
     // ============ CSV Logic ============
     const [importing, setImporting] = useState(false);
     const [pushing, setPushing] = useState(false);
+    const [publishProgress, setPublishProgress] = useState<{ saved: number; total: number } | null>(null);
+    const persistedPriceCount = parsePublishedPriceCount(publishedPricesFingerprint) || 0;
+    const hasDependencyFilteredSections = useMemo(
+        () => layoutRows.some(row => row.sections.some(section =>
+            section.hideUnavailableValues === true
+            || section.hide_unavailable_values === true
+        )),
+        [layoutRows],
+    );
+    const dependencyFilteredCombinationKeys = useMemo(
+        () => getDependencyFilteredCombinationKeys(publishedPriceRows),
+        [publishedPriceRows],
+    );
+    const dependencyFilteredGeneratorKeys = useMemo(
+        () => getDependencyFilteredGeneratorKeys(publishedPriceRows),
+        [publishedPriceRows],
+    );
+    const isExistingDependencyCombination = useCallback((
+        formatId: string,
+        materialId: string,
+        variantId: string,
+        verticalValueId: string,
+    ) => {
+        if (!hasDependencyFilteredSections) return true;
+        return dependencyFilteredCombinationKeys.has([
+            formatId,
+            materialId,
+            variantId || 'none',
+            verticalValueId,
+        ].join('::'));
+    }, [dependencyFilteredCombinationKeys, hasDependencyFilteredSections]);
+    const isExistingDependencyPriceKey = useCallback((priceKey: string) => {
+        if (!hasDependencyFilteredSections) return true;
+        return dependencyFilteredGeneratorKeys.has(priceKey);
+    }, [dependencyFilteredGeneratorKeys, hasDependencyFilteredSections]);
 
     // Generate CSV Rows (All Combinations currently in Layout)
     const getAllRows = useCallback(() => {
@@ -2604,9 +2872,14 @@ export function ProductAttributeBuilder({
             toast.error('Vælg mindst ét oplag først.');
             return;
         }
+        if (hasDependencyFilteredSections && persistedPriceCount > 0 && dependencyFilteredCombinationKeys.size === 0) {
+            toast.error('Vent til de eksisterende priser er indlæst, før du eksporterer denne prisliste.');
+            return;
+        }
 
         // 1. Collect vertical axis info
-        const verticalGroup = productAttrs.groups.find(g => {
+        const verticalGroup = productAttrs.groups.find(g => g.id === verticalAxisConfig.groupId)
+            || productAttrs.groups.find(g => {
             if (verticalAxisConfig.sectionType === 'formats') return g.kind === 'format';
             if (verticalAxisConfig.sectionType === 'materials') return g.kind === 'material';
             if (verticalAxisConfig.sectionType === 'finishes') return g.kind === 'finish';
@@ -2727,10 +3000,14 @@ export function ProductAttributeBuilder({
                     thumbnail_size: normalizeThumbnailSize(sec.thumbnail_size),
                     thumbnail_custom_px: normalizeThumbnailCustomPx(sec.thumbnail_custom_px),
                     title: sec.title || '',
-                    description: sec.description || ''
+                    description: sec.description || '',
+                    hideUnavailableValues: sec.hideUnavailableValues,
+                    hide_unavailable_values: sec.hide_unavailable_values,
                 }))
             })),
-            quantities: selectedOplag.sort((a, b) => a - b)
+            quantities: selectedOplag.sort((a, b) => a - b),
+            hideUnavailableQuantities: persistedPricingStructureRef.current?.hideUnavailableQuantities,
+            hide_unavailable_quantities: persistedPricingStructureRef.current?.hide_unavailable_quantities,
         };
 
         let sectionHeaders: string[];
@@ -2827,6 +3104,19 @@ export function ProductAttributeBuilder({
 
                 for (const vertVal of verticalValues) {
                     for (const combo of sectionCombinations) {
+                        const selectionBySection: Record<string, string> = {
+                            [verticalSectionId]: vertVal.id,
+                        };
+                        combo.forEach((value: any, index: number) => {
+                            const section = sections[index];
+                            if (section && value?.id) selectionBySection[section.sectionId] = value.id;
+                        });
+                        const formatId = getActiveFormatId(selectionBySection);
+                        const materialId = getActiveMaterialId(selectionBySection);
+                        const variantId = getVariantKeyFromSelections(selectionBySection);
+                        if (!isExistingDependencyCombination(formatId, materialId, variantId, vertVal.id)) {
+                            continue;
+                        }
                         const cells = [
                             vertVal.name,
                             ...combo.map((v: any) => v.name),
@@ -2854,9 +3144,14 @@ export function ProductAttributeBuilder({
             toast.error('Vælg mindst ét oplag først.');
             return;
         }
+        if (hasDependencyFilteredSections && persistedPriceCount > 0 && dependencyFilteredCombinationKeys.size === 0) {
+            toast.error('Vent til de eksisterende priser er indlæst, før du eksporterer denne prisliste.');
+            return;
+        }
 
         // 1. Collect vertical axis info
-        const verticalGroup = productAttrs.groups.find(g => {
+        const verticalGroup = productAttrs.groups.find(g => g.id === verticalAxisConfig.groupId)
+            || productAttrs.groups.find(g => {
             if (verticalAxisConfig.sectionType === 'formats') return g.kind === 'format';
             if (verticalAxisConfig.sectionType === 'materials') return g.kind === 'material';
             if (verticalAxisConfig.sectionType === 'finishes') return g.kind === 'finish';
@@ -2970,10 +3265,14 @@ export function ProductAttributeBuilder({
                     thumbnail_size: normalizeThumbnailSize(sec.thumbnail_size),
                     thumbnail_custom_px: normalizeThumbnailCustomPx(sec.thumbnail_custom_px),
                     title: sec.title || '',
-                    description: sec.description || ''
+                    description: sec.description || '',
+                    hideUnavailableValues: sec.hideUnavailableValues,
+                    hide_unavailable_values: sec.hide_unavailable_values,
                 }))
             })),
-            quantities: selectedOplag.sort((a, b) => a - b)
+            quantities: selectedOplag.sort((a, b) => a - b),
+            hideUnavailableQuantities: persistedPricingStructureRef.current?.hideUnavailableQuantities,
+            hide_unavailable_quantities: persistedPricingStructureRef.current?.hide_unavailable_quantities,
         };
 
         const sectionHeaders = sections.map(s => {
@@ -3007,6 +3306,9 @@ export function ProductAttributeBuilder({
         const sectionCombinations = allSectionValues.length > 0 ? cartesian(allSectionValues) : [[]];
 
         const computeExportPrice = (formatId: string, materialId: string, variantId: string, qty: number) => {
+            if (!isExistingDependencyPriceKey(`${formatId}::${materialId}::${variantId || 'none'}::${qty}`)) {
+                return '';
+            }
             const computed = computeFinalPriceForContext(formatId, materialId, variantId, qty);
             return computed?.price ? String(computed.price) : '';
         };
@@ -3033,6 +3335,9 @@ export function ProductAttributeBuilder({
                     });
                 });
                 const variantId = variantIds.length > 0 ? variantIds.sort().join('|') : 'none';
+                if (!isExistingDependencyCombination(formatId, materialId, variantId, vertVal.id)) {
+                    continue;
+                }
 
                 const priceCells = selectedOplag.map(qty => computeExportPrice(formatId, materialId, variantId, qty));
                 const cells = [
@@ -3183,8 +3488,8 @@ export function ProductAttributeBuilder({
             for (const rowValues of importedData) {
                 const baseRow: any = { product_id: productId, tenant_id: tenantId };
                 // Map attributes
-                let variantNameParts = [];
-                let variantValueParts = [];
+                const variantNameParts = [];
+                const variantValueParts = [];
 
                 for (const mapping of columnMappings) {
                     const value = rowValues[mapping.idx]?.replace(/^"|"$/g, '');
@@ -3249,6 +3554,33 @@ export function ProductAttributeBuilder({
         }
     };
 
+    const workspaceBankBaseline = useRef<string | null>(null);
+    const workspaceBankSnapshot = JSON.stringify({ verticalAxisConfig, layoutRows });
+    useEffect(() => {
+        if (!workspaceDraft || !hasLoadedStructureRef.current || productAttrs.loading || library.loading) return;
+        if (workspaceBankBaseline.current === null) workspaceBankBaseline.current = workspaceBankSnapshot;
+        onWorkspaceDirtyChange?.(workspaceBankBaseline.current !== workspaceBankSnapshot);
+    }, [workspaceDraft, workspaceBankSnapshot, productAttrs.loading, library.loading, onWorkspaceDirtyChange]);
+
+    const markSetupSaved = useProductSetupGuard(JSON.stringify({ verticalAxisConfig, layoutRows }), surface === 'product' && hasLoadedStructureRef.current && !productAttrs.loading && !library.loading);
+
+    const handleSaveProductLayout = async () => {
+        setPushing(true);
+        try {
+            if (onWorkspaceApply) {
+                onWorkspaceApply(buildPricingStructure());
+                markSetupSaved();
+                return;
+            }
+            const structure = await saveProductLayout(supabase, tenantId, productId, persistedPricingStructureRef.current, buildPricingStructure());
+            persistedPricingStructureRef.current = structure;
+            markSetupSaved();
+            toast.success('Produktopsætningen er gemt. Priserne er bevaret.');
+            await onPricesUpdated?.();
+        } catch (error) { toast.error(error instanceof Error ? error.message : 'Kunne ikke gemme produktopsætningen.'); }
+        finally { setPushing(false); }
+    };
+
     /**
      * NEW: Push Live using matrix_layout_v1 format
      * - Saves pricing_structure to product
@@ -3271,7 +3603,8 @@ export function ProductAttributeBuilder({
                     return Number.isNaN(qty) ? null : qty;
                 }).filter((qty): qty is number => qty !== null))).sort((a, b) => a - b);
 
-            const verticalGroup = productAttrs.groups.find(g => {
+            const verticalGroup = productAttrs.groups.find(g => g.id === verticalAxisConfig.groupId)
+                || productAttrs.groups.find(g => {
                 if (verticalAxisConfig.sectionType === 'formats') return g.kind === 'format';
                 if (verticalAxisConfig.sectionType === 'materials') return g.kind === 'material';
                 if (verticalAxisConfig.sectionType === 'finishes') return g.kind === 'finish';
@@ -3282,81 +3615,117 @@ export function ProductAttributeBuilder({
             if (pricingStructure) {
                 pricingStructure.quantities = quantities;
             }
+            const dependencyFilteredSave = isDependencyFilteredMatrix(pricingStructure);
+            const existingPriceRows = await fetchAllGenericProductPrices() as MatrixAdminPersistedPriceRow[];
 
-            // 2. Update product with pricing_structure
-            // We use 'as any' because pricing_structure is missing from the Supabase types
-            const { error: productError } = await supabase
-                .from('products')
-                .update({
-                    pricing_structure: pricingStructure,
-                    pricing_type: 'matrix'
-                } as any)
-                .eq('id', productId);
-
-            if (productError) throw productError;
-
-            // 3. Convert generator prices to generic_product_prices format (with interpolation)
+            // 2. Convert generator prices to generic_product_prices format (with interpolation)
             // Price keys are: formatId::materialId::variantId::qty
             const inserts: any[] = [];
-            const comboMap = new Map<string, { formatId: string; materialId: string; variantId: string }>();
-            generatorKeys.forEach(key => {
-                const parts = key.split('::');
-                if (parts.length < 3) return;
-                const [formatId, materialId, variantIdOrNone] = parts;
-                const variantId = variantIdOrNone === 'none' ? 'none' : variantIdOrNone;
-                const comboKey = `${formatId}::${materialId}::${variantId}`;
-                if (!comboMap.has(comboKey)) {
-                    comboMap.set(comboKey, { formatId, materialId, variantId });
+            if (dependencyFilteredSave) {
+                if (existingPriceRows.length === 0) {
+                    throw new Error('Den beskyttede prisliste har ingen eksisterende prisrækker at opdatere.');
                 }
-            });
 
-            comboMap.forEach(({ formatId, materialId, variantId }) => {
-                const variantKey = variantId === 'none' ? '' : variantId;
-                const variantValueIds = variantKey ? variantKey.split('|').filter(Boolean) : [];
-                // LOCK FIX (2026-02-09): keep variant_name stable across saves by including
-                // all non-vertical selections. Do not simplify this to variant-only keys.
-                // This prevents collisions when only one axis is stored in variant_value.
-                const variantNameParts: string[] = [...variantValueIds];
-                if (verticalAxisConfig.sectionType !== 'formats') variantNameParts.push(formatId);
-                if (verticalAxisConfig.sectionType !== 'materials') variantNameParts.push(materialId);
-                const variantName = Array.from(new Set(variantNameParts.filter(Boolean))).sort().join('|') || 'none';
+                const existingGeneratorKeys = new Set(
+                    existingPriceRows
+                        .map(row => getMatrixAdminPriceContext(row)?.generatorKey)
+                        .filter((key): key is string => Boolean(key)),
+                );
+                const finalPricesByGeneratorKey = new Map<string, number>();
+                const clearedExistingKeys: string[] = [];
 
-                const verticalValueId = verticalAxisConfig.sectionType === 'formats' ? formatId :
-                    verticalAxisConfig.sectionType === 'materials' ? materialId : formatId;
+                generatorKeys.forEach((key) => {
+                    const parts = key.split('::');
+                    if (parts.length < 4) return;
+                    const [formatId, materialId, variantId, qtyText] = parts;
+                    const quantity = Number(qtyText);
+                    const rawEntry = generatorPrices[key];
+                    const rawPrice = typeof rawEntry === 'number' ? rawEntry : Number(rawEntry?.price || 0);
+                    if (!Number.isFinite(rawPrice) || rawPrice <= 0) {
+                        if (existingGeneratorKeys.has(key)) clearedExistingKeys.push(key);
+                        return;
+                    }
+                    const computed = computeFinalPriceForContext(formatId, materialId, variantId, quantity);
+                    if (computed?.price && computed.price > 0) {
+                        finalPricesByGeneratorKey.set(key, computed.price);
+                    }
+                });
 
-                quantities.forEach(qty => {
-                    const computed = computeFinalPriceForContext(formatId, materialId, variantId, qty);
-                    if (!computed || !computed.price || computed.price <= 0) return;
+                if (clearedExistingKeys.length > 0) {
+                    throw new Error('En beskyttet importpris kan ændres, men ikke slettes ved at tømme feltet. Indtast en ny pris.');
+                }
 
-                    inserts.push({
-                        product_id: productId,
-                        tenant_id: tenantId,
-                        variant_name: variantName,
-                        variant_value: verticalValueId,
-                        quantity: qty,
-                        price_dkk: computed.price,
-                        extra_data: {
-                            verticalAxisGroupId: verticalGroup?.id,
-                            verticalAxisValueId: verticalValueId,
-                            formatId,
-                            materialId,
-                            variantId: variantKey || null,
-                            variantValueIds,
-                            selectionMap: {
-                                format: formatId,
-                                material: materialId,
-                                ...(variantKey ? { variant: variantKey, variantValueIds } : {})
-                            },
-                            priceKey: getGenPriceKey(formatId, materialId, variantId, qty),
-                            markup: computed.localMarkup || 0,
-                            productMarkup: computed.prodMarkup || 0,
-                            masterMarkup: Number(masterMarkup) || 0,
-                            priceSource: computed.source,
-                            basePrice: computed.basePrice
-                        }
+                const priceOnlyResult = buildDependencyFilteredPriceOnlyRows({
+                    existingRows: existingPriceRows,
+                    finalPricesByGeneratorKey,
+                    productId,
+                    tenantId,
+                });
+                if (priceOnlyResult.unsupportedGeneratorKeys.length > 0) {
+                    throw new Error('Prisændringen indeholder en model/variant eller et oplag, som ikke findes i den importerede prisliste.');
+                }
+                inserts.push(...priceOnlyResult.rows);
+            } else {
+                const comboMap = new Map<string, { formatId: string; materialId: string; variantId: string }>();
+                generatorKeys.forEach(key => {
+                    const parts = key.split('::');
+                    if (parts.length < 3) return;
+                    const [formatId, materialId, variantIdOrNone] = parts;
+                    const variantId = variantIdOrNone === 'none' ? 'none' : variantIdOrNone;
+                    const comboKey = `${formatId}::${materialId}::${variantId}`;
+                    if (!comboMap.has(comboKey)) {
+                        comboMap.set(comboKey, { formatId, materialId, variantId });
+                    }
+                });
+
+                comboMap.forEach(({ formatId, materialId, variantId }) => {
+                    const variantKey = variantId === 'none' ? '' : variantId;
+                    const variantValueIds = variantKey ? variantKey.split('|').filter(Boolean) : [];
+                    // LOCK FIX (2026-02-09): keep variant_name stable across saves by including
+                    // all non-vertical selections. Do not simplify this to variant-only keys.
+                    const variantNameParts: string[] = [...variantValueIds];
+                    if (verticalAxisConfig.sectionType !== 'formats') variantNameParts.push(formatId);
+                    if (verticalAxisConfig.sectionType !== 'materials') variantNameParts.push(materialId);
+                    const variantName = Array.from(new Set(variantNameParts.filter(Boolean))).sort().join('|') || 'none';
+
+                    const verticalValueId = verticalAxisConfig.sectionType === 'formats' ? formatId :
+                        verticalAxisConfig.sectionType === 'materials' ? materialId :
+                            verticalAxisConfig.valueIds?.length === 1 ? verticalAxisConfig.valueIds[0] : formatId;
+
+                    quantities.forEach(qty => {
+                        const computed = computeFinalPriceForContext(formatId, materialId, variantId, qty);
+                        if (!computed || !computed.price || computed.price <= 0) return;
+
+                        inserts.push({
+                            product_id: productId,
+                            tenant_id: tenantId,
+                            variant_name: variantName,
+                            variant_value: verticalValueId,
+                            quantity: qty,
+                            price_dkk: computed.price,
+                            extra_data: {
+                                verticalAxisGroupId: verticalGroup?.id,
+                                verticalAxisValueId: verticalValueId,
+                                formatId,
+                                materialId,
+                                variantId: variantKey || null,
+                                variantValueIds,
+                                selectionMap: {
+                                    format: formatId,
+                                    material: materialId,
+                                    ...(variantKey ? { variant: variantKey, variantValueIds } : {})
+                                },
+                                priceKey: getGenPriceKey(formatId, materialId, variantId, qty),
+                                markup: computed.localMarkup || 0,
+                                productMarkup: computed.prodMarkup || 0,
+                                masterMarkup: Number(masterMarkup) || 0,
+                                priceSource: computed.source,
+                                basePrice: computed.basePrice
+                            }
+                        });
                     });
                 });
-            });
+            }
 
             console.log('[Matrix V1 Push] generatorPrices entries:', generatorKeys.length);
             console.log('[Matrix V1 Push] Valid inserts:', inserts.length);
@@ -3385,25 +3754,58 @@ export function ProductAttributeBuilder({
                 toast.warning(`Fjernede ${duplicateCount} duplikat(er) før gem`);
             }
 
-            // LOCK FIX (2026-02-09): delete then upsert for this product.
-            // Old rows from previous key schemas can otherwise shadow new prices in frontend lookups.
-            // 4. Upsert to generic_product_prices
-            // Use product_id + variant_name + variant_value + quantity as conflict key
-            const { error: deleteExistingPricesError } = await supabase
-                .from('generic_product_prices')
-                .delete()
-                .eq('product_id', productId);
+            setPublishProgress({ saved: 0, total: deduplicatedInserts.length });
 
-            if (deleteExistingPricesError) throw deleteExistingPricesError;
-
-            console.log('[Matrix V1 Push] Upserting to generic_product_prices...');
-            const { error: priceError } = await supabase
-                .from('generic_product_prices')
-                .upsert(deduplicatedInserts, {
-                    onConflict: 'product_id,variant_name,variant_value,quantity'
-                });
-
-            if (priceError) throw priceError;
+            // Store every desired row before changing the product configuration or
+            // removing obsolete rows. A timeout can therefore never empty a product.
+            const publishResult = await publishGenericPricesSafely({
+                existingRows: existingPriceRows.map((row) => ({
+                    id: row.id,
+                    product_id: productId,
+                    variant_name: row.variant_name,
+                    variant_value: row.variant_value,
+                    quantity: row.quantity,
+                })),
+                desiredRows: deduplicatedInserts,
+                batchSize: 500,
+                upsertBatch: async (batch) => {
+                    const { error } = await supabase
+                        .from('generic_product_prices')
+                        .upsert(batch, {
+                            onConflict: 'product_id,variant_name,variant_value,quantity'
+                        });
+                    if (error) throw error;
+                },
+                updateProduct: async () => {
+                    if (dependencyFilteredSave) return;
+                    const { error } = await supabase
+                        .from('products')
+                        .update({
+                            pricing_structure: pricingStructure,
+                            pricing_type: 'matrix'
+                        } as any)
+                        .eq('id', productId)
+                        .eq('tenant_id', tenantId);
+                    if (error) throw error;
+                },
+                deleteStaleBatch: async (ids) => {
+                    if (dependencyFilteredSave) {
+                        throw new Error('Beskyttede importpriser må ikke fjerne eksisterende prisrækker.');
+                    }
+                    const { error } = await supabase
+                        .from('generic_product_prices')
+                        .delete()
+                        .eq('product_id', productId)
+                        .in('id', ids);
+                    if (error) throw error;
+                },
+                onProgress: (saved, total) => setPublishProgress({ saved, total }),
+            });
+            if (dependencyFilteredSave) {
+                setPublishedPriceRows(deduplicatedInserts as MatrixAdminPersistedPriceRow[]);
+            } else {
+                persistedPricingStructureRef.current = pricingStructure;
+            }
 
             // 5. Auto-backup to Price List Bank (safe fallback)
             try {
@@ -3441,7 +3843,10 @@ export function ProductAttributeBuilder({
                 console.warn('[Matrix V1 Push] Auto-backup failed:', backupError);
             }
 
-            toast.success(`Succes! ${deduplicatedInserts.length} priser gemt med matrix_layout_v1 format.`);
+            const cleanupNote = publishResult.deletedStale > 0
+                ? ` ${publishResult.deletedStale} forældede rækker blev fjernet.`
+                : '';
+            toast.success(`${publishResult.saved.toLocaleString('da-DK')} priser blev gemt sikkert.${cleanupNote}`);
             if (onPricesUpdated) onPricesUpdated();
 
         } catch (error: any) {
@@ -3449,6 +3854,7 @@ export function ProductAttributeBuilder({
             toast.error('Kunne ikke gemme: ' + error.message);
         } finally {
             setPushing(false);
+            setPublishProgress(null);
         }
     };
 
@@ -3461,10 +3867,105 @@ export function ProductAttributeBuilder({
         toast.info(`Starting Import. Rows: ${data.length}. Headers: ${headers.length}`);
 
         try {
+            if (hasDependencyFilteredSections) {
+                if (!csvMeta?.layout_rows?.length || !csvMeta?.vertical_axis) {
+                    throw new Error('Denne beskyttede prisliste kan kun importeres fra en CSV eksporteret fra samme produkt.');
+                }
+                if (dependencyFilteredGeneratorKeys.size === 0) {
+                    throw new Error('Vent til de eksisterende importpriser er indlæst, før CSV-filen importeres.');
+                }
+
+                const normalizeProtectedValue = (value: string) => value.toLowerCase().replace(/[.,\-\s_]/g, '');
+                const protectedQuantityIndices: number[] = [];
+                const protectedAttributeIndices: number[] = [];
+                headers.forEach((header, index) => {
+                    const cleaned = header.replace(/\./g, '');
+                    if (/^\d+$/.test(cleaned)) protectedQuantityIndices.push(index);
+                    else protectedAttributeIndices.push(index);
+                });
+                const protectedMetaColumns = [
+                    { role: 'vertical', ...(csvMeta.vertical_axis || {}) },
+                    ...(csvMeta.layout_rows || []).flatMap((row: any) =>
+                        (row.columns || []).map((column: any) => ({
+                            role: 'section',
+                            rowId: row.id,
+                            ...column,
+                        }))
+                    ),
+                ];
+                if (protectedMetaColumns.length !== protectedAttributeIndices.length) {
+                    throw new Error('CSV-layoutet matcher ikke den beskyttede prisliste.');
+                }
+
+                const resolvedProtectedColumns = protectedMetaColumns.map((metaColumn: any, index: number) => {
+                    const group = productAttrs.groups.find(candidate => candidate.id === metaColumn.groupId);
+                    if (!group) {
+                        throw new Error('CSV-filen henviser til en valgmulighed, som ikke længere findes på produktet.');
+                    }
+                    return {
+                        colIndex: protectedAttributeIndices[index],
+                        sectionId: metaColumn.sectionId || metaColumn.id,
+                        sectionType: metaColumn.sectionType,
+                        group,
+                    };
+                });
+                const protectedVerticalSectionId = csvMeta.vertical_axis.sectionId || 'vertical-axis';
+
+                data.forEach((row) => {
+                    const selections: Record<string, string> = {};
+                    resolvedProtectedColumns.forEach((column) => {
+                        const rawValue = row[column.colIndex]?.trim();
+                        if (!rawValue) return;
+                        const value = column.group.values?.find(candidate =>
+                            normalizeProtectedValue(candidate.name) === normalizeProtectedValue(rawValue)
+                        );
+                        if (!value) {
+                            throw new Error(`CSV-værdien "${rawValue}" findes ikke i den importerede prisliste.`);
+                        }
+                        selections[column.sectionId] = value.id;
+                    });
+
+                    const verticalValueId = selections[protectedVerticalSectionId];
+                    let formatId = '';
+                    let materialId = '';
+                    const variantValueIds: string[] = [];
+                    resolvedProtectedColumns.forEach((column) => {
+                        const valueId = selections[column.sectionId];
+                        if (!valueId) return;
+                        if (column.sectionType === 'formats') formatId = valueId;
+                        else if (column.sectionType === 'materials') materialId = valueId;
+                        else if (column.sectionId !== protectedVerticalSectionId) variantValueIds.push(valueId);
+                    });
+                    const variantId = variantValueIds.length > 0
+                        ? Array.from(new Set(variantValueIds)).sort().join('|')
+                        : 'none';
+                    if (!verticalValueId || !formatId || !materialId) {
+                        throw new Error('CSV-rækken mangler produkt, model eller variant.');
+                    }
+                    if (!isExistingDependencyCombination(formatId, materialId, variantId, verticalValueId)) {
+                        throw new Error('CSV-filen indeholder en model/variant-kombination, som ikke findes i den importerede prisliste.');
+                    }
+
+                    protectedQuantityIndices.forEach((quantityIndex) => {
+                        const rawPrice = row[quantityIndex]?.trim();
+                        if (!rawPrice) return;
+                        const price = Number(rawPrice.replace(/\./g, '').replace(',', '.'));
+                        if (!Number.isFinite(price) || price <= 0) {
+                            throw new Error('CSV-filen indeholder en ugyldig pris.');
+                        }
+                        const quantity = Number(headers[quantityIndex].replace(/\./g, ''));
+                        const priceKey = `${formatId}::${materialId}::${variantId}::${quantity}`;
+                        if (!dependencyFilteredGeneratorKeys.has(priceKey)) {
+                            throw new Error('CSV-filen indeholder et oplag, som ikke findes for den valgte model/variant.');
+                        }
+                    });
+                });
+            }
+
             // 0. Provision Attributes (Create missing Groups/Values)
             // Identify Headers -> Desired Kinds
             const missingValues: { groupId: string, name: string }[] = [];
-            let headerGroupMap: Record<number, string> = {}; // colIdx -> groupId
+            const headerGroupMap: Record<number, string> = {}; // colIdx -> groupId
 
             // Helper to match headers to kinds
             const getDistilledKind = (h: string): 'format' | 'material' | 'finish' | 'price' | 'qty' | 'ignore' | null => {
@@ -3497,6 +3998,7 @@ export function ProductAttributeBuilder({
 
             // First pass: Ensure Groups Exist
             for (let i = 0; i < headers.length; i++) {
+                if (hasDependencyFilteredSections) continue;
                 const h = headers[i];
                 if (!isNaN(parseInt(h))) continue; // Quantity column
 
@@ -3506,7 +4008,7 @@ export function ProductAttributeBuilder({
                 // If not found by name, try to find by kind if we can imply it
                 if (!group) {
                     const kind = getDistilledKind(h);
-                    if (kind && kind !== 'ignore') {
+                    if (kind === 'format' || kind === 'material' || kind === 'finish') {
                         // Check if we have a group of this kind (prioritize exact name match if multiple?)
                         // Actually, if we are in an empty project, we create it.
                         // Only use existing if singular?
@@ -3541,11 +4043,11 @@ export function ProductAttributeBuilder({
                         // But wait, createGroup return value doesn't strictly include 'values' array populated.
 
                         // We'll just Assume we need to add values if the group is new OR checks against DB.
-                        // Let's use a simpler heuristic: Add all values to 'missingValues' list, 
+                        // Let's use a simpler heuristic: Add all values to 'missingValues' list,
                         // and we'll filter duplicates or existing ones carefully.
                         // Actually, checking against STALE values is dangerous.
 
-                        // Better: We'll defer Value creation to after we re-fetch everything? 
+                        // Better: We'll defer Value creation to after we re-fetch everything?
                         // No, we need to insert them.
 
                         // Strategy: If group was just created, ALL values are missing.
@@ -3588,7 +4090,7 @@ export function ProductAttributeBuilder({
 
             // CRITICAL: Re-fetch Fresh Data
             const { data: freshGroupsData } = await supabase
-                .from('product_attribute_groups' as any)
+                .from('product_attribute_groups')
                 .select('*, values:product_attribute_values(*)')
                 .eq('product_id', productId)
                 .order('sort_order');
@@ -3706,7 +4208,7 @@ export function ProductAttributeBuilder({
                 }
 
                 const { data: refreshedGroupsData } = await supabase
-                    .from('product_attribute_groups' as any)
+                    .from('product_attribute_groups')
                     .select('*, values:product_attribute_values(*)')
                     .eq('product_id', productId)
                     .order('sort_order');
@@ -3751,7 +4253,7 @@ export function ProductAttributeBuilder({
                 const verticalGroup = verticalMeta?.group;
                 const verticalValueIds = verticalMeta ? collectValueIds(verticalGroup, verticalMeta.colIndex) : [];
 
-                let newVerticalConfig: any = {
+                const newVerticalConfig: any = {
                     ...verticalAxisConfig,
                     sectionId: verticalSectionId,
                     sectionType: csvMeta.vertical_axis.sectionType,
@@ -3791,7 +4293,9 @@ export function ProductAttributeBuilder({
                             thumbnail_size: normalizeThumbnailSize(col.thumbnail_size),
                             thumbnail_custom_px: normalizeThumbnailCustomPx(col.thumbnail_custom_px),
                             title: col.title || '',
-                            description: col.description || ''
+                            description: col.description || '',
+                            hideUnavailableValues: col.hideUnavailableValues === true,
+                            hide_unavailable_values: col.hide_unavailable_values === true,
                         };
                     })
                 }));
@@ -3852,7 +4356,11 @@ export function ProductAttributeBuilder({
                     }
 
                     const variantValueIds = Object.entries(selectionBySection)
-                        .filter(([secId]) => secId !== verticalSectionId)
+                        .filter(([secId]) => {
+                            if (secId === verticalSectionId) return false;
+                            const sectionType = sectionTypeById[secId];
+                            return sectionType !== 'formats' && sectionType !== 'materials';
+                        })
                         .map(([, valId]) => valId)
                         .filter(Boolean);
 
@@ -3964,7 +4472,7 @@ export function ProductAttributeBuilder({
             // [REMOVED INFERENCE LOGIC] - Using strict positional mapping below.
 
             let newVerticalConfig: any = { ...verticalAxisConfig };
-            let newLayoutRows: any[] = [];
+            const newLayoutRows: any[] = [];
             let layoutChanged = false;
 
             // Map Column Index -> Group
@@ -4023,7 +4531,7 @@ export function ProductAttributeBuilder({
 
                     // Pre-scan to create missing Vertical Values
                     for (const row of data) {
-                        let valName = row[vertColIdx]?.trim();
+                        const valName = row[vertColIdx]?.trim();
                         // No Vertical Merge here anymore.
                         // if (shouldMergeSuffix) ... REMOVED
 
@@ -4195,7 +4703,7 @@ export function ProductAttributeBuilder({
                 const vertColIdx = headers.findIndex(h => h === attributeHeaders[0]); // Re-find vertical column index
                 Object.entries(colSections).forEach(([idxStr, meta]) => {
                     const idx = parseInt(idxStr);
-                    let valName = row[idx]?.trim();
+                    const valName = row[idx]?.trim();
 
 
 
@@ -4211,7 +4719,7 @@ export function ProductAttributeBuilder({
                     let foundValId = '';
 
                     // Try finding specific group
-                    let group = freshGroups.find(g => g.name.toLowerCase() === meta.title.toLowerCase());
+                    const group = freshGroups.find(g => g.name.toLowerCase() === meta.title.toLowerCase());
                     if (group) {
                         const val = group.values?.find(v => normalizeForMatch(v.name) === searchNorm);
                         if (val) foundValId = val.id;
@@ -4344,6 +4852,21 @@ export function ProductAttributeBuilder({
     const activeGenFormat = getActiveFormatId(selectedSectionValues);
     const activeGenMaterial = getActiveMaterialId(selectedSectionValues);
     const activeGenVariant = getVariantKeyFromSelections(selectedSectionValues);
+    const activeGeneratorQuantities = useMemo(
+        () => hasDependencyFilteredSections
+            ? selectedOplag.filter((quantity) => isExistingDependencyPriceKey(
+                `${activeGenFormat}::${activeGenMaterial}::${activeGenVariant || 'none'}::${quantity}`,
+            ))
+            : selectedOplag,
+        [
+            activeGenFormat,
+            activeGenMaterial,
+            activeGenVariant,
+            hasDependencyFilteredSections,
+            isExistingDependencyPriceKey,
+            selectedOplag,
+        ],
+    );
     const hiddenSectionIds = useMemo(() => {
         const ids = new Set<string>();
         layoutRows.forEach(row => {
@@ -4371,6 +4894,13 @@ export function ProductAttributeBuilder({
             .filter(section => section.ui_mode !== 'hidden')
             .map((section, index) => ({ section, index }));
 
+        // Imported dependency-filtered matrices deliberately define their choice order
+        // (for example calendar model before compatible filling). Keep that order so an
+        // internal format/material type does not reverse the customer dependency.
+        if (hasDependencyFilteredSections) {
+            return flattened.map(item => item.section);
+        }
+
         const getSectionPriority = (section: LayoutSection) => {
             const label = getPreviewSectionLabel(section);
             if (section.sectionType === 'formats') return 0;
@@ -4388,7 +4918,7 @@ export function ProductAttributeBuilder({
                 return a.index - b.index;
             })
             .map(item => item.section);
-    }, [getPreviewSectionLabel, layoutRows]);
+    }, [getPreviewSectionLabel, hasDependencyFilteredSections, layoutRows]);
     const previewSectionOrderById = useMemo(() => {
         const order: Record<string, number> = {};
         previewVisibleSections.forEach((section, index) => {
@@ -4404,6 +4934,19 @@ export function ProductAttributeBuilder({
         return sortValuesForDisplay(rawValues, sectionLabel);
     }, [getPreviewSectionLabel, productAttrs.groups]);
     const previewPositivePriceRows = useMemo(() => {
+        if (hasDependencyFilteredSections) {
+            return publishedPriceRows.flatMap((row) => {
+                if (!Number.isFinite(Number(row.price_dkk)) || Number(row.price_dkk) <= 0) return [];
+                const context = getMatrixAdminPriceContext(row);
+                if (!context) return [];
+                return [{
+                    formatId: context.formatId,
+                    materialId: context.materialId,
+                    variantIds: context.variantId === 'none' ? [] : context.variantId.split('|').filter(Boolean),
+                    verticalValueId: context.verticalValueId,
+                }];
+            });
+        }
         return Object.entries(generatorPrices).flatMap(([key, row]) => {
             const parts = key.split('::');
             if (parts.length < 4) return [];
@@ -4430,7 +4973,7 @@ export function ProductAttributeBuilder({
                 })()
             }];
         });
-    }, [generatorPrices, verticalAxisConfig.sectionType, verticalAxisConfig.valueIds]);
+    }, [generatorPrices, hasDependencyFilteredSections, publishedPriceRows, verticalAxisConfig.sectionType, verticalAxisConfig.valueIds]);
     const previewRowMatchesSelections = useCallback((row: { formatId: string; materialId: string; variantIds: string[]; verticalValueId: string | null }, selections: Record<string, string>, excludeSectionId?: string) => {
         for (const [sectionId, valueId] of Object.entries(selections)) {
             if (!valueId || sectionId === excludeSectionId) continue;
@@ -4602,6 +5145,112 @@ export function ProductAttributeBuilder({
     const getGenPriceKey = (formatId: string, materialId: string, variantKey: string, qty: number) =>
         `${formatId}::${materialId}::${variantKey || 'none'}::${qty}`;
 
+    const splitVariantKeyToIds = (variantKey: string): string[] => Array.from(
+        new Set(
+            String(variantKey || 'none')
+                .split('|')
+                .map(id => String(id || '').trim())
+                .filter(Boolean)
+        )
+    ).sort();
+
+    const getVariantMatchScore = (requested: string[], candidate: string[]): number => {
+        const requestedSet = new Set(requested);
+        if (requestedSet.size === 0 && candidate.length === 0) return 100;
+        if (requestedSet.size === 0) return 20;
+
+        if (candidate.length === 0) return -1;
+
+        let overlap = 0;
+        for (const id of candidate) {
+            if (requestedSet.has(id)) overlap += 1;
+        }
+        if (overlap === 0) return -1;
+
+        const missing = requestedSet.size - overlap;
+        const extras = candidate.length - overlap;
+        let score = overlap * 20 - missing * 10 - extras * 2;
+        if (missing === 0 && extras === 0) {
+            score += 100;
+        }
+        return score;
+    };
+
+    const resolvePriceLookup = (
+        source: Record<string, any>,
+        formatId: string,
+        materialId: string,
+        variantId: string,
+        qty: number
+    ): { key: string; variantId: string } | null => {
+        const normalizedRequestedVariantId = splitVariantKeyToIds(variantId).join('|') || 'none';
+        const requestedVariantIds = splitVariantKeyToIds(normalizedRequestedVariantId);
+        const exactKey = getGenPriceKey(formatId, materialId, normalizedRequestedVariantId, qty);
+        const exact = source[exactKey];
+        const exactPrice = typeof exact === 'number' ? exact : Number(exact?.price || 0);
+        const exactExcluded = exact && typeof exact === 'object' && exact.excludeFromCurve && (!exactPrice || exactPrice <= 0);
+        if (exactPrice > 0 && !exactExcluded) {
+            return { key: exactKey, variantId: normalizedRequestedVariantId };
+        }
+
+        if (normalizedRequestedVariantId !== 'none') {
+            const noneKey = getGenPriceKey(formatId, materialId, 'none', qty);
+            const noneValue = source[noneKey];
+            const nonePrice = typeof noneValue === 'number' ? noneValue : Number(noneValue?.price || 0);
+            const noneExcluded = noneValue && typeof noneValue === 'object' && noneValue.excludeFromCurve && (!nonePrice || nonePrice <= 0);
+            if (nonePrice > 0 && !noneExcluded) {
+                return { key: noneKey, variantId: 'none' };
+            }
+        }
+
+        let sameQtyBest:
+            | { score: number; key: string; variantId: string; qty: number }
+            | null = null;
+        let anyQtyBest:
+            | { score: number; key: string; variantId: string; qty: number }
+            | null = null;
+
+        Object.entries(source).forEach(([lookupKey, value]) => {
+            const parts = lookupKey.split('::');
+            if (parts.length < 4) return;
+            const [lookupFormatId, lookupMaterialId, lookupVariantId, lookupQty] = parts;
+            if (lookupFormatId !== formatId || lookupMaterialId !== materialId) return;
+
+            const candidateQty = Number(lookupQty);
+            if (!Number.isFinite(candidateQty) || candidateQty <= 0) return;
+
+            const candidateVariantId = (lookupVariantId || 'none');
+            const candidatePrice = typeof value === 'number' ? value : Number(value?.price || 0);
+            const candidateExcluded = value && typeof value === 'object' && value.excludeFromCurve && (!candidatePrice || candidatePrice <= 0);
+            if (candidatePrice <= 0 || candidateExcluded) return;
+
+            const candidateScore = getVariantMatchScore(
+                requestedVariantIds,
+                splitVariantKeyToIds(candidateVariantId)
+            );
+            if (candidateScore < 0) return;
+
+            const candidate = {
+                key: lookupKey,
+                variantId: candidateVariantId,
+                score: candidateScore,
+                qty: candidateQty
+            };
+
+            if (candidateQty === qty) {
+                if (!sameQtyBest || candidate.score > sameQtyBest.score) {
+                    sameQtyBest = candidate;
+                }
+            } else if (!anyQtyBest || candidate.score > anyQtyBest.score) {
+                anyQtyBest = candidate;
+            }
+        });
+
+        if (sameQtyBest) return { key: sameQtyBest.key, variantId: sameQtyBest.variantId };
+        if (anyQtyBest) return { key: anyQtyBest.key, variantId: anyQtyBest.variantId };
+        return null;
+    };
+
     // Get anchor data for current format+material+variant at a specific qty
     const getAnchorData = (qty: number) => {
         const key = getGenPriceKey(activeGenFormat, activeGenMaterial, activeGenVariant, qty);
@@ -4611,6 +5260,7 @@ export function ProductAttributeBuilder({
     // Set anchor data for current format+material+variant at a specific qty
     const setAnchorData = (qty: number, data: { price?: number; markup?: number; isLocked?: boolean; excludeFromCurve?: boolean }) => {
         const key = getGenPriceKey(activeGenFormat, activeGenMaterial, activeGenVariant, qty);
+        if (!isExistingDependencyPriceKey(key)) return;
 
         setGeneratorPrices(prev => ({
             ...prev,
@@ -4621,6 +5271,7 @@ export function ProductAttributeBuilder({
     const applyManualPriceForKey = (priceKey: string, finalPrice: number | null) => {
         const parts = priceKey.split('::');
         if (parts.length < 4) return;
+        if (!isExistingDependencyPriceKey(priceKey)) return;
         const [formatId, materialId, variantId] = parts;
         const existing = generatorPrices[priceKey] || { price: 0, markup: 0 };
 
@@ -4661,12 +5312,15 @@ export function ProductAttributeBuilder({
         prodMarkup: number;
         source: 'manual' | 'interpolated';
     } | null {
-        const priceKey = getGenPriceKey(formatId, materialId, variantId, qty);
+        const resolved = resolvePriceLookup(generatorPrices, formatId, materialId, variantId, qty);
+        if (!resolved) return null;
+
+        const { key: priceKey, variantId: resolvedVariantId } = resolved;
         const data = generatorPrices[priceKey];
         if (data?.excludeFromCurve && (!data.price || data.price <= 0)) return null;
 
         const localMarkup = Number(data?.markup) || 0;
-        const markupKey = `${formatId}::${materialId}${variantId !== 'none' ? `::${variantId}` : ''}`;
+        const markupKey = `${formatId}::${materialId}${resolvedVariantId !== 'none' ? `::${resolvedVariantId}` : ''}`;
         const prodMarkup = productMarkups[markupKey] || 0;
         const gm = Number(masterMarkup) || 0;
         const rnd = Number(genRounding) || 1;
@@ -4684,7 +5338,7 @@ export function ProductAttributeBuilder({
             };
         }
 
-        const anchors = getAnchorsForContext(formatId, materialId, variantId);
+        const anchors = getAnchorsForContext(formatId, materialId, resolvedVariantId);
         if (anchors.length >= 2) {
             const beforeAnchor = anchors.filter(a => a.quantity < qty).pop();
             const afterAnchor = anchors.find(a => a.quantity > qty);
@@ -4720,12 +5374,15 @@ export function ProductAttributeBuilder({
         prodMarkup: number;
         source: 'manual' | 'interpolated';
     } | null {
-        const priceKey = getGenPriceKey(formatId, materialId, variantId, qty);
+        const resolved = resolvePriceLookup(sourcePrices, formatId, materialId, variantId, qty);
+        if (!resolved) return null;
+
+        const { key: priceKey, variantId: resolvedVariantId } = resolved;
         const data = sourcePrices[priceKey];
-        if (data?.excludeFromCurve && (!data.price || data.price <= 0)) return null;
+        if (data?.excludeFromCurve && (!data?.price || data.price <= 0)) return null;
 
         const localMarkup = Number(data?.markup) || 0;
-        const markupKey = `${formatId}::${materialId}${variantId !== 'none' ? `::${variantId}` : ''}`;
+        const markupKey = `${formatId}::${materialId}${resolvedVariantId !== 'none' ? `::${resolvedVariantId}` : ''}`;
         const prodMarkup = productMarkups[markupKey] || 0;
         const gm = Number(masterMarkup) || 0;
         const rnd = Number(genRounding) || 1;
@@ -4759,7 +5416,7 @@ export function ProductAttributeBuilder({
             const parts = key.split('::');
             if (parts.length < 4) return;
             const [fId, mId, vId, qtyStr] = parts;
-            if (fId !== formatId || mId !== materialId || (vId || 'none') !== (variantId || 'none')) return;
+            if (fId !== formatId || mId !== materialId || (vId || 'none') !== (resolvedVariantId || 'none')) return;
             const q = parseInt(qtyStr, 10);
             if (Number.isNaN(q)) return;
             if (value && typeof value !== 'number' && value.isLocked && value.price > 0 && !value.excludeFromCurve) {
@@ -4872,6 +5529,7 @@ export function ProductAttributeBuilder({
                 const qty = Number(qtyStr);
                 if (quantityFilter && !quantityFilter.has(qty)) return;
                 const targetKey = getGenPriceKey(activeGenFormat, activeGenMaterial, targetVariantId, qty);
+                if (!isExistingDependencyPriceKey(targetKey)) return;
                 const normalized = typeof data === 'number' ? { price: data, markup: 0 } : { ...data };
                 next[targetKey] = normalized;
                 copied += 1;
@@ -4891,7 +5549,7 @@ export function ProductAttributeBuilder({
         } else {
             toast.error('Ingen priser at kopiere');
         }
-    }, [activeGenFormat, activeGenMaterial, activeGenVariant, selectedOplag]);
+    }, [activeGenFormat, activeGenMaterial, activeGenVariant, isExistingDependencyPriceKey, selectedOplag]);
 
     // ==========================================
     // PROTECTED CORE LOGIC: PRICE INTERPOLATION
@@ -5064,15 +5722,20 @@ export function ProductAttributeBuilder({
                     const fallbackOplag = new Set<number>();
                     data.forEach((row: any) => {
                         const extra = row.extra_data || {};
-                        const formatId = extra.formatId || extra.selectionMap?.format;
-                        const materialId = extra.materialId || extra.selectionMap?.material;
-                        const variantId = resolveVariantIdFromPublishedRow(row, formatValueIds, materialValueIds);
+                        const { formatId, materialId } = resolveFormatMaterialFromPublishedRow(row, formatValueIds, materialValueIds);
+                        const variantId = resolveVariantIdFromPublishedRow(
+                            row,
+                            formatValueIds,
+                            materialValueIds,
+                            formatId,
+                            materialId
+                        );
                         if (!formatId || !materialId) return;
                         const qty = Number(row.quantity);
                         const price = Number(row.price_dkk);
                         if (!qty || !price) return;
                         const key = `${formatId}::${materialId}::${variantId || 'none'}::${qty}`;
-                        fallbackPrices[key] = { price, markup: 0, isLocked: false };
+                        fallbackPrices[key] = { price, markup: 0, isLocked: true };
                         fallbackOplag.add(qty);
                     });
 
@@ -5359,9 +6022,14 @@ export function ProductAttributeBuilder({
                 const fallbackOplag = new Set<number>();
                 data.forEach((row: any) => {
                     const extra = row.extra_data || {};
-                    const formatId = extra.formatId || extra.selectionMap?.format;
-                    const materialId = extra.materialId || extra.selectionMap?.material;
-                    const variantId = resolveVariantIdFromPublishedRow(row, formatValueIds, materialValueIds);
+                    const { formatId, materialId } = resolveFormatMaterialFromPublishedRow(row, formatValueIds, materialValueIds);
+                    const variantId = resolveVariantIdFromPublishedRow(
+                        row,
+                        formatValueIds,
+                        materialValueIds,
+                        formatId,
+                        materialId
+                    );
                     if (!formatId || !materialId) return;
                     const qty = Number(row.quantity);
                     const price = Number(row.price_dkk);
@@ -5547,9 +6215,31 @@ export function ProductAttributeBuilder({
 
     return (
         <>
-            <div className="space-y-6">
+            <div className="admin-matrix-context space-y-6" data-editor-surface={surface} data-workspace-bank={!!workspaceDraft || undefined}>
+                {surface !== 'prices' && <>
+                {workspaceDraft && <div className="pw-bank-target">
+                    <label htmlFor="workspace-bank-target">Tilføj til sektion</label>
+                    <select id="workspace-bank-target" value={selectedTarget?.id || ''} onChange={event => {
+                        const id = event.target.value;
+                        const section = id === 'vertical-axis' ? verticalAxisConfig : layoutRows.flatMap(row => row.sections).find(section => section.id === id);
+                        setSelectedTarget({ type: id === 'vertical-axis' ? 'vertical' : 'section', id });
+                        setLibraryPanel(section?.sectionType === 'formats' ? 'format' : section?.sectionType === 'materials' ? 'material' : section?.sectionType === 'finishes' ? 'finish' : 'product');
+                    }}>
+                        <option value="" disabled>Vælg en sektion eller opret en ny</option>
+                        <option value="vertical-axis">{verticalAxisConfig.title || 'Materialer'} · Pristabel</option>
+                        {layoutRows.flatMap(row => row.sections).map(section => <option key={section.id} value={section.id}>{section.title || ({ formats: 'Formater', materials: 'Materialer', finishes: 'Efterbehandling', products: 'Produktvalg' }[section.sectionType])}</option>)}
+                    </select>
+                    <Button variant="outline" onClick={() => {
+                        const id = `section-${crypto.randomUUID()}`;
+                        const type = { format: 'formats', material: 'materials', finish: 'finishes', product: 'products' }[libraryPanel] as AttributeType;
+                        const title = { format: 'Formater', material: 'Materialer', finish: 'Efterbehandling', product: 'Produktvalg' }[libraryPanel];
+                        setLayoutRows(current => [...current, { id: `row-${id}`, sections: [{ id, title, sectionType: type, groupId: '', valueIds: [], ui_mode: 'buttons', selection_mode: 'required', thumbnail_size: 'small', selectorStyling: {} }] }]);
+                        setSelectedTarget({ type: 'section', id });
+                    }}><Plus size={15} className="mr-2" />Ny sektion</Button>
+                    <p>Bankens valg tilføjes til denne sektion. Rækkefølgen redigerer du direkte på produktsiden.</p>
+                </div>}
                 {/* Product Groups - TABBED UI with Library Browsers */}
-                <Card>
+                <Card className="admin-matrix-library">
                     <CardHeader className="pb-3">
                         <CardTitle className="text-base flex items-center gap-2">
                             <Package className="h-4 w-4" />
@@ -5639,7 +6329,7 @@ export function ProductAttributeBuilder({
 
                                         // 1. Validate Target
                                         if (!selectedTarget) {
-                                            toast.error("Klik på en boks i 'Prisliste Layout' for at vælge hvor elementet skal tilføjes.");
+                                            toast.error("Klik på en boks i 'Sektioner og kolonner' for at vælge hvor elementet skal tilføjes.");
                                             return;
                                         }
 
@@ -5660,7 +6350,9 @@ export function ProductAttributeBuilder({
                                         };
                                         const kind = kindMapping[libraryPanel];
 
-                                        let targetGroup = productAttrs.groups.find(g =>
+                                        const targetSection = targetIsVertical ? verticalAxisConfig : layoutRows.flatMap(row => row.sections).find(section => section.id === selectedTarget.id);
+                                        if (targetSection?.sectionType !== expectedType) { toast.error('Vælg en sektion med samme type som bankens valg.'); return; }
+                                        let targetGroup = productAttrs.groups.find(g => g.id === targetSection?.groupId) || productAttrs.groups.find(g =>
                                             g.kind === kind && g.name.toLowerCase() === (item.category || libraryPanel).toLowerCase()
                                         );
 
@@ -5727,7 +6419,7 @@ export function ProductAttributeBuilder({
 
                                         // 1. Validate Target
                                         if (!selectedTarget) {
-                                            toast.error("Klik på en boks i 'Prisliste Layout' for at vælge hvor formatet skal tilføjes.");
+                                            toast.error("Klik på en boks i 'Sektioner og kolonner' for at vælge hvor formatet skal tilføjes.");
                                             return;
                                         }
                                         const targetIsVertical = selectedTarget.type === 'vertical';
@@ -5737,7 +6429,9 @@ export function ProductAttributeBuilder({
                                         }
 
                                         // 2. Add to Global Group (Ensure group exists)
-                                        let targetGroupId = formatGroups[0]?.id;
+                                        const targetSection = targetIsVertical ? verticalAxisConfig : layoutRows.flatMap(row => row.sections).find(section => section.id === selectedTarget.id);
+                                        if (targetSection?.sectionType !== 'formats') { toast.error('Vælg en formatsektion først.'); return; }
+                                        let targetGroupId = targetSection?.groupId || formatGroups[0]?.id;
                                         if (!targetGroupId) {
                                             const created = await productAttrs.createGroup({
                                                 name: 'Formater',
@@ -5792,7 +6486,7 @@ export function ProductAttributeBuilder({
                         )}
 
 
-                        {/* Active items on this product removed - managed in Prisliste Layout */}
+                        {/* Active items on this product removed - managed in Sektioner og kolonner */}
                     </CardContent>
 
                     {/* Create Library Item Dialogs */}
@@ -5817,12 +6511,13 @@ export function ProductAttributeBuilder({
                 </Card>
 
                 {/* ============ LAYOUT BUILDER - Rows & Sections ============ */}
-                <Card>
+                <WorkspaceBankAdvanced enabled={!!workspaceDraft}>
+                <Card className="admin-matrix-layout">
                     <CardHeader className="pb-3">
                         <div className="flex items-center justify-between gap-4">
                             <CardTitle className="text-base flex items-center gap-2">
                                 <LayoutGrid className="h-4 w-4" />
-                                Prisliste Layout
+                                Sektioner og kolonner
                             </CardTitle>
                             <Button
                                 variant="outline"
@@ -5834,7 +6529,7 @@ export function ProductAttributeBuilder({
                             </Button>
                         </div>
                         <CardDescription className="text-xs">
-                            Organiser formater og produkter i rækker og sektioner (maks. 3 kolonner per række)
+                            Placér sektioner ved siden af hinanden på samme række, eller under hinanden på hver sin række.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -5846,11 +6541,11 @@ export function ProductAttributeBuilder({
                             onChange={handleImageUpload}
                         />
 
-                        <div className="flex gap-4 min-h-[400px]">
+                        <div className="product-layout-board flex flex-col xl:flex-row gap-4 min-h-[400px]">
                             {/* Left: Vertical Axis Box */}
                             <div
                                 className={cn(
-                                    "w-1/4 min-w-[240px] p-3 rounded-lg border-2 transition-all cursor-pointer flex flex-col gap-3",
+                                    "w-full xl:w-1/4 min-w-0 xl:min-w-[240px] p-3 rounded-lg border-2 transition-all cursor-pointer flex flex-col gap-3",
                                     selectedTarget?.type === 'vertical' ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-muted bg-muted/10 hover:border-primary/50"
                                 )}
                                 onClick={() => setSelectedTarget({ type: 'vertical', id: 'vertical-axis' })}
@@ -6081,7 +6776,7 @@ export function ProductAttributeBuilder({
                                     } />
                                 )}
                             </DragOverlay>
-                            <div className="flex-1 space-y-6 pl-8">
+                            <div className="min-w-0 flex-1 space-y-6 xl:pl-8">
                                 {layoutRows.map((row, rowIndex) => (
                                     <DraggableLayoutRow
                                         key={row.id}
@@ -6146,13 +6841,13 @@ export function ProductAttributeBuilder({
                                         </div>
 
                                         <div className={cn(
-                                            "grid gap-3 p-3 pt-5 bg-muted/30 rounded-lg border-2 border-dashed",
+                                            "product-section-columns grid grid-cols-1 gap-3 p-3 pt-5 bg-muted/30 rounded-lg border-2 border-dashed",
                                             row.sections.length === 1 && "grid-cols-1",
-                                            row.sections.length === 2 && "grid-cols-2",
-                                            row.sections.length === 3 && "grid-cols-3",
-                                            row.sections.length === 4 && "grid-cols-4",
-                                            row.sections.length === 5 && "grid-cols-5",
-                                            row.sections.length >= 6 && "grid-cols-6"
+                                            row.sections.length === 2 && "lg:grid-cols-2",
+                                            row.sections.length === 3 && "lg:grid-cols-3",
+                                            row.sections.length === 4 && "lg:grid-cols-4",
+                                            row.sections.length === 5 && "lg:grid-cols-5",
+                                            row.sections.length >= 6 && "lg:grid-cols-6"
                                         )}>
                                             {row.sections.map((section, sectionIndex) => (
                                                 <DraggableColumn
@@ -6252,7 +6947,7 @@ export function ProductAttributeBuilder({
                                                         />
                                                     </div>
 
-                                                    <div className="flex items-center gap-2 mb-2">
+                                                    <div className="flex flex-wrap items-center gap-2 mb-2">
                                                         <Badge variant="outline" className={cn("text-[10px]", KIND_COLORS[section.sectionType] || 'bg-gray-100')}>
                                                             {KIND_LABELS[section.sectionType]}
                                                         </Badge>
@@ -6285,7 +6980,7 @@ export function ProductAttributeBuilder({
                                                                 setTemplateConnectSectionId(section.id);
                                                             }}
                                                         >
-                                                            Template Connect
+                                                            Tilknyt skabelon
                                                             {Object.values(section.valueSettings || {}).some((settings) => Boolean(settings?.linkedTemplateId)) ? (
                                                                 <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px]">
                                                                     {Object.values(section.valueSettings || {}).filter((settings) => Boolean(settings?.linkedTemplateId)).length}
@@ -6337,7 +7032,7 @@ export function ProductAttributeBuilder({
                                                                 ))}
                                                             </SelectContent>
                                                         </Select>
-                                                        <div className="flex items-center gap-2 min-w-[230px]">
+                                                        <div className="flex flex-wrap items-center gap-2 min-w-0 w-full sm:w-auto">
                                                             <Slider
                                                                 value={[normalizeThumbnailCustomPx(section.thumbnail_custom_px) ?? resolveThumbnailSizePx(section.thumbnail_size)]}
                                                                 min={THUMBNAIL_CUSTOM_PX_MIN}
@@ -6505,8 +7200,12 @@ export function ProductAttributeBuilder({
                     </CardContent>
                 </Card>
 
+                </WorkspaceBankAdvanced>
+                {surface === 'product' && <div className="flex flex-wrap items-center gap-3"><Button onClick={handleSaveProductLayout} disabled={pushing}>{pushing ? 'Gemmer…' : onWorkspaceApply ? 'Brug på produktsiden' : 'Gem produktopsætning'}</Button><p className="text-sm text-muted-foreground">{onWorkspaceApply ? 'Valg og sektioner føjes til din åbne kladde. Nye kombinationers priser tilføjes under Priser.' : 'Gem valg og placering her. Nye kombinationers priser oprettes under Priser.'}</p></div>}
+                </>}
+                {surface !== 'product' && <>
                 {/* ============ E) OPLAG BUILDER ============ */}
-                <Card>
+                <Card className="admin-matrix-quantities">
                     <CardHeader className="pb-3">
                         <CardTitle className="text-base">Antal</CardTitle>
                         <CardDescription className="text-xs">
@@ -6565,7 +7264,7 @@ export function ProductAttributeBuilder({
                             <div>
                                 <CardTitle className="text-base flex items-center gap-2">
                                     <Wand2 className="h-4 w-4" />
-                                    SmartPriceGenerator
+                                    Smart prisgenerator
                                 </CardTitle>
                                 <CardDescription className="text-xs">
                                     Generér priser for én kombination ad gangen, tilføj til kladde
@@ -6711,9 +7410,16 @@ export function ProductAttributeBuilder({
                                                 )}>
                                                     {visibleSections.map((section) => {
                                                         const sectionLabel = section.title || productAttrs.groups.find(g => g.id === section.groupId)?.name || section.sectionType;
-                                                        const values = sortValuesForDisplay((productAttrs.groups || [])
+                                                        const rawValues = (productAttrs.groups || [])
                                                             .flatMap(g => (g.values || []))
-                                                            .filter(v => section.valueIds?.includes(v.id)), sectionLabel);
+                                                            .filter(v => section.valueIds?.includes(v.id));
+                                                        const availableValueIds = previewAvailableValueIdsBySection[section.id];
+                                                        const values = sortValuesForDisplay(
+                                                            hasDependencyFilteredSections && availableValueIds
+                                                                ? rawValues.filter(value => availableValueIds.has(value.id))
+                                                                : rawValues,
+                                                            sectionLabel,
+                                                        );
                                                         const sectionThumbPx = resolveThumbnailSizePx(
                                                             section.thumbnail_size,
                                                             section.thumbnail_custom_px
@@ -6861,8 +7567,8 @@ export function ProductAttributeBuilder({
                                                                         {values.map(v => {
                                                                             const isSelected = selectedValue === v.id;
                                                                             const settings = section.valueSettings?.[v.id];
-                                                                            const thumbUrl = settings?.customImage;
                                                                             const displayName = getDisplayName(v.name, settings);
+                                                                            const thumbUrl = settings?.customImage || getBuiltInOptionImage(displayName);
                                                                             const pictureMode = displayMode === 'xl_notext' ? 'xl' : displayMode;
                                                                             const size = PICTURE_SIZES[pictureMode as PictureSizeMode] || PICTURE_SIZES.medium;
                                                                             const showPictureLabel = pictureMode !== 'small' && displayMode !== 'xl_notext';
@@ -7003,9 +7709,9 @@ export function ProductAttributeBuilder({
                             < div className="space-y-2" >
                                 <div className="flex items-center justify-between">
                                     <Label className="text-xs font-medium">
-                                        Ankerpunkter ({selectedOplag.length} mængder)
+                                        Ankerpunkter ({activeGeneratorQuantities.length} mængder)
                                     </Label>
-                                    {selectedOplag.length > 5 && (
+                                    {activeGeneratorQuantities.length > 5 && (
                                         <div className="flex items-center gap-1">
                                             <Button
                                                 size="sm"
@@ -7017,13 +7723,13 @@ export function ProductAttributeBuilder({
                                                 <ChevronUp className="h-3 w-3 rotate-[-90deg]" />
                                             </Button>
                                             <span className="text-xs text-muted-foreground">
-                                                {anchorPage * 5 + 1}-{Math.min((anchorPage + 1) * 5, selectedOplag.length)} af {selectedOplag.length}
+                                                {anchorPage * 5 + 1}-{Math.min((anchorPage + 1) * 5, activeGeneratorQuantities.length)} af {activeGeneratorQuantities.length}
                                             </span>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                onClick={() => setAnchorPage(p => Math.min(Math.ceil(selectedOplag.length / 5) - 1, p + 1))}
-                                                disabled={(anchorPage + 1) * 5 >= selectedOplag.length}
+                                                onClick={() => setAnchorPage(p => Math.min(Math.ceil(activeGeneratorQuantities.length / 5) - 1, p + 1))}
+                                                disabled={(anchorPage + 1) * 5 >= activeGeneratorQuantities.length}
                                                 className="h-6 w-6 p-0"
                                             >
                                                 <ChevronDown className="h-3 w-3 rotate-[-90deg]" />
@@ -7033,9 +7739,11 @@ export function ProductAttributeBuilder({
                                 </div>
 
                                 {
-                                    selectedOplag.length === 0 ? (
+                                    activeGeneratorQuantities.length === 0 ? (
                                         <p className="text-xs text-muted-foreground py-2">
-                                            Vælg oplag mængder først for at definere ankerpunkter
+                                            {hasDependencyFilteredSections
+                                                ? 'Ingen importerede oplag findes for den valgte kombination'
+                                                : 'Vælg oplag mængder først for at definere ankerpunkter'}
                                         </p>
                                     ) : (
                                         <div className="space-y-2">
@@ -7043,7 +7751,7 @@ export function ProductAttributeBuilder({
                                             {/* PROTECTED CORE LOGIC: GENERATOR RENDER LOOP */}
                                             {/* Handles Manual Anchors vs Slider Overrides  */}
                                             {/* ========================================== */}
-                                            {selectedOplag.slice(anchorPage * 5, (anchorPage + 1) * 5).map(qty => {
+                                            {activeGeneratorQuantities.slice(anchorPage * 5, (anchorPage + 1) * 5).map(qty => {
                                                 const anchorData = getAnchorData(qty);
                                                 const isLocked = !!anchorData.isLocked;
                                                 let rawInterpolatedBase = 0;
@@ -7077,7 +7785,7 @@ export function ProductAttributeBuilder({
                                                                 interpolatedPrice = Math.round(price / rnd) * rnd;
                                                             }
                                                         }
-                                                    } catch (e) { }
+                                                    } catch { /* Keep the existing fallback price when interpolation is unavailable. */ }
                                                 }
 
                                                 // Calculate display price
@@ -7202,7 +7910,7 @@ export function ProductAttributeBuilder({
                                     <p>• <strong>Slider på ankerpunkt:</strong> Justér % for at ændre ankerpriset - dette påvirker alle priser imellem!</p>
                                     <p>• <strong>Slider på andre rækker:</strong> Justér kun den enkelte række.</p>
                                 </div>
-                            </div >
+                    </div >
 
                             {/* Rounding & markup */}
                             < div className="grid grid-cols-2 gap-4" >
@@ -7288,12 +7996,31 @@ export function ProductAttributeBuilder({
                 {/* ============ FRONTEND-STYLE PRICE LIST PREVIEW ============ */}
                 {
                     (sizeMode === 'format') && (<>
+                                {/* Master Markup Slider */}
+                                <div className="bg-muted/30 p-3 rounded-md flex flex-wrap items-center gap-4 border border-border/50">
+                                    <Label className="text-sm font-medium whitespace-nowrap">Master Markup:</Label>
+                                    <CenterSlider
+                                        value={[masterMarkup]}
+                                        onValueChange={([v]) => setMasterMarkup(v)}
+                                        min={-100}
+                                        max={100}
+                                        step={1}
+                                        className="flex-1 max-w-xs"
+                                    />
+                                    <span className="text-sm w-16 text-right font-medium">
+                                        {masterMarkup > 0 ? '+' : ''}{masterMarkup}%
+                                    </span>
+                                    <div className="text-xs text-muted-foreground ml-auto">
+                                        Påvirker hele prislisten
+                                    </div>
+                                </div>
+<details open={surface === 'all'} className="rounded-lg border p-4"><summary className="cursor-pointer font-semibold">Manuel prisredigering</summary>
                         <Card>
                             <CardHeader className="pb-3">
                                 <div className="flex items-center justify-between gap-4">
                                     <CardTitle className="text-base flex items-center gap-2">
                                         <LayoutGrid className="h-4 w-4" />
-                                        Prisliste forhåndsvisning
+                                        Manuel prisredigering
                                     </CardTitle>
                                     <div className="flex items-center gap-2">
                                         <Button
@@ -7324,24 +8051,43 @@ export function ProductAttributeBuilder({
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                {/* Master Markup Slider */}
-                                <div className="bg-muted/30 p-3 rounded-md flex items-center gap-4 border border-border/50">
-                                    <Label className="text-sm font-medium whitespace-nowrap">Master Markup:</Label>
-                                    <CenterSlider
-                                        value={[masterMarkup]}
-                                        onValueChange={([v]) => setMasterMarkup(v)}
-                                        min={-100}
-                                        max={100}
-                                        step={1}
-                                        className="flex-1 max-w-xs"
-                                    />
-                                    <span className="text-sm w-16 text-right font-medium">
-                                        {masterMarkup > 0 ? '+' : ''}{masterMarkup}%
-                                    </span>
-                                    <div className="text-xs text-muted-foreground ml-auto">
-                                        Påvirker hele prislisten
+                                {(publishedPriceLoadSkippedCount || loadingPublishedPrices) && (
+                                    <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                            <div className="flex items-start gap-2">
+                                                {loadingPublishedPrices ? (
+                                                    <Loader2 className="mt-0.5 h-4 w-4 animate-spin shrink-0" />
+                                                ) : (
+                                                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                                                )}
+                                                <div>
+                                                    <p className="text-sm font-medium">
+                                                        {loadingPublishedPrices
+                                                            ? 'Indlæser stor prisliste'
+                                                            : 'Stor prisliste åbnet i let tilstand'}
+                                                    </p>
+                                                    <p className="text-xs opacity-90">
+                                                        {loadingPublishedPrices
+                                                            ? 'Eksisterende priser hentes ind i redigeringsfladen.'
+                                                            : `${publishedPriceLoadSkippedCount?.toLocaleString('da-DK')} prisrækker blev ikke auto-indlæst for at holde admin hurtig.`}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            {publishedPriceLoadSkippedCount && !loadingPublishedPrices && (
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="bg-background"
+                                                    onClick={() => loadPublishedPricesIntoGenerator({ manual: true })}
+                                                >
+                                                    Indlæs priser til redigering
+                                                </Button>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
+                                )}
+
                                 {/* Format/Product selection based on layout rows */}
                                 {layoutRows.map((row, rowIndex) => {
                                     const visibleSections = row.sections.filter(section => section.ui_mode !== 'hidden');
@@ -7390,10 +8136,14 @@ export function ProductAttributeBuilder({
                                                                     }
 
                                                                     const availableFormatIds = previewAvailableValueIdsBySection[section.id];
-                                                                    const sectionFormats = availableFormatIds && availableFormatIds.size > 0
+                                                                    const sectionFormats = hasDependencyFilteredSections && availableFormatIds
                                                                         ? rawSectionFormats.filter(format => availableFormatIds.has(format.id))
                                                                         : rawSectionFormats;
                                                                     const selectedFormatId = selectedSectionValues[section.id] || sectionFormats[0]?.id;
+
+                                                                    if (sectionFormats.length === 0) {
+                                                                        return <span className="text-[10px] text-muted-foreground italic">Ingen gyldige valg for den valgte kombination</span>;
+                                                                    }
 
                                                                     if (uiMode === 'dropdown') {
                                                                         return (
@@ -7468,8 +8218,8 @@ export function ProductAttributeBuilder({
                                                                                 {sectionFormats.map((format) => {
                                                                                     const isSelected = selectedFormatId === format.id;
                                                                                     const settings = section.valueSettings?.[format.id];
-                                                                                    const thumbUrl = settings?.customImage;
                                                                                     const displayName = getDisplayName(format.name, settings);
+                                                                                    const thumbUrl = settings?.customImage || getBuiltInOptionImage(displayName);
                                                                                     const pictureMode = uiMode === 'xl_notext' ? 'xl' : uiMode;
                                                                                     const size = PICTURE_SIZES[pictureMode as PictureSizeMode] || PICTURE_SIZES.medium;
                                                                                     const showPictureLabel = pictureMode !== 'small' && uiMode !== 'xl_notext';
@@ -7565,7 +8315,7 @@ export function ProductAttributeBuilder({
                                                                     // Only show values that are in this section's valueIds whitelist
                                                                     const rawSectionValues = getPreviewSectionValueOptions(section);
                                                                     const availableSectionValues = previewAvailableValueIdsBySection[section.id];
-                                                                    const sectionValues = availableSectionValues && availableSectionValues.size > 0
+                                                                    const sectionValues = hasDependencyFilteredSections && availableSectionValues
                                                                         ? rawSectionValues.filter(v => availableSectionValues.has(v.id))
                                                                         : rawSectionValues;
                                                                     const uiMode = section.ui_mode || 'buttons';
@@ -7706,8 +8456,8 @@ export function ProductAttributeBuilder({
                                                                                 {sectionValues.map((v: any) => {
                                                                                     const isSelected = selectedValueId === v.id;
                                                                                     const settings = section.valueSettings?.[v.id];
-                                                                                    const thumbUrl = settings?.customImage;
                                                                                     const displayName = getDisplayName(v.name, settings);
+                                                                                    const thumbUrl = settings?.customImage || getBuiltInOptionImage(displayName);
                                                                                     const pictureMode = uiMode === 'xl_notext' ? 'xl' : uiMode;
                                                                                     const size = PICTURE_SIZES[pictureMode as PictureSizeMode] || PICTURE_SIZES.medium;
                                                                                     const showPictureLabel = pictureMode !== 'small' && uiMode !== 'xl_notext';
@@ -7942,8 +8692,11 @@ export function ProductAttributeBuilder({
                                                             </TableCell>
                                                             {visibleOplag.map((qty) => {
                                                                 const priceKey = getGenPriceKey(rowFormatId, rowMaterialId, rowVariantId, qty);
+                                                                const isImportedPriceCell = isExistingDependencyPriceKey(priceKey);
                                                                 const isEditing = matrixEditMode && editingPriceKey === priceKey;
-                                                                const computed = computeFinalPriceForContext(rowFormatId, rowMaterialId, rowVariantId, qty);
+                                                                const computed = isImportedPriceCell
+                                                                    ? computeFinalPriceForContext(rowFormatId, rowMaterialId, rowVariantId, qty)
+                                                                    : null;
                                                                 const priceValue = computed?.price ?? null;
 
                                                                 return (
@@ -7951,10 +8704,11 @@ export function ProductAttributeBuilder({
                                                                         key={qty}
                                                                         className={cn(
                                                                             "text-center p-1 text-sm font-medium",
-                                                                            matrixEditMode && "cursor-pointer hover:bg-muted/40"
+                                                                            matrixEditMode && isImportedPriceCell && "cursor-pointer hover:bg-muted/40",
+                                                                            matrixEditMode && !isImportedPriceCell && "text-muted-foreground bg-muted/20"
                                                                         )}
                                                                         onClick={(e) => {
-                                                                            if (!matrixEditMode) return;
+                                                                            if (!matrixEditMode || !isImportedPriceCell) return;
                                                                             e.stopPropagation();
                                                                             setSelection(verticalValue.id);
                                                                             setEditingPriceKey(priceKey);
@@ -8033,7 +8787,7 @@ export function ProductAttributeBuilder({
                                 </div>
                             </CardContent>
                         </Card>
-                    </>)
+                    </details></>)
                 }
 
                 {/* Prisliste Handlinger (CSV) SECTION */}
@@ -8041,10 +8795,12 @@ export function ProductAttributeBuilder({
                     <div className="mb-4">
                         <h3 className="text-lg font-semibold flex items-center gap-2">
                             <CloudUpload className="h-5 w-5" />
-                            Prisliste Handlinger & CSV
+                            Prislisteværktøjer (valgfrit)
                         </h3>
                         <p className="text-sm text-muted-foreground">
-                            Eksporter den aktuelle struktur til CSV, udfyld priser i Excel, importer og udgiv direkte.
+                            {persistedPriceCount > 0
+                                ? `${persistedPriceCount.toLocaleString('da-DK')} priser er allerede gemt. Brug kun CSV eller Gem prisændringer, hvis priserne skal redigeres.`
+                                : 'Eksporter strukturen til CSV, udfyld priser i Excel, og importer dem igen ved manuel prisopsætning.'}
                         </p>
                     </div>
 
@@ -8095,8 +8851,12 @@ export function ProductAttributeBuilder({
                                         disabled={pushing}
                                         className="bg-green-600 hover:bg-green-700 text-white shadow-md"
                                     >
-                                        {pushing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CloudUpload className="h-4 w-4 mr-2" />}
-                                        Udgiv Priser til Webshop
+                                        {pushing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                                        {pushing && publishProgress
+                                            ? `Gemmer ${publishProgress.saved.toLocaleString('da-DK')} / ${publishProgress.total.toLocaleString('da-DK')}`
+                                            : persistedPriceCount > 0
+                                                ? 'Gem prisændringer'
+                                                : 'Gem priser'}
                                     </Button>
                                 )}
                             </div>
@@ -8121,7 +8881,9 @@ export function ProductAttributeBuilder({
                                     <div>
                                         <p className="font-medium text-blue-800 dark:text-blue-200">Priser klar til udgivelse!</p>
                                         <p className="text-xs text-blue-700 dark:text-blue-300">
-                                            {Object.keys(generatorPrices).filter(k => generatorPrices[k]?.price > 0).length} priser er konfigureret. Klik på "Udgiv Priser til Webshop" for at gemme.
+                                            {persistedPriceCount > 0
+                                                ? `${persistedPriceCount.toLocaleString('da-DK')} priser findes allerede i databasen. Knappen ovenfor er kun nødvendig efter en prisændring.`
+                                                : `${Object.keys(generatorPrices).filter(k => generatorPrices[k]?.price > 0).length.toLocaleString('da-DK')} priser er konfigureret og kan gemmes.`}
                                         </p>
                                     </div>
                                 </div>
@@ -8129,7 +8891,7 @@ export function ProductAttributeBuilder({
 
                             <div className="mt-4 text-xs text-muted-foreground flex gap-4">
                                 <p>Eksport inkluderer alle {formatGroups.flatMap(g => g.values || []).filter(v => v.enabled).length} formater og kombinationer.</p>
-                                <p>Bemærk: Udgivelse indsætter priser direkte i databasen.</p>
+                                <p>Produktets synlighed i webshoppen styres separat i produktoversigten.</p>
                             </div>
                         </CardContent>
                     </Card >
@@ -8179,6 +8941,7 @@ export function ProductAttributeBuilder({
                 </Card>
 
 
+                </>}
             </div >
 
             {/* Import Manual Prices Dialog */}
@@ -8743,6 +9506,7 @@ function AttributeLibraryBrowser({
 }) {
     const [items, setItems] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
+    const [bankSearch, setBankSearch] = useState('');
     const [filterCategory, setFilterCategory] = useState<string | null>(null);
     const [editingItem, setEditingItem] = useState<any | null>(null);
     const [copyingItemId, setCopyingItemId] = useState<string | null>(null);
@@ -8754,7 +9518,7 @@ function AttributeLibraryBrowser({
         setLoading(true);
         try {
             const { data, error } = await supabase
-                .from('designer_templates' as any)
+                .from('designer_templates')
                 .select('*')
                 .eq('is_active', true)
                 .eq('template_type', type)
@@ -8822,12 +9586,14 @@ function AttributeLibraryBrowser({
 
     const categories = Array.from(new Set(items.map(t => t.category).filter(Boolean))).sort();
     const filtered = items.filter(item => {
+        if (bankSearch && !`${item.name} ${item.category || ''}`.toLocaleLowerCase().includes(bankSearch.toLocaleLowerCase())) return false;
         if (filterCategory && item.category !== filterCategory) return false;
         return true;
     });
 
     return (
         <div className="space-y-4">
+            <Input aria-label="Søg i materialer og efterbehandling" placeholder="Søg i materialer og efterbehandling…" value={bankSearch} onChange={event => setBankSearch(event.target.value)} />
             <div className="flex flex-col gap-4">
                 <Button variant="default" size="sm" className="w-auto self-start" onClick={onCreateNew}>
                     <Plus className="h-3 w-3 mr-1" />
@@ -8867,7 +9633,7 @@ function AttributeLibraryBrowser({
 
                 {filtered.map(item => (
                     <div key={item.id} className="relative group border rounded-md p-2 hover:bg-muted/50 transition-colors">
-                        <div className="cursor-pointer" onClick={() => onSelect(item)}>
+                        <button type="button" className="cursor-pointer w-full text-left pr-5" aria-label={`Tilføj ${item.name}`} onClick={() => onSelect(item)}>
                             <div className="flex items-center gap-2">
                                 {item.category && <Badge variant="secondary" className="text-[10px] h-4 px-1">{item.category}</Badge>}
                                 <span className="font-medium text-sm truncate flex-1">
@@ -8879,7 +9645,7 @@ function AttributeLibraryBrowser({
                                     )}
                                 </span>
                             </div>
-                        </div>
+                        </button>
                         <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Button
                                 variant="ghost"
@@ -9194,6 +9960,7 @@ export function EditAttributeLibraryItemDialog({
 function TemplateLibraryBrowser({ onSelect, onCreateNew }: { onSelect: (t: any) => void, onCreateNew: () => void }) {
     const [templates, setTemplates] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
+    const [bankSearch, setBankSearch] = useState('');
     const [filterCategory, setFilterCategory] = useState<string | null>(null);
     const [editingTemplate, setEditingTemplate] = useState<any | null>(null);
 
@@ -9201,7 +9968,7 @@ function TemplateLibraryBrowser({ onSelect, onCreateNew }: { onSelect: (t: any) 
         setLoading(true);
         try {
             const { data, error } = await supabase
-                .from('designer_templates' as any)
+                .from('designer_templates')
                 .select('*')
                 .eq('is_active', true)
                 .eq('template_type', 'format')
@@ -9227,12 +9994,14 @@ function TemplateLibraryBrowser({ onSelect, onCreateNew }: { onSelect: (t: any) 
     const categories = Array.from(new Set(templates.map(t => t.category).filter(Boolean))).sort();
 
     const filtered = templates.filter(template => {
+        if (bankSearch && !`${template.name} ${template.category || ''}`.toLocaleLowerCase().includes(bankSearch.toLocaleLowerCase())) return false;
         if (filterCategory && template.category !== filterCategory) return false;
         return true;
     });
 
     return (
         <div className="space-y-4">
+            <Input aria-label="Søg i formatbanken" placeholder="Søg i formatbanken…" value={bankSearch} onChange={event => setBankSearch(event.target.value)} />
             <div className="flex flex-col gap-4">
                 <Button variant="default" size="sm" className="w-auto self-start" onClick={onCreateNew}>
                     <Plus className="h-3 w-3 mr-1" />
@@ -9268,7 +10037,7 @@ function TemplateLibraryBrowser({ onSelect, onCreateNew }: { onSelect: (t: any) 
 
                 {filtered.map(template => (
                     <div key={template.id} className="relative group border rounded-md p-2 hover:bg-muted/50 transition-colors">
-                        <div className="cursor-pointer" onClick={() => onSelect(template)}>
+                        <button type="button" className="cursor-pointer w-full text-left pr-5" aria-label={`Tilføj ${template.name}`} onClick={() => onSelect(template)}>
                             <div className="flex items-center gap-2">
                                 {template.category && <Badge variant="secondary" className="text-[10px] h-4 px-1">{template.category}</Badge>}
                                 <span className="font-medium text-sm truncate flex-1">
@@ -9278,7 +10047,7 @@ function TemplateLibraryBrowser({ onSelect, onCreateNew }: { onSelect: (t: any) 
                                     </span>
                                 </span>
                             </div>
-                        </div>
+                        </button>
                         <Button
                             variant="ghost"
                             size="icon"

@@ -6,6 +6,19 @@ export interface SiteDesignTargetMatch {
     focusTargetId?: string | null;
 }
 
+export const SITE_DESIGN_SELECTION_EVENT = "SITE_DESIGN_TARGET_SELECTED" as const;
+
+export interface SiteDesignSelectionMessage {
+    type: typeof SITE_DESIGN_SELECTION_EVENT;
+    sectionId: string;
+}
+
+export function isSiteDesignSelectionMessage(value: unknown): value is SiteDesignSelectionMessage {
+    if (!value || typeof value !== "object") return false;
+    const candidate = value as Partial<SiteDesignSelectionMessage>;
+    return candidate.type === SITE_DESIGN_SELECTION_EVENT && typeof candidate.sectionId === "string";
+}
+
 const TYPOGRAPHY_LABELS: Record<string, string> = {
     heading: "Overskrift",
     body: "Brødtekst",
@@ -56,8 +69,18 @@ function buildBanner2Label(targetPart?: string) {
 export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTargetMatch | null {
     if (!rawId || typeof rawId !== "string") return null;
 
+    if (rawId === 'hero') return resolveSiteDesignTarget('forside.hero.media');
+    if (rawId === 'hero.overlay') return resolveSiteDesignTarget('forside.hero.overlay');
+    if (rawId === 'hero.overlay.title') return resolveSiteDesignTarget('forside.hero.title');
+    if (rawId === 'hero.overlay.subtitle') return resolveSiteDesignTarget('forside.hero.subtitle');
+    // Compatibility aliases for older theme components and saved previews.
+    if (rawId === "banner2") return resolveSiteDesignTarget("forside.banner2");
+    if (rawId.startsWith("content-block-")) {
+        return resolveSiteDesignTarget(`content:${rawId.slice("content-block-".length)}`);
+    }
+
     if (rawId === "header.logo") {
-        return { rawId, sectionId: "logo", label: "Logo" };
+        return { rawId, sectionId: "logo", label: "Logo", focusTargetId: "site-design-focus-logo" };
     }
 
     if (rawId === "header.menu.text") {
@@ -163,7 +186,7 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
         };
     }
 
-    const banner2ItemMatch = /^forside\.banner2\.item\.([^\.]+)(?:\.(image|title|description))?$/.exec(rawId);
+    const banner2ItemMatch = /^forside\.banner2\.item\.([^.]+)(?:\.(image|title|description))?$/.exec(rawId);
     if (banner2ItemMatch) {
         const [, itemId, targetPart] = banner2ItemMatch;
         return {
@@ -182,6 +205,33 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
             sectionId: "showcase",
             label: "Banner 2 / Showcase",
             focusTargetId: "site-design-focus-showcase-layout",
+        };
+    }
+
+    if (rawId === "lower-info") {
+        return {
+            rawId,
+            sectionId: "lower-info",
+            label: "Nedre infobokse",
+            focusTargetId: "site-design-focus-lower-info",
+        };
+    }
+
+    const lowerInfoItemMatch = /^lower-info\.item\.([^.]+)(?:\.(image|title|description))?$/.exec(rawId);
+    if (lowerInfoItemMatch) {
+        const [, itemId, targetPart] = lowerInfoItemMatch;
+        const labels: Record<string, string> = {
+            image: "Infoboks billede",
+            title: "Infoboks titel",
+            description: "Infoboks tekst",
+        };
+        return {
+            rawId,
+            sectionId: "lower-info",
+            label: labels[targetPart || ""] || "Nedre infoboks",
+            focusTargetId: targetPart
+                ? `site-design-focus-lower-info-item-${itemId}-${targetPart}`
+                : `site-design-focus-lower-info-item-${itemId}`,
         };
     }
 
@@ -216,47 +266,47 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
     }
 
     if (rawId === "forside.products.featured.image") {
-        return { rawId, sectionId: "products", label: "Fremhævet produktbillede", focusTargetId: "site-design-focus-products-featured-image" };
+        return { rawId, sectionId: "featured-products", label: "Fremhævet produktbillede", focusTargetId: "site-design-focus-products-featured-image" };
     }
 
     if (rawId === "forside.products.featured.gallery") {
-        return { rawId, sectionId: "products", label: "Fremhævet galleri", focusTargetId: "site-design-focus-products-featured-gallery" };
+        return { rawId, sectionId: "featured-products", label: "Fremhævet galleri", focusTargetId: "site-design-focus-products-featured-gallery" };
     }
 
     if (rawId === "forside.products.featured.copy") {
-        return { rawId, sectionId: "products", label: "Fremhævet produkttekst", focusTargetId: "site-design-focus-products-featured-copy" };
+        return { rawId, sectionId: "featured-products", label: "Fremhævet produkttekst", focusTargetId: "site-design-focus-products-featured-copy" };
     }
 
     if (rawId === "forside.products.featured.button") {
-        return { rawId, sectionId: "products", label: "Fremhævet CTA", focusTargetId: "site-design-focus-products-featured-cta" };
+        return { rawId, sectionId: "featured-products", label: "Fremhævet CTA", focusTargetId: "site-design-focus-products-featured-cta" };
     }
 
     if (rawId === "forside.products.featured.side-panel.box") {
-        return { rawId, sectionId: "products", label: "Sidepanel", focusTargetId: "site-design-focus-products-featured-side-panel" };
+        return { rawId, sectionId: "featured-products", label: "Sidepanel", focusTargetId: "site-design-focus-products-featured-side-panel" };
     }
 
     if (rawId === "forside.products.featured.side-panel.image") {
-        return { rawId, sectionId: "products", label: "Sidepanel billede", focusTargetId: "site-design-focus-products-featured-side-panel" };
+        return { rawId, sectionId: "featured-products", label: "Sidepanel billede", focusTargetId: "site-design-focus-products-featured-side-panel" };
     }
 
     if (rawId === "forside.products.featured.side-panel.copy") {
-        return { rawId, sectionId: "products", label: "Sidepanel tekst", focusTargetId: "site-design-focus-products-featured-side-panel" };
+        return { rawId, sectionId: "featured-products", label: "Sidepanel tekst", focusTargetId: "site-design-focus-products-featured-side-panel" };
     }
 
     if (rawId === "forside.products.featured.side-panel.button") {
-        return { rawId, sectionId: "products", label: "Sidepanel CTA", focusTargetId: "site-design-focus-products-featured-side-panel" };
+        return { rawId, sectionId: "featured-products", label: "Sidepanel CTA", focusTargetId: "site-design-focus-products-featured-side-panel" };
     }
 
     if (rawId === "forside.products.featured.gallery") {
-        return { rawId, sectionId: "products", label: "Fremhævet galleri", focusTargetId: "site-design-focus-products-featured-gallery" };
+        return { rawId, sectionId: "featured-products", label: "Fremhævet galleri", focusTargetId: "site-design-focus-products-featured-gallery" };
     }
 
     if (rawId === "forside.products.featured.box") {
-        return { rawId, sectionId: "products", label: "Fremhævet produkt boks", focusTargetId: "site-design-focus-products-featured-box" };
+        return { rawId, sectionId: "featured-products", label: "Fremhævet produkt boks", focusTargetId: "site-design-focus-products-featured-box" };
     }
 
     if (rawId === "forside.products.featured") {
-        return { rawId, sectionId: "products", label: "Fremhævet produkt", focusTargetId: "site-design-focus-products-featured" };
+        return { rawId, sectionId: "featured-products", label: "Fremhævet produkt", focusTargetId: "site-design-focus-products-featured" };
     }
 
     if (rawId === "forside.products" || rawId.startsWith("forside.products.")) {
@@ -288,7 +338,7 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
         return { rawId, sectionId: "usp-strip", label: "USP Strip (Fordele)", focusTargetId: "site-design-focus-usp-strip" };
     }
     // USP item with specific element (icon, title, description)
-    const uspElementMatch = /^usp-strip\.item\.([^\.]+)\.(icon|title|description)$/.exec(rawId);
+    const uspElementMatch = /^usp-strip\.item\.([^.]+)\.(icon|title|description)$/.exec(rawId);
     if (uspElementMatch) {
         const [, itemId, elementType] = uspElementMatch;
         const labels: Record<string, string> = {
@@ -296,11 +346,11 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
             title: "USP Overskrift",
             description: "USP Beskrivelse"
         };
-        return { 
-            rawId, 
-            sectionId: "usp-strip", 
-            label: labels[elementType] || "USP Element", 
-            focusTargetId: `site-design-focus-usp-item-${itemId}-${elementType}` 
+        return {
+            rawId,
+            sectionId: "usp-strip",
+            label: labels[elementType] || "USP Element",
+            focusTargetId: `site-design-focus-usp-item-${itemId}-${elementType}`
         };
     }
     // USP item general
@@ -321,11 +371,11 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
             heading: `SEO Overskrift ${itemNum}`,
             text: `SEO Tekst ${itemNum}`
         };
-        return { 
-            rawId, 
-            sectionId: "seo-content", 
-            label: labels[elementType] || `SEO Element ${itemNum}`, 
-            focusTargetId: `site-design-focus-seo-item-${itemNum}-${elementType}` 
+        return {
+            rawId,
+            sectionId: "seo-content",
+            label: labels[elementType] || `SEO Element ${itemNum}`,
+            focusTargetId: `site-design-focus-seo-item-${itemNum}-${elementType}`
         };
     }
     // SEO content item general
@@ -530,18 +580,18 @@ export function resolveSiteDesignTarget(rawId?: string | null): SiteDesignTarget
     }
 
     // Product option button clicks: product-option.<productId>.<sectionId>.<valueId>.<valueName>
-    const productOptionMatch = /^product-option\.([^\.]+)\.([^\.]+)\.([^\.]+)\./.exec(rawId);
+    const productOptionMatch = /^product-option\.([^.]+)\.([^.]+)\.([^.]+)\./.exec(rawId);
     if (productOptionMatch) {
-        return { 
-            rawId, 
-            sectionId: "produktvalgknapper", 
+        return {
+            rawId,
+            sectionId: "produktvalgknapper",
             label: "Produktvalgknapper",
             focusTargetId: "site-design-focus-produktvalgknapper"
         };
     }
 
     // Product selector container clicks: product-selector-box.<productId>.<sectionId>.<sectionName>
-    const productSelectorBoxMatch = /^product-selector-box\.([^\.]+)\.([^\.]+)\./.exec(rawId);
+    const productSelectorBoxMatch = /^product-selector-box\.([^.]+)\.([^.]+)\./.exec(rawId);
     if (productSelectorBoxMatch) {
         return {
             rawId,

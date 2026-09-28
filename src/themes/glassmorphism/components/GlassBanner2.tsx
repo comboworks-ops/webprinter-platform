@@ -4,10 +4,18 @@
  * Floating glass cards with blur effects and gradient backgrounds.
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type ImgHTMLAttributes } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { BANNER2_ICON_MAP } from '@/components/branding/banner2Icons';
 import type { Banner2Props } from '@/lib/themes/types';
+
+type ImageFetchPriority = "high" | "low" | "auto";
+
+const banner2ImageLoadingProps: ImgHTMLAttributes<HTMLImageElement> & { fetchpriority: ImageFetchPriority } = {
+    loading: "eager",
+    decoding: "async",
+    fetchpriority: "high",
+};
 
 export function GlassBanner2({ branding, banner2 }: Banner2Props) {
     const [activeBannerSlide, setActiveBannerSlide] = useState(0);
@@ -51,7 +59,7 @@ export function GlassBanner2({ branding, banner2 }: Banner2Props) {
             style={{
                 background: `linear-gradient(135deg, ${primaryColor}15 0%, ${primaryColor}05 100%)`,
             }}
-            data-branding-id="banner2"
+            data-branding-id="forside.banner2"
         >
             {/* Floating gradient orbs */}
             <div
@@ -68,6 +76,7 @@ export function GlassBanner2({ branding, banner2 }: Banner2Props) {
                 {slide.title && (
                     <div className="text-center mb-12">
                         <h2
+                            data-branding-id="forside.banner2.heading"
                             className="inline-block text-3xl font-bold px-8 py-4 rounded-2xl"
                             style={{
                                 background: 'rgba(255, 255, 255, 0.8)',
@@ -85,10 +94,13 @@ export function GlassBanner2({ branding, banner2 }: Banner2Props) {
                 {/* Glass Cards Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     {slide.items?.map((item, index) => {
-                        const IconComponent = item.icon ? BANNER2_ICON_MAP[item.icon] : null;
+                        const iconName = (item as any).iconName || item.icon;
+                        const imageUrl = (item as any).iconType === "image" ? (item as any).iconUrl : null;
+                        const IconComponent = iconName ? BANNER2_ICON_MAP[iconName] : null;
                         return (
                             <div
                                 key={item.id}
+                                data-branding-id={`forside.banner2.item.${item.id}`}
                                 className="group p-6 rounded-2xl transition-all duration-300 hover:scale-105 hover:-translate-y-1"
                                 style={{
                                     background: 'rgba(255, 255, 255, 0.7)',
@@ -98,24 +110,37 @@ export function GlassBanner2({ branding, banner2 }: Banner2Props) {
                                     animationDelay: `${index * 100}ms`,
                                 }}
                             >
-                                {IconComponent && (
+                                {(imageUrl || IconComponent) && (
                                     <div
+                                        data-branding-id={`forside.banner2.item.${item.id}.image`}
                                         className="w-14 h-14 mx-auto mb-4 rounded-xl flex items-center justify-center transition-transform group-hover:scale-110"
                                         style={{
                                             background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}CC)`,
                                             boxShadow: `0 4px 20px ${primaryColor}40`,
                                         }}
                                     >
-                                        <IconComponent className="w-7 h-7 text-white" />
+                                        {imageUrl ? (
+                                            <img
+                                                src={imageUrl}
+                                                alt={item.title || "Banner billede"}
+                                                width={56}
+                                                height={56}
+                                                className="h-10 w-10 object-contain"
+                                                {...banner2ImageLoadingProps}
+                                            />
+                                        ) : IconComponent ? (
+                                            <IconComponent className="w-7 h-7 text-white" />
+                                        ) : null}
                                     </div>
                                 )}
                                 <h3
+                                    data-branding-id={`forside.banner2.item.${item.id}.title`}
                                     className="text-lg font-semibold mb-2 text-center"
                                     style={{ color: '#1e293b' }}
                                 >
                                     {item.title}
                                 </h3>
-                                <p className="text-gray-600 text-center text-sm">
+                                <p data-branding-id={`forside.banner2.item.${item.id}.description`} className="text-gray-600 text-center text-sm">
                                     {item.description}
                                 </p>
                             </div>

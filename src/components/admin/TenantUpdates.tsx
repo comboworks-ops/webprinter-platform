@@ -1,3 +1,4 @@
+import { WorkspaceCollection } from "@/components/admin/WorkspaceCollection";
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,7 +37,7 @@ export function TenantUpdates() {
 
             // Cast table name to any to avoid type errors since it's a new table
             const { data, error } = await supabase
-                .from('tenant_notifications' as any)
+                .from('tenant_notifications')
                 .select('*')
                 .eq('tenant_id', tenantId)
                 .order('created_at', { ascending: false });
@@ -77,7 +78,7 @@ export function TenantUpdates() {
 
             // Update notification status
             await supabase
-                .from('tenant_notifications' as any)
+                .from('tenant_notifications')
                 .update({ status: 'accepted', is_read: true })
                 .eq('id', notification.id);
 
@@ -94,7 +95,7 @@ export function TenantUpdates() {
     const handleDeleteNotification = async (id: string) => {
         try {
             const { error } = await supabase
-                .from('tenant_notifications' as any)
+                .from('tenant_notifications')
                 .delete()
                 .eq('id', id);
 
@@ -111,7 +112,7 @@ export function TenantUpdates() {
     }
 
     return (
-        <div className="space-y-6 max-w-4xl mx-auto">
+        <div className="space-y-6 workspace-surface">
             <div>
                 <h1 className="text-3xl font-bold">Indbakke</h1>
                 <p className="text-muted-foreground">Beskeder og opdateringer fra Webprinter</p>
@@ -126,8 +127,9 @@ export function TenantUpdates() {
                         </div>
                     </Card>
                 ) : (
-                    notifications.map((notification) => {
-                        const deliveryModeLabel = notification.data?.delivery_mode === 'pod_price_list' ? 'POD-pris' : 'Standard pris';
+                    <WorkspaceCollection label="Indbakke" items={notifications.map(notification => ({ id: notification.id, title: notification.title, subtitle: `${notification.is_read ? '' : 'Ny · '}${format(new Date(notification.created_at), 'd. MMM yyyy HH:mm', { locale: da })}`, icon: <Bell aria-hidden="true" /> }))}>
+                    {notifications.map((notification) => {
+                        const deliveryModeLabel = notification.data?.delivery_mode === 'pod_price_list' ? 'Webprinter-styret produkt' : 'Standard pris';
                         const showDeliveryMode = notification.type === 'product_update' && notification.data?.delivery_mode;
                         return (
                             <Card key={notification.id} className={`transition-all ${!notification.is_read ? 'border-primary/50 bg-primary/5' : ''}`}>
@@ -178,7 +180,7 @@ export function TenantUpdates() {
                                             </>
                                         ) : (
                                             <>
-                                                <Download className="mr-2 h-4 w-4" /> Importer Produkt
+                                                <Download className="mr-2 h-4 w-4" /> Tilføj produkt
                                             </>
                                         )}
                                     </Button>
@@ -193,7 +195,7 @@ export function TenantUpdates() {
                                 )}
                             </Card>
                         );
-                    })
+                    })}</WorkspaceCollection>
                 )}
             </div>
         </div>

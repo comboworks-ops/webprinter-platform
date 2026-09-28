@@ -34,7 +34,7 @@ export function useAttributeLibrary(tenantId: string | undefined) {
         try {
             setLoading(true);
             const { data, error } = await supabase
-                .from('attribute_library_groups' as any)
+                .from('attribute_library_groups')
                 .select('*, values:attribute_library_values(*)')
                 .eq('tenant_id', tenantId)
                 .order('sort_order');
@@ -57,7 +57,7 @@ export function useAttributeLibrary(tenantId: string | undefined) {
 
         try {
             const { data: newGroup, error } = await supabase
-                .from('attribute_library_groups' as any)
+                .from('attribute_library_groups')
                 .insert({
                     tenant_id: tenantId,
                     name: data.name,
@@ -81,7 +81,7 @@ export function useAttributeLibrary(tenantId: string | undefined) {
     const updateGroup = async (id: string, data: Partial<LibraryGroup>) => {
         try {
             const { error } = await supabase
-                .from('attribute_library_groups' as any)
+                .from('attribute_library_groups')
                 .update({
                     name: data.name,
                     kind: data.kind,
@@ -101,7 +101,7 @@ export function useAttributeLibrary(tenantId: string | undefined) {
     const deleteGroup = async (id: string) => {
         try {
             const { error } = await supabase
-                .from('attribute_library_groups' as any)
+                .from('attribute_library_groups')
                 .delete()
                 .eq('id', id);
 
@@ -118,7 +118,7 @@ export function useAttributeLibrary(tenantId: string | undefined) {
 
         try {
             const { error } = await supabase
-                .from('attribute_library_values' as any)
+                .from('attribute_library_values')
                 .insert({
                     tenant_id: tenantId,
                     group_id: groupId,
@@ -141,7 +141,7 @@ export function useAttributeLibrary(tenantId: string | undefined) {
     const updateValue = async (id: string, data: Partial<LibraryValue>) => {
         try {
             const { error } = await supabase
-                .from('attribute_library_values' as any)
+                .from('attribute_library_values')
                 .update({
                     ...data,
                     updated_at: new Date().toISOString()
@@ -158,7 +158,7 @@ export function useAttributeLibrary(tenantId: string | undefined) {
     const deleteValue = async (id: string) => {
         try {
             const { error } = await supabase
-                .from('attribute_library_values' as any)
+                .from('attribute_library_values')
                 .delete()
                 .eq('id', id);
 

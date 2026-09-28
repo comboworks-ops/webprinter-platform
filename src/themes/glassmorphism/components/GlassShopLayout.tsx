@@ -7,14 +7,27 @@
 import type { ShopLayoutProps } from '@/lib/themes/types';
 import { getPageBackgroundStyle } from '@/lib/branding/background';
 
+function getVisualStyleId(branding: ShopLayoutProps["branding"]) {
+    const themeSettings = (branding?.themeSettings || {}) as Record<string, unknown>;
+    const rawStyleId = String(themeSettings.visualStyleId || themeSettings.visualThemePresetId || branding?.themeId || "glassmorphism");
+    return rawStyleId
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, "")
+        || "glassmorphism";
+}
+
 export function GlassShopLayout({ children, cssVariables, branding }: ShopLayoutProps) {
     const primaryColor = branding?.colors?.primary || '#0EA5E9';
     const pageBackgroundStyle = getPageBackgroundStyle(branding);
+    const visualStyleId = getVisualStyleId(branding);
 
     return (
         <div
-            className="min-h-screen flex flex-col glassmorphism-theme"
+            className={`min-h-screen flex flex-col glassmorphism-theme storefront-visual-style storefront-style-${visualStyleId}`}
             data-branding-id="colors.background"
+            data-storefront-style={visualStyleId}
+            data-storefront-theme={branding?.themeId || "glassmorphism"}
             style={{
                 ...cssVariables,
                 ...pageBackgroundStyle,

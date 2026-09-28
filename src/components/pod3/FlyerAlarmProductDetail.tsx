@@ -66,16 +66,16 @@ export function FlyerAlarmProductDetail() {
 
   const fetchProductData = async () => {
     setLoading(true);
-    
+
     try {
       // Get product groups
       const groupsData = await makeApiRequest("/catalog/groups", "GET");
-      
+
       if (groupsData.data?.data) {
-        const foundGroup = groupsData.data.data.find((g: ProductGroup) => 
+        const foundGroup = groupsData.data.data.find((g: ProductGroup) =>
           g.id.toString() === productId
         );
-        
+
         if (foundGroup) {
           setGroup(foundGroup);
           // Fetch configurator for this group
@@ -95,12 +95,9 @@ export function FlyerAlarmProductDetail() {
     setConfigLoading(true);
     try {
       const data = await makeApiRequest(`/catalog/groups/${groupId}/configurator`, "POST", options);
-      
+
       if (data.data?.attributes) {
         setConfig(data.data);
-        if (data.data.price) {
-          setPrice(data.data.price);
-        }
       }
     } catch (error) {
       console.error("Failed to fetch configurator:", error);
@@ -112,7 +109,7 @@ export function FlyerAlarmProductDetail() {
   const handleOptionSelect = (attributeId: string, valueId: string) => {
     const newOptions = { ...selectedOptions, [attributeId]: valueId };
     setSelectedOptions(newOptions);
-    
+
     // Refetch configurator with new selection to get updated price/availability
     if (group) {
       fetchConfigurator(group.id, newOptions);
@@ -120,7 +117,7 @@ export function FlyerAlarmProductDetail() {
   };
 
   // Convert attributes object to array for rendering
-  const attributesArray = config?.attributes 
+  const attributesArray = config?.attributes
     ? Object.entries(config.attributes).map(([id, attr]) => ({ id, ...attr }))
     : [];
 
@@ -150,8 +147,8 @@ export function FlyerAlarmProductDetail() {
   return (
     <div className="container mx-auto px-4 py-8">
       {/* Breadcrumb */}
-      <Button 
-        variant="ghost" 
+      <Button
+        variant="ghost"
         className="mb-6 -ml-4"
         onClick={() => window.history.back()}
       >
@@ -165,7 +162,7 @@ export function FlyerAlarmProductDetail() {
           <div className="aspect-square bg-gradient-to-br from-orange-50 to-muted rounded-lg flex items-center justify-center mb-4 border-2 border-orange-100">
             <Package className="h-32 w-32 text-orange-200" />
           </div>
-          
+
           <div className="flex items-center gap-2 text-sm text-orange-600">
             <ExternalLink className="h-4 w-4" />
             <span>Powered by Flyer Alarm PRO</span>
@@ -177,9 +174,9 @@ export function FlyerAlarmProductDetail() {
           <Badge variant="secondary" className="bg-orange-100 text-orange-700 mb-4">
             Flyer Alarm Product
           </Badge>
-          
+
           <h1 className="text-3xl font-bold mb-4">{group.name}</h1>
-          
+
           {group.categories && (
             <p className="text-sm text-muted-foreground mb-4">
               {group.categories.map(c => c.name).join(", ")}
@@ -197,7 +194,7 @@ export function FlyerAlarmProductDetail() {
           {/* Configuration Panel */}
           <Card>
             <CardContent className="p-6 space-y-6">
-              
+
               {configLoading && !hasConfig ? (
                 <div className="flex items-center justify-center py-4">
                   <Loader2 className="h-5 w-5 animate-spin mr-2" />
@@ -235,7 +232,7 @@ export function FlyerAlarmProductDetail() {
                     <div>
                       <h4 className="font-medium text-amber-900">Konfiguration ikke tilgængelig</h4>
                       <p className="text-sm text-amber-800 mt-1">
-                        Dette produkt har ikke nogen online konfigurator. 
+                        Dette produkt har ikke nogen online konfigurator.
                         Kontakt os for at høre om tilgængelige materialer, formater og priser.
                       </p>
                     </div>
@@ -247,16 +244,16 @@ export function FlyerAlarmProductDetail() {
 
               {/* CTA Buttons */}
               <div className="space-y-2">
-                <Button 
+                <Button
                   className="w-full bg-orange-600 hover:bg-orange-700"
                   size="lg"
                   onClick={() => window.location.href = '/kontakt'}
                 >
                   Kontakt for tilbud
                 </Button>
-                
-                <Button 
-                  variant="outline" 
+
+                <Button
+                  variant="outline"
                   className="w-full"
                   onClick={() => window.open(`https://startnow.flyeralarm.com`, '_blank')}
                 >

@@ -70,7 +70,7 @@ function IdentitetTab({
         onChange({ usps: config.usps.filter((_, i) => i !== idx) });
 
     return (
-        <div className="space-y-6">
+        <div className="workspace-focused-sections">
             <Card>
                 <CardHeader>
                     <CardTitle className="text-base flex items-center gap-2">
@@ -523,7 +523,7 @@ export function AiSeoManager() {
 
         try {
             const { data: tenantRow, error: tenantRowError } = await supabase
-                .from("tenants" as any)
+                .from("tenants")
                 .select("settings")
                 .eq("id", tenantId)
                 .maybeSingle();
@@ -568,7 +568,7 @@ export function AiSeoManager() {
     const company = s.company || {};
 
     return (
-        <div className="space-y-6 max-w-4xl">
+        <div className="space-y-6 workspace-ai-seo">
             {/* Header */}
             <nav className="flex items-center gap-2 text-sm text-muted-foreground">
                 <a href="/admin" className="hover:text-foreground transition-colors">

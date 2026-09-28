@@ -1,0 +1,74 @@
+/* Shared header fit contract. Desktop content keeps its natural width so the
+   fit guard can move the whole menu before labels wrap or controls collide. */
+.container.responsive-header-container { padding-inline:var(--ui-page-gutter,24px); }
+.responsive-header-row { --responsive-header-gap:24px; --responsive-header-controls-width:44px; position:relative; display:flex; align-items:center; justify-content:space-between; gap:var(--responsive-header-gap); }
+.responsive-header-logo { flex:none; width:max-content; white-space:nowrap; }
+.responsive-header-desktop { display:flex; flex:none; width:max-content; max-width:none; align-items:center; white-space:nowrap; }
+.responsive-header-desktop > * { flex-shrink:0; }
+.responsive-header-navigation { gap:24px; }
+.responsive-header-navigation :is(a,button,span) { white-space:nowrap; }
+.responsive-header-navigation :is(svg,img) { flex-shrink:0; }
+.responsive-header-actions { gap:12px; }
+.responsive-header-compact { display:none; flex:none; }
+[data-header-mode="compact"] .responsive-header-desktop {
+  position:absolute; right:0; top:0; margin:0; transform:none; visibility:hidden; pointer-events:none;
+}
+[data-header-mode="compact"] .responsive-header-compact { display:flex; }
+[data-header-mode="compact"] .responsive-header-logo { margin-right:auto; max-width:calc(100% - var(--responsive-header-controls-width) - var(--responsive-header-gap)); overflow:hidden; text-overflow:ellipsis; }
+[data-header-mode="compact"] .responsive-header-logo > span { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+[data-header-mode="compact"] .responsive-header-logo img { max-width:100%; }
+[data-header-mode="desktop"][data-header-alignment="center"] .responsive-header-navigation { position:absolute; left:50%; transform:translateX(-50%); }
+[data-header-mode="desktop"][data-header-alignment="right"] .responsive-header-navigation { margin-left:auto; }
+.responsive-header-row [data-header-toggle] { min-width:44px; min-height:44px; }
+
+/* Storefront navigation gets its own unwrapped row before we need a phone menu.
+   Actual group widths still control the switch for long tenant labels/fonts. */
+[data-storefront-header][data-header-mode="stacked"] .responsive-header-row {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  grid-template-rows:minmax(var(--storefront-header-main-height,72px),auto) auto;
+  height:auto;
+  row-gap:0;
+  padding-bottom:8px;
+}
+[data-storefront-header][data-header-mode="stacked"] .responsive-header-logo { grid-column:1; grid-row:1; justify-self:start; }
+[data-storefront-header][data-header-mode="stacked"] .responsive-header-actions { grid-column:2; grid-row:1; justify-self:end; }
+[data-storefront-header][data-header-mode="stacked"] .responsive-header-navigation { grid-column:1 / -1; grid-row:2; position:static; min-height:44px; margin:0; transform:none; justify-self:start; }
+[data-storefront-header][data-header-mode="stacked"][data-header-alignment="center"] .responsive-header-navigation { justify-self:center; }
+[data-storefront-header][data-header-mode="stacked"][data-header-alignment="right"] .responsive-header-navigation { justify-self:end; }
+
+/* Keep the selected search treatment on roomy desktop headers. Below 1440px the
+   same input opens from its named button, leaving laptop navigation in one row. */
+@media(max-width:1439px) {
+  [data-storefront-header] .storefront-persistent-search { display:none; position:absolute; right:0; top:100%; z-index:50; margin:8px 0 0; }
+  [data-storefront-header] .storefront-persistent-search[data-search-open="true"] { display:block; }
+}
+
+.wp-header .responsive-header-row { gap:var(--responsive-header-gap); }
+.wp-desktop-nav { font-size:14px; font-weight:500; }
+.wp-desktop-nav a { display:flex; align-items:center; min-height:44px; }
+.wp-header[data-header-mode="compact"] .wp-menu-toggle { display:flex; }
+.wp-compact-nav { position:absolute; top:100%; left:0; right:0; display:grid; gap:4px; padding:16px var(--ui-page-gutter,24px); max-height:calc(100dvh - 96px); overflow-y:auto; background:white; border-bottom:1px solid var(--wp-border,#e3e8ee); box-shadow:0 12px 18px #0b193312; }
+.wp-compact-nav > a { display:flex; align-items:center; min-height:44px; padding:8px 12px; }
+.wp-compact-nav .wp-button { margin-top:12px; justify-content:center; }
+
+/* Account shop navigation and search use the same desktop/compact switch. */
+.customer-shop-header.responsive-header-row { --responsive-header-controls-width:96px; padding-inline:var(--ui-page-gutter,24px); }
+.customer-shop-header .customer-shop-links { display:flex; flex:none; gap:24px; font-size:16px; }
+.customer-shop-header .customer-product-search { display:flex; flex:none; width:220px; }
+.customer-shop-header .customer-shop-desktop-actions { gap:24px; }
+.customer-shop-header .customer-header-user { white-space:nowrap; flex:none; }
+.customer-shop-header .customer-shop-compact-actions { gap:8px; align-items:center; }
+.customer-shop-compact-actions .customer-header-user { justify-content:center; width:44px; min-height:44px; padding:0; border:0; }
+.customer-shop-menu-toggle { display:flex; align-items:center; justify-content:center; border:1px solid color-mix(in srgb,currentColor 35%,transparent); border-radius:6px; background:transparent; }
+.customer-shop-menu { position:absolute; z-index:90; top:calc(100% + 8px); left:16px; right:16px; max-height:calc(100dvh - 100px); overflow-y:auto; border:1px solid var(--customer-border); border-radius:8px; padding:16px; background:white; color:var(--customer-ink); box-shadow:0 12px 32px #0b193325; }
+.customer-shop-menu nav { display:grid; gap:4px; margin-bottom:16px; }
+.customer-shop-menu nav a { display:flex; align-items:center; min-height:44px; padding:8px 12px; border-radius:5px; }
+.customer-shop-menu nav a:hover { background:#f2f6fa; }
+.customer-shop-menu .customer-product-search { width:100%; }
+.customer-shop-menu :is(a,button,input):focus-visible { outline-color:var(--customer-blue); }
+@media(max-width:600px) {
+  .customer-shop-header.responsive-header-row { --responsive-header-gap:12px; }
+  .customer-shop-header .customer-shop-logo img { max-width:100%; }
+  .responsive-header-row { --responsive-header-gap:16px; }
+}

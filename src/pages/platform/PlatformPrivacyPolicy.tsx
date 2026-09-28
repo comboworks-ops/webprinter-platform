@@ -1,6 +1,6 @@
 /**
  * Platform Privacy Policy Page
- * 
+ *
  * Platform-only privacy policy (independent of demo shop).
  */
 
@@ -12,7 +12,7 @@ import { PLATFORM_PRIVACY_VERSION } from "@/lib/legal/platformLegal";
 
 const PlatformPrivacyPolicy = () => {
     return (
-        <div className="min-h-screen flex flex-col font-sans">
+        <div className="platform-page min-h-screen flex flex-col font-sans">
             <SEO
                 title="Privatlivspolitik | Webprinter Platform"
                 description="Læs om hvordan Webprinter Platform behandler dine persondata."

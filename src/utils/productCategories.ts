@@ -76,6 +76,45 @@ const buildLookup = (categories: ProductCategoryRecord[]) => {
   return byKey;
 };
 
+export const findProductCategoryRecord = (
+  value?: string | null,
+  categories: ProductCategoryRecord[] = [],
+): ProductCategoryRecord | null => {
+  const rawValue = (value || "").trim();
+  if (!rawValue) return null;
+
+  const lookup = buildLookup(categories);
+  return lookup.get(normalizeProductCategoryKey(rawValue)) || lookup.get(toLooseKey(rawValue)) || null;
+};
+
+export const getProductCategoryDescendantIds = (
+  categories: ProductCategoryRecord[] = [],
+  categoryId?: string | null,
+): string[] => {
+  if (!categoryId) return [];
+
+  const childrenByParentId = new Map<string, ProductCategoryRecord[]>();
+  categories.forEach((category) => {
+    if (!category.id) return;
+    const parentId = category.parent_category_id || "__root__";
+    const children = childrenByParentId.get(parentId) || [];
+    children.push(category);
+    childrenByParentId.set(parentId, children);
+  });
+
+  const descendants = new Set<string>();
+  const walk = (id: string) => {
+    if (descendants.has(id)) return;
+    descendants.add(id);
+    (childrenByParentId.get(id) || []).forEach((child) => {
+      if (child.id) walk(child.id);
+    });
+  };
+
+  walk(categoryId);
+  return Array.from(descendants);
+};
+
 export const resolveProductCategory = (
   value?: string | null,
   categories: ProductCategoryRecord[] = [],

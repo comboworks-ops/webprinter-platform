@@ -4,7 +4,6 @@ import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { USE_POD2_ORDER_SUBMIT } from '@/lib/api/featureFlags';
 import type {
     PodSupplierConnection,
     PodApiPreset,
@@ -26,7 +25,7 @@ export function usePodConnections() {
         queryKey: ['pod2-connections'],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from('pod2_supplier_connections' as any)
+                .from('pod2_supplier_connections')
                 .select('id, provider_key, base_url, auth_header_mode, auth_header_name, auth_header_prefix, is_active, created_at, updated_at')
                 .eq('tenant_id', MASTER_TENANT_ID)
                 .order('created_at', { ascending: false });
@@ -42,7 +41,7 @@ export function usePodApiPresets() {
         queryKey: ['pod2-presets'],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from('pod2_api_presets' as any)
+                .from('pod2_api_presets')
                 .select('*')
                 .eq('tenant_id', MASTER_TENANT_ID)
                 .order('name');
@@ -87,7 +86,7 @@ export function usePodCatalogProducts() {
         queryKey: ['pod2-catalog'],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from('pod2_catalog_products' as any)
+                .from('pod2_catalog_products')
                 .select(`
           *,
           pod2_catalog_attributes (
@@ -240,7 +239,7 @@ export function usePodPublishedCatalog() {
         queryKey: ['pod2-catalog-public'],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from('pod2_catalog_public' as any)
+                .from('pod2_catalog_public')
                 .select('*');
 
             if (error) throw error;
@@ -254,7 +253,7 @@ export function usePodTenantImports(tenantId?: string) {
         queryKey: ['pod2-imports', tenantId],
         queryFn: async () => {
             let query = supabase
-                .from('pod2_tenant_imports' as any)
+                .from('pod2_tenant_imports')
                 .select('*');
 
             if (tenantId) {
@@ -385,7 +384,7 @@ export function usePodTenantBilling(tenantId?: string) {
         queryKey: ['pod2-billing', tenantId],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from('pod2_tenant_billing' as any)
+                .from('pod2_tenant_billing')
                 .select('*')
                 .eq('tenant_id', tenantId)
                 .single();
@@ -402,7 +401,7 @@ export function usePodFulfillmentJobs(tenantId?: string) {
         queryKey: ['pod2-jobs', tenantId],
         queryFn: async () => {
             let query = supabase
-                .from('pod2_fulfillment_jobs' as any)
+                .from('pod2_fulfillment_jobs')
                 .select('*')
                 .order('created_at', { ascending: false });
 
@@ -423,7 +422,7 @@ export function usePodAllFulfillmentJobs() {
         queryKey: ['pod2-jobs', 'all'],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from('pod2_fulfillment_jobs' as any)
+                .from('pod2_fulfillment_jobs')
                 .select('*')
                 .order('created_at', { ascending: false });
 
@@ -552,21 +551,14 @@ export function usePodSyncPrintcomStatus() {
 // Automated Print.com submission. Replaces the manual "mark as forwarded"
 // flow when everything (credentials, sender, files) is in order.
 //
-// Two adapters live in parallel, toggled by USE_POD2_ORDER_SUBMIT:
-//   - pod2-order-submit (new) — single real Print.com POST /orders call.
-//   - pod2-submit-to-printcom (legacy) — 7-step pipeline built against a
-//     fictional Print.com API; kept deployed as a fallback until the new
-//     adapter proves out on real orders.
-//
-// The manual fallback (usePodMasterForwardJob) is kept for operators who
-// want to forward outside of Print.com.
+// Live submission always uses the verified single-call adapter. The obsolete
+// fictional cart adapter is intentionally not selectable from the browser.
 export function usePodSubmitToPrintcom() {
     const queryClient = useQueryClient();
 
     return useMutation({
         mutationFn: async (params: { jobId: string; paymentMethod?: 'invoice' | 'psp'; dryRun?: boolean }) => {
-            const functionName = USE_POD2_ORDER_SUBMIT ? 'pod2-order-submit' : 'pod2-submit-to-printcom';
-            const { data, error } = await supabase.functions.invoke(functionName, {
+            const { data, error } = await supabase.functions.invoke('pod2-order-submit', {
                 body: params,
             });
 
@@ -578,6 +570,7 @@ export function usePodSubmitToPrintcom() {
                 let bodyError = error.message || 'Print.com submission failed';
                 let bodyPayload: any = undefined;
                 let bodyResponse: any = undefined;
+                let bodyUncertain: boolean | undefined = undefined;
                 const ctx: any = (error as any).context;
                 if (ctx && typeof ctx.json === 'function') {
                     try {
@@ -585,6 +578,7 @@ export function usePodSubmitToPrintcom() {
                         bodyError = body?.error || body?.message || bodyError;
                         bodyPayload = body?.payload;
                         bodyResponse = body?.response;
+                        bodyUncertain = typeof body?.uncertain === 'boolean' ? body.uncertain : undefined;
                     } catch {
                         // fall through with plain message
                     }
@@ -592,6 +586,7 @@ export function usePodSubmitToPrintcom() {
                 const err: any = new Error(bodyError);
                 err.payload = bodyPayload;
                 err.response = bodyResponse;
+                err.uncertain = bodyUncertain;
                 throw err;
             }
             if (!data?.success) {
@@ -603,6 +598,7 @@ export function usePodSubmitToPrintcom() {
                 );
                 err.payload = data?.payload;
                 err.response = data?.response;
+                err.uncertain = typeof data?.uncertain === 'boolean' ? data.uncertain : undefined;
                 throw err;
             }
             return data;

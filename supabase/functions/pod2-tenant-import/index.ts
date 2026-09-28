@@ -1,3 +1,4 @@
+import { readSupabaseKey } from "../_shared/supabaseKeys.ts";
 // POD v2 Tenant Import
 // Creates a normal tenant product from POD v2 catalog product
 
@@ -115,7 +116,7 @@ serve(async (req) => {
     try {
         const supabaseClient = createClient(
             Deno.env.get("SUPABASE_URL") ?? "",
-            Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+            readSupabaseKey((name) => Deno.env.get(name), "publishable") ?? "",
             { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
         );
 
@@ -141,7 +142,7 @@ serve(async (req) => {
 
         const serviceClient = createClient(
             Deno.env.get("SUPABASE_URL") ?? "",
-            Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+            readSupabaseKey((name) => Deno.env.get(name), "secret") ?? ""
         );
 
         let canAccessMaster = false;

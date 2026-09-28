@@ -49,7 +49,7 @@ export function ProductCloneDialog({ isOpen, onClose, product }: ProductCloneDia
         try {
             // Fetch tenants excluding Master (00...00)
             const { data, error } = await supabase
-                .from("tenants" as any)
+                .from("tenants")
                 .select("id, name")
                 .neq("id", "00000000-0000-0000-0000-000000000000")
                 .order("name");

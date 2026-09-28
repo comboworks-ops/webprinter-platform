@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Upload, Loader2, Trash2 } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
+import { standardUpload } from "@/lib/storage/standardUpload";
+import { saveProductImageReference } from "@/lib/storage/productImageReference";
+import { readLocalImage } from "@/lib/storage/readLocalImage";
 
 interface ProductImageUploadProps {
   productId: string;
@@ -23,47 +26,50 @@ export function ProductImageUpload({
 }: ProductImageUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const busy = useRef(false);
+  const [progress, setProgress] = useState(0);
+  const [preparing, setPreparing] = useState(false);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file || busy.current) return;
 
     // Validate file type
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
     if (!allowedTypes.includes(file.type)) {
       toast.error('Kun billeder (JPG, PNG, WEBP) er tilladt');
+      input.value = '';
       return;
     }
 
     // Validate file size (5MB)
     if (file.size > 5242880) {
       toast.error('Billedet må højst være 5MB');
+      input.value = '';
       return;
     }
 
     try {
+      busy.current = true;
       setUploading(true);
+      setProgress(0);
+      setPreparing(true);
 
-      // Delete old image if exists
-      if (currentImageUrl) {
-        const oldPath = currentImageUrl.split('/').pop();
-        if (oldPath) {
-          await supabase.storage.from('product-images').remove([oldPath]);
-        }
-      }
+      const localFile = await readLocalImage(file);
 
-      // Upload new image
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${productId}-${Date.now()}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('product-images')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
-
-      if (uploadError) throw uploadError;
+      // Keep the current image until the new upload and product update both succeed.
+      const fileExt = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+      const fileName = `${productId}-${crypto.randomUUID()}.${fileExt}`;
+      const {data: sessionData, error: sessionError} = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) throw new Error('Log ind igen for at ændre produktbilledet.');
+      setPreparing(false);
+      await standardUpload({
+        supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+        bucket: 'product-images', path: fileName, file: localFile,
+        headers: {apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY, authorization: `Bearer ${sessionData.session.access_token}`},
+        onProgress: ({loaded, total}) => setProgress(Math.round(loaded / total * 100)),
+      });
 
       const { data } = supabase.storage.from('product-images').getPublicUrl(fileName);
       const publicUrl = data.publicUrl;
@@ -72,46 +78,40 @@ export function ProductImageUpload({
       if (onUploadComplete) {
         await onUploadComplete(publicUrl);
       } else {
-        const { error: updateError } = await supabase
-          .from('products')
-          .update({ image_url: publicUrl })
-          .eq('id', productId);
-
-        if (updateError) throw updateError;
+        await saveProductImageReference(supabase, productId, publicUrl);
       }
 
-      toast.success('Billede uploadet');
       onImageUpdate(publicUrl);
+      toast.success('Billede uploadet');
     } catch (error) {
       console.error('Error uploading image:', error);
-      toast.error('Kunne ikke uploade billede');
+      const message = error instanceof Error ? error.message : '';
+      toast.error(message.startsWith('Filen kan ikke læses') ? message
+        : /timeout|temporarily paused|failed to fetch/i.test(message)
+          ? 'Billedlageret svarer ikke. Dit nuværende billede er bevaret. Prøv igen om lidt.'
+          : 'Kunne ikke uploade billede. Dit nuværende billede er bevaret.');
     } finally {
+      input.value = '';
       setUploading(false);
+      setPreparing(false);
+      busy.current = false;
     }
   };
 
   const handleDeleteImage = async () => {
-    if (!currentImageUrl) return;
+    if (!currentImageUrl || busy.current) return;
 
     try {
+      busy.current = true;
       setDeleting(true);
 
-      // Delete from storage
-      const fileName = currentImageUrl.split('/').pop();
-      if (fileName) {
-        await supabase.storage.from('product-images').remove([fileName]);
-      }
-
+      // Detach first. Cloned products may share the same asset; never delete it
+      // before the product update or make this action depend on storage uptime.
       // Update database
       if (onUploadComplete) {
         await onUploadComplete(null);
       } else {
-        const { error } = await supabase
-          .from('products')
-          .update({ image_url: null })
-          .eq('id', productId);
-
-        if (error) throw error;
+        await saveProductImageReference(supabase, productId, null);
       }
 
       toast.success('Billede slettet');
@@ -121,6 +121,7 @@ export function ProductImageUpload({
       toast.error('Kunne ikke slette billede');
     } finally {
       setDeleting(false);
+      busy.current = false;
     }
   };
 
@@ -134,14 +135,14 @@ export function ProductImageUpload({
             type="file"
             accept="image/jpeg,image/jpg,image/png,image/webp"
             onChange={handleFileUpload}
-            disabled={uploading}
+            disabled={uploading || deleting}
             className="mt-2"
           />
           <p className="text-sm text-muted-foreground mt-1">
             Maks 5MB. Format: JPG, PNG, WEBP
           </p>
         </div>
-        {uploading && <Loader2 className="h-5 w-5 animate-spin" />}
+        {uploading && <span role="status" className="flex items-center gap-2 text-sm tabular-nums"><Loader2 className="h-5 w-5 motion-safe:animate-spin" />{preparing ? 'Klargør fil…' : `${progress}%`}</span>}
       </div>
 
       {currentImageUrl && (
@@ -154,10 +155,11 @@ export function ProductImageUpload({
               className="w-32 h-32 object-cover rounded border"
             />
             <Button
+              type="button"
               variant="destructive"
               size="sm"
               onClick={handleDeleteImage}
-              disabled={deleting}
+              disabled={uploading || deleting}
             >
               {deleting ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

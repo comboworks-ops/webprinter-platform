@@ -61,6 +61,13 @@ export type StorefrontSeoMeta = {
 
 type BrandmarkVariant = "icon" | "og";
 
+const STOREFRONT_ICON_VERSION = "20260715";
+const OWNED_STOREFRONT_FAVICON_HOSTS = new Set([
+  "webprinter.dk",
+  "salgsmapper.dk",
+  "onlinetryksager.dk",
+]);
+
 export type StorefrontAiSeoFaqItem = {
   id?: string;
   question: string;
@@ -115,7 +122,7 @@ function safeStringArray(input: unknown): string[] {
     .filter(Boolean);
 }
 
-function normalizeFaqItems(input: unknown): StorefrontAiSeoFaqItem[] {
+function normalizeFaqItems(input: unknown): Array<StorefrontAiSeoFaqItem & { id: string }> {
   if (!Array.isArray(input)) return [];
   return input
     .map((item, index) => {
@@ -129,7 +136,7 @@ function normalizeFaqItems(input: unknown): StorefrontAiSeoFaqItem[] {
     .filter((item) => item.question.trim() || item.answer.trim());
 }
 
-export function normalizeStorefrontAiSeoConfig(input: unknown): StorefrontAiSeoConfig {
+export function normalizeStorefrontAiSeoConfig(input: unknown): StorefrontAiSeoConfig & { faq: Array<StorefrontAiSeoFaqItem & { id: string }> } {
   const record = (input || {}) as Record<string, unknown>;
   const rawSignals = (record.signals || {}) as Record<string, unknown>;
 
@@ -317,6 +324,19 @@ export function isPlatformRootHost(
   return normalizedHost === normalizedRoot || normalizedHost === `www.${normalizedRoot}`;
 }
 
+export function resolveStableStorefrontFaviconUrl(origin: string): string | null {
+  try {
+    const url = new URL(origin);
+    const hostname = normalizeHostname(url.hostname).replace(/^www\./, "");
+
+    return OWNED_STOREFRONT_FAVICON_HOSTS.has(hostname)
+      ? `${url.origin}/favicon.ico`
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeStorefrontPathname(pathname: string | null | undefined): string {
   const raw = String(pathname || "").trim();
   if (!raw || raw === "/") return "/";
@@ -454,6 +474,10 @@ function buildGeneratedBrandmarkUrl(input: {
     text: input.textColor,
     bg: input.backgroundColor,
   });
+
+  if (input.variant === "icon") {
+    params.set("v", STOREFRONT_ICON_VERSION);
+  }
 
   return `${input.origin}/api/storefront-brandmark?${params.toString()}`;
 }
@@ -624,11 +648,10 @@ export function resolveStorefrontSeoMeta(input: {
   const resolvedVisual = uploadedLogo
     ? resolveAbsoluteUrl(input.origin, uploadedLogo)
     : generatedOgImage;
-  const resolvedIcon = customFavicon
-    ? resolveAbsoluteUrl(input.origin, customFavicon)
-    : uploadedLogo
-      ? resolveAbsoluteUrl(input.origin, uploadedLogo)
-      : generatedIcon;
+  const resolvedIcon = resolveStableStorefrontFaviconUrl(input.origin)
+    || (customFavicon
+      ? resolveAbsoluteUrl(input.origin, customFavicon)
+      : generatedIcon);
 
   return {
     title,

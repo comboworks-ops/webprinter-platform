@@ -1,6 +1,6 @@
 /**
  * Platform Handelsbetingelser (Terms of Service) Page
- * 
+ *
  * Platform-only terms of service (independent of demo shop).
  */
 
@@ -11,7 +11,7 @@ import { PlatformTermsContent } from "@/components/content/PlatformTermsContent"
 
 const PlatformHandelsbetingelser = () => {
     return (
-        <div className="min-h-screen flex flex-col font-sans">
+        <div className="platform-page min-h-screen flex flex-col font-sans">
             <SEO
                 title="Platformvilkår | Webprinter Platform"
                 description="Læs vilkårene for trykkerier og andre erhvervskunder, der bestiller eller bruger Webprinter Platform."

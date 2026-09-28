@@ -4,6 +4,7 @@ const SITE_CHECKOUT_DESIGN_READY_PREFIX = "order-design";
 const SITE_CHECKOUT_DESIGN_SIGNATURE_PREFIX = "order-design-signature";
 
 export interface SiteCheckoutUpload {
+  sha256?: string | null;
   name?: string | null;
   mimeType?: string | null;
   fileUrl?: string | null;
@@ -21,12 +22,48 @@ export interface SiteCheckoutUpload {
 }
 
 export interface SiteCheckoutDesignerExport {
+  sha256?: string | null;
   name?: string | null;
   mimeType?: string | null;
   fileUrl?: string | null;
   filePath?: string | null;
-  sourceMode?: "vector_pdf" | "print_pdf" | null;
+  previewDataUrl?: string | null;
+  previewWidthMm?: number | null;
+  previewHeightMm?: number | null;
+  sourceMode?: "vector_pdf" | "print_pdf" | "apparel_png" | null;
+  primaryFormat?: "png" | "pdf" | null;
+  alternateFormats?: Array<"png" | "pdf"> | null;
+  productionFiles?: Array<{
+    sha256?: string | null;
+    format: "png" | "pdf";
+    name?: string | null;
+    mimeType?: string | null;
+    fileUrl?: string | null;
+    filePath?: string | null;
+    sourceMode?: "vector_pdf" | "print_pdf" | "apparel_png" | null;
+    apparelSide?: string | null;
+    isPrimary?: boolean | null;
+  }> | null;
+  apparelSide?: string | null;
+  apparelSides?: string[] | null;
   generatedAt?: string | null;
+}
+
+export interface SiteCheckoutApparelConfig {
+  productName?: string | null;
+  garmentColor?: string | null;
+  printMethod?: string | null;
+  printPositionId?: string | null;
+  printAreaLabel?: string | null;
+  activeSide?: string | null;
+  sides?: string[] | null;
+  printWidthMm?: number | null;
+  printHeightMm?: number | null;
+  bleedMm?: number | null;
+  safeAreaMm?: number | null;
+  garmentSize?: string | null;
+  garmentWidthCm?: number | null;
+  garmentLengthCm?: number | null;
 }
 
 export interface SiteCheckoutCustomerDraft {
@@ -37,6 +74,8 @@ export interface SiteCheckoutCustomerDraft {
   deliveryRecipientName?: string | null;
   deliveryCompany?: string | null;
   deliveryAddress?: string | null;
+  deliveryAddress2?: string | null;
+  deliveryCountry?: string | null;
   deliveryZip?: string | null;
   deliveryCity?: string | null;
   selectedSavedAddressId?: string | null;
@@ -48,15 +87,34 @@ export interface SiteCheckoutCustomerDraft {
   billingName?: string | null;
   billingCompany?: string | null;
   billingAddress?: string | null;
+  billingAddress2?: string | null;
+  billingCountry?: string | null;
   billingZip?: string | null;
   billingCity?: string | null;
   selectedCustomerProfileId?: string | null;
 }
 
 export interface SiteCheckoutState {
+  proofApprovalRequired?: boolean;
+  checkoutInstanceId?: string | null;
+  companyId?: string | null;
+  companyOfficeId?: string | null;
+  companyAddressId?: string | null;
+  companyCatalogItemId?: string | null;
+  companyOrderRequestId?: string | null;
+  companyWorkingDesignId?: string | null;
   productId?: string | null;
   productSlug?: string | null;
+  productReturnPath?: string | null;
   productName?: string | null;
+  designerMode?: string | null;
+  pricingModel?: string | null;
+  productFlowLabel?: string | null;
+  productFlowHelpText?: string | null;
+  requiresCutContour?: boolean | null;
+  checkoutTitle?: string | null;
+  checkoutUploadTitle?: string | null;
+  checkoutUploadHelpText?: string | null;
   selectedVariant?: string | null;
   quantity?: number | null;
   productPrice?: number | null;
@@ -68,6 +126,9 @@ export interface SiteCheckoutState {
   linkedTemplateId?: string | null;
   templatePdfName?: string | null;
   templatePdfUrl?: string | null;
+  templatePdfSha256?: string | null;
+  templateArtworkMode?: "online_designer" | "professional_pdf_upload_only" | null;
+  templateArtworkModeReasonDa?: string | null;
   templateDownloadedAt?: string | null;
   designWidthMm?: number | null;
   designHeightMm?: number | null;
@@ -76,8 +137,10 @@ export interface SiteCheckoutState {
   shippingSelected?: string | null;
   optionSelections?: Record<string, unknown>;
   pricingQuote?: {
+    quantityTiers?: Array<{ quantity: number; price: number }>;
     productId?: string | null;
     productSlug?: string | null;
+    pricingModel?: string | null;
     quantity?: number | null;
     formatId?: string | null;
     materialId?: string | null;
@@ -89,8 +152,19 @@ export interface SiteCheckoutState {
     optionIds?: string[] | null;
     shippingSelected?: string | null;
     areaM2?: number | null;
+    widthMm?: number | null;
+    heightMm?: number | null;
+    storformat?: {
+      widthMm: number;
+      heightMm: number;
+      materialId: string;
+      finishIds: string[];
+      productIds: string[];
+      selectedSectionValues: Record<string, string | null>;
+    } | null;
   } | null;
   sourceSiteId?: string | null;
+  apparelConfig?: SiteCheckoutApparelConfig | null;
   siteUpload?: SiteCheckoutUpload | null;
   designerExport?: SiteCheckoutDesignerExport | null;
   checkoutCustomer?: SiteCheckoutCustomerDraft | null;
@@ -133,19 +207,33 @@ export function getSiteCheckoutDesignSignature(input: SiteCheckoutState | null |
   if (!input) return "";
 
   return stableJson({
+    companyId: input.companyId || null,
+    companyOfficeId: input.companyOfficeId || null,
+    companyAddressId: input.companyAddressId || null,
+    companyCatalogItemId: input.companyCatalogItemId || null,
+    companyOrderRequestId: input.companyOrderRequestId || null,
+    companyWorkingDesignId: input.companyWorkingDesignId || null,
     productId: input.productId || null,
     productSlug: input.productSlug || null,
+    designerMode: input.designerMode || null,
+    pricingModel: input.pricingModel || null,
+    productFlowLabel: input.productFlowLabel || null,
+    requiresCutContour: input.requiresCutContour === true,
     selectedVariant: input.selectedVariant || null,
     selectedFormat: input.selectedFormat || null,
     linkedTemplateId: input.linkedTemplateId || null,
     templatePdfName: input.templatePdfName || null,
     templatePdfUrl: input.templatePdfUrl || null,
+    templatePdfSha256: input.templatePdfSha256 || null,
+    templateArtworkMode: input.templateArtworkMode || null,
+    templateArtworkModeReasonDa: input.templateArtworkModeReasonDa || null,
     quantity: Number(input.quantity || 0),
     summary: input.summary || null,
     designWidthMm: input.designWidthMm ?? null,
     designHeightMm: input.designHeightMm ?? null,
     designBleedMm: input.designBleedMm ?? null,
     designSafeAreaMm: input.designSafeAreaMm ?? null,
+    apparelConfig: input.apparelConfig || null,
     optionSelections: input.optionSelections || null,
     pricingQuote: input.pricingQuote || null,
   });
