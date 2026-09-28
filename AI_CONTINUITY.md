@@ -905,6 +905,108 @@ Implemented read-only admin route:
   counts as accepted and when to stop. It does not save files, write notes,
   create commits, deploy, or mutate orders, prices, products or Supplier Bank
   data.
+- It now has a read-only commercial smoke command:
+  `npm run smoke:commercial-readiness`. By default it checks
+  `https://www.webprinter.dk`; pass
+  `-- --base-url http://127.0.0.1:8083` for localhost. It verifies the owned
+  tenant proof routes, the Salgsmapper PDF template, admin cockpit routes, and
+  shipped bundle markers for `Download skabelon`, `Produktionsklarhed`,
+  `templatePdfUrl`, and `sales-mapper`. It does not create orders, write
+  products, touch prices, scrape suppliers, or call Supabase write paths.
+  `npm run smoke:commercial-readiness:browser` adds Playwright-rendered checks
+  for the same commercial proof surface and fails if a page renders the Danish
+  temporary error screen. This caught and fixed the `/produkt/aluminium`
+  first-load crash where `ProductPricePanel` compared two missing template URLs
+  as equal and then read `templateDownloadedAt` from a null checkout session.
+  The browser smoke now also clicks `Design online` from `/produkt/aluminium`
+  and from the first Salgsmapper template product, then verifies `/designer`
+  receives `order=1`, product context, return path, checkout session state, and
+  for Salgsmapper the correct `templatePdfUrl`. This proves product-to-designer
+  handoff without creating orders or writing database state. It also verifies
+  the Salgsmapper `Download skabelon` link on the product page, including the
+  expected PDF path, Danish download filename, `application/pdf` response and
+  `%PDF` file header. It also clicks `Bestil nu` from the same two product pages
+  and verifies
+  `/checkout/konfigurer` receives the current product, selected format,
+  quantity, price totals, tenant context, and Salgsmapper template PDF context
+  in session storage. It now also verifies that checkout shows the `Fil Upload`
+  panel for both products, exposes an input accepting PDF/JPG/JPEG/PNG/TIFF,
+  keeps `siteUpload` empty before any file is chosen, and keeps payment disabled
+  before upload/customer details. That upload check deliberately does not select
+  a real file, because doing so would write to storage; all checkout checks stop
+  before upload, payment or order creation. The browser smoke also installs a
+  synthetic in-session upload for both products, approves it in the UI, clicks
+  `Gå til betaling`, and verifies the Danish customer/delivery validation
+  blocks payment before any Stripe payment intent, order-file storage write or
+  order insert request is sent. With valid smoke customer and delivery details,
+  the same browser smoke intercepts `stripe-create-payment-intent` before it
+  reaches Supabase and verifies the outgoing tenant id, amount, quote
+  productId/slug/quantity, upload path, standard delivery metadata,
+  blind-shipping boundary, customer metadata and Salgsmapper variant labels.
+  The stubbed response intentionally returns no Stripe secret, so no real
+  payment form, payment intent, storage write or order insert can be created.
+  The smoke command also includes a local no-write source contract that checks
+  checkout still writes admin-readable `[PRODUKTIONSFLOW]`, `[SKABELON]`,
+  `[SKABELON-DOWNLOAD]`, delivery and `order_files` markers, and that
+  `Kunder & Ordrer` still reads those tags and file-readiness signals.
+  It also checks the Stripe payment-intent edge function source still requires
+  `checkout_quote`, recalculates the amount through server-side `pricing-read`,
+  rejects client/server amount mismatches, includes delivery/option components,
+  and writes server-quote metadata to Stripe.
+  It also guards tenant payment readiness: admin `Betaling` must still expose
+  Stripe Connect onboarding/status/disable and platform fee controls, Connect
+  edge functions must still check tenant roles/ownership, checkout must still
+  choose destination charges only when a connected Stripe account is live, and
+  `Driftsklarhed` must keep payment/checkout signals read-only without creating
+  Stripe accounts, changing fees or starting payments.
+  It also guards the post-payment completion source path: successful payments
+  must still persist `orders`, attach current `order_files`, trigger customer
+  and admin order notifications, preserve POD v2 job creation, save optional
+  customer addresses, surface persistence/notification warnings, clear Stripe
+  return params, and show the customer an order number.
+  The smoke also guards the order email source chain: checkout wrappers must
+  still call `send-order-email` for customer confirmations and admin new-order
+  notifications, and the edge function must still render delivery, billing,
+  blind-shipping, sender, customer/admin links and Resend handoff details.
+  It also guards admin order processing: `Kunder & Ordrer` must still update
+  status/tracking/delivery fields, sync `[LEVERINGSMETODE]`, log status
+  history, send status/problem emails, show production readiness and warnings,
+  download invoices, and link to order messages.
+  It also guards the customer order portal: `Mine ordrer` must still read the
+  logged-in customer's orders, messages, tracking events and invoices, show
+  tracking/estimated delivery, support customer replies, handle requested file
+  reupload through `order-files` and `order_files`, and clear the reupload flag
+  after a replacement file is accepted.
+  It also guards the SEO/Search Console visibility layer: Platform SEO must
+  still expose the Search Console admin route, use master-scoped Google
+  `webmasters.readonly` access, keep verified sites, 28-day clicks,
+  impressions, CTR and average position in read-only hooks, and surface those
+  signals in `Driftsklarhed` without changing Google, SEO rows, products,
+  prices or orders.
+  It also guards the contact/lead handoff: Webprinter's public contact page must
+  still render with privacy-policy consent, the tenant contact form must keep a
+  real `/privatliv` link with storefront tenant context, `send-contact-message`
+  must still validate, rate-limit, send Resend emails and log platform leads in
+  `platform_messages`, and admin `Beskeder` must still surface the
+  `Platform henvendelser` read-only follow-up thread.
+  It also guards legal/cookie readiness: public platform and tenant legal
+  routes must still respond, cookie banner/settings must keep Danish consent
+  categories and accept/reject/custom controls, cookie settings must route
+  tenant terms to `/betingelser` and platform terms to `/handelsbetingelser`
+  without losing localhost tenant context, and `Driftsklarhed` must keep
+  `Jura/cookie signaler` read-only without changing cookies, tracking,
+  legal text or tenant settings.
+  It also guards the executive cockpit layers: Måleksekvering, adminmail
+  access readiness, Supplier Bank staging-runbook, print-house meeting pack,
+  critical path, pilot intake, launch board, commercial-ready scorecard,
+  sales evidence binder, decision queue and decision option cards must remain
+  visible, linked from the cockpit navigation and read-only.
+  It also guards the pilot-to-first-customer chain: demo boundary, pilot
+  acceptance, responsibility/scope, handoff/Q&A, meeting brief, follow-up,
+  offer draft, agreement checklist, pilot start, week-one report, conversion
+  gate, paid pilot package, first-customer onboarding, setup work order,
+  kickoff agenda/follow-up, customer-material checkpoint and production-release
+  readiness must remain visible, linked and read-only.
 - It now includes `Supplier Bank staging-runbook`, a read-only operating
   sequence for supplier-bank products: external source only, report candidate,
   explicit approval, draft import, price-row QA, separate publishing decision

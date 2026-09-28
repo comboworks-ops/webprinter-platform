@@ -67,6 +67,7 @@ dist-ssr
 !scripts/log-push-ready.mjs
 !scripts/tests/customer-account-database.test.mjs
 !scripts/tests/checkout-browser.test.mjs
+!scripts/commercial-readiness-smoke.js
 !scripts/sql/
 !scripts/sql/supabase-db-health.sql
 !scripts/sql/wmd-latest-delta-review-state.sql

@@ -29,3 +29,7 @@ Previous ready production deployment: `dpl_FT8zpQf9dEMuwQzFyDSCJ3qyvZgX`.
 Previous production URL: `https://printmaker-web-craft-main-lt8q42ls6-thomas-projects-d80b9ddd.vercel.app`.
 
 Restore this deployment through Vercel rollback if a release regression is observed. No database rollback is needed for this application-only release. Keep a separate record of the resulting Git commit, pull request, deployment ID and browser readback in the release output.
+
+## Upstream reconciliation
+
+Main ended at `354f59d` (8 July); the current application branch already contains subsequent implementations of those checkout and order-readiness contracts. Merge retains current tenant-scoped paginated order reads, production-file signatures and server-side order finalization, exact configuration-specific templates, privacy links and modern layouts. It does not restore the old generic sales-folder template fallback or browser-created orders. The original main smoke script, command aliases and historical documentation are retained. Regression coverage for the current equivalents runs after reconciliation.
