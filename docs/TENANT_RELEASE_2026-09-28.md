@@ -12,7 +12,7 @@ An isolated checkout was assembled from the current application source. Local ou
 - TypeScript: zero errors. Frontend health: zero lint regressions against the existing debt baseline (the repository is not lint-clean).
 - Application unit and regression tests include tenant isolation, branding preservation, pricing display, file approval, PDF safety and sales-folder binding.
 - Data API grant checker for the changed migration files.
-- Restore the optional canvas entry missing from npm's lockfile and explicitly select npm for Vercel installation/build.
+- Restore the optional canvas entry missing from npm's lockfile and explicitly select npm for Vercel installation/build. Remove the stale secondary pnpm lockfile, which made server-function packaging select a conflicting dependency tree.
 - Retire source backup/cloud duplicate files already removed from the active workspace.
 - Correct native Node test import paths, retain PDF safety coverage for every current loader and remove redundant hook dependencies.
 
