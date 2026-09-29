@@ -55,3 +55,15 @@ test('existing shared-header callers retain their opt-in policy and desktop floo
   assert.equal(resolveHeaderMode({ ...roomy, navigationWidth: 700 }), 'compact');
   assert.equal(resolveHeaderMode(roomy), 'desktop');
 });
+
+// The storefront now opts out of a second navigation row at every viewport.
+test('single-row storefront goes directly to compact before navigation needs a second row', () => {
+  const single = { ...storefront, allowStackedDesktop: false };
+  assert.equal(resolveHeaderMode(single), 'desktop');
+  for (const availableWidth of [847, 704, 592, 342, 272]) {
+    assert.equal(resolveHeaderMode({ ...single, availableWidth }), 'compact');
+  }
+  assert.equal(resolveHeaderMode({ ...single, centered: true, availableWidth: 895 }), 'compact');
+  assert.equal(resolveHeaderMode({ ...single, previousMode: 'compact', availableWidth: 863 }), 'compact');
+  assert.equal(resolveHeaderMode({ ...single, previousMode: 'compact', availableWidth: 864 }), 'desktop');
+});
