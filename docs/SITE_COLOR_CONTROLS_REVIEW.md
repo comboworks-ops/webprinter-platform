@@ -1,6 +1,6 @@
-# Site color controls — local review, 29 September 2026
+# Site color controls — release review, 29 September 2026
 
-Branch: `codex/site-color-controls`, based on released `main` a59f63ef.
+Branch: `codex/site-color-controls`, rebased onto released `main` 849ed438 (including sales-folder PRs #4–#6).
 Review: http://127.0.0.1:8161/site-colors-review.html
 Normal connected editor with this code: http://127.0.0.1:8161/admin/site-design-v2
 
@@ -21,9 +21,15 @@ Farver exposes all ten roles, including background, dropdown and hover. Its pres
 - Browser: real SiteDesignEditorV2 with local-only adapter; individual green primary color reaches storefront CTA, survives Save draft/reload; palette changes both normal/hover; reset, optional unlock, undo/redo and full standard reset verified.
 - 390px storefront preview: body/client width both 390px, no horizontal overflow. No browser console errors observed.
 
+## Storefront color precedence
+
+Order layouts now leave matrix selected colors and primary/secondary button colors to their existing configurable component styles. The forced matrix blue and fixed button colors were removed. Compact order buttons use their configured normal/hover variables because that renderer returns before the legacy inline stylesheet. Order accent colors use the exact tenant primary token, declared on the same storefront frame as the order rules; matrix borders use the configured border color. Layout dimensions and pricing are unchanged.
+
+A read-only real-product review verified the proposed Salgsmapper palette (#087FC5, pale-blue #EFF6FC) plus an alternate purple palette (#6B21A8, #F3E8FF). Matrix selection/header, option buttons, header sign-in and the exact order-button surface all follow the selected palette. The proposed live settings repair changes only color leaves in the product matrix, option selectors, order buttons, price panel, header CTA and global hover. It preserves layout, content, media, history and saved designs, and uses a fingerprint guard before applying. Evidence/backup/rollback: original checkout `output/site-color-release-2026-09-29/`.
+
 ## Boundaries
 
-The review adapter saves only under browser key `webprinter:site-colors-review:v1`; publishing and asset operations are disabled. No live branding, products, prices, Supabase schemas or tenant scope were modified. Production tenant deployment is unchanged.
+The review adapter saves only under browser key `webprinter:site-colors-review:v1`; publishing and asset operations are disabled. The local adapter never changes live branding. Production activation is separately recorded in the release receipt. Products, prices, Supabase schemas and tenant scope are outside this change.
 
 The original checkout contains additional edits to SiteDesignEditorV2.tsx; this branch has not been copied over that file. Reconcile those edits before integrating this branch. Do not replace user drafts or reload their original editor tabs.
 

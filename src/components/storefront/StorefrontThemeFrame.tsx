@@ -141,6 +141,8 @@ function StorefrontThemeFrameInner({
   ).trim() || "Din Shop";
   const shopLayout = resolveStorefrontLayout(branding.forside?.layout);
   const shopRecipe = resolveShopComponentRecipe(shopLayout);
+  const cssVariables = buildBrandingCssVariables(branding);
+  const journey = printJourneyAttributes(branding);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -163,7 +165,8 @@ function StorefrontThemeFrameInner({
   return (
     <SharedButtonContext.Provider value={branding}><div
       className="storefront-shop-template-scope"
-      {...printJourneyAttributes(branding)}
+      {...journey}
+      style={{ ...cssVariables, ...journey.style }}
       data-order-design={orderDesign}
       data-shop-template={shopLayout.templateId}
       data-shop-template-version={shopLayout.version}
@@ -187,7 +190,7 @@ function StorefrontThemeFrameInner({
         branding={branding}
         tenantName={resolvedTenantName}
         isPreviewMode={isPreviewMode}
-        cssVariables={buildBrandingCssVariables(branding)}
+        cssVariables={cssVariables}
       >
         {topSlot}
         {!contentOnly && <Theme.Header

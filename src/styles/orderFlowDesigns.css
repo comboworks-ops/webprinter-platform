@@ -1,6 +1,6 @@
 /* Approved order-flow layouts. Scoped independently of legacy shop recipes. */
 [data-order-design] {
-  --flow-ink: #102038; --flow-muted: #627184; --flow-blue: #0877cb;
+  --flow-ink: #102038; --flow-muted: #627184; --flow-blue: var(--brand-primary, hsl(var(--primary)));
   --flow-line: #e3e8ee; --flow-tint: #eef5fc;
   --flow-title-large: clamp(2rem, 3.5vw, 3.25rem);
   font-family: Inter, system-ui, sans-serif; color: var(--flow-ink);
@@ -34,8 +34,14 @@ body [data-order-design] .order-calculator-matrix :is([role=grid], [role=gridcel
 .order-compact-price-panel .price-panel-divider .price-panel-muted { font-size:14px; }
 .order-compact-actions > div { width:100%; display:flex; flex-direction:column; gap:9px; }
 .order-compact-actions button { width:100%; min-height:46px; height:auto; padding:11px 16px; font-size:15px; line-height:1.4; white-space:normal; }
-.order-compact-actions .order-primary-button { order:-1; background:var(--order-primary-surface,var(--flow-blue)) !important; color:var(--order-primary-text,#fff) !important; border-color:var(--order-primary-border,var(--flow-blue)) !important; }
-.order-compact-actions .order-secondary-button { background:#fff !important; color:var(--flow-ink) !important; border:1px solid var(--flow-line) !important; }
+/* The compact panel returns before the legacy inline styles: use its configured color variables here. */
+.order-compact-actions .order-primary-button { order:-1; }
+.order-compact-actions .order-primary-button { background:var(--order-primary-surface); color:var(--order-primary-text); border-color:var(--order-primary-border); }
+.order-compact-actions .order-primary-button:hover:not(:disabled) { background:var(--order-primary-hover-surface); color:var(--order-primary-hover-text); border-color:var(--order-primary-hover-border); }
+.order-compact-actions .order-secondary-button { background:var(--order-secondary-surface); color:var(--order-secondary-text); border-color:var(--order-secondary-border); }
+.order-compact-actions .order-secondary-button:hover:not(:disabled) { background:var(--order-secondary-hover-surface); color:var(--order-secondary-hover-text); border-color:var(--order-secondary-hover-border); }
+.order-compact-actions .order-selected-button { background:var(--order-selected-surface); color:var(--order-selected-text); border-color:var(--order-selected-border); }
+.order-compact-actions .order-selected-button:hover:not(:disabled) { background:var(--order-selected-hover-surface); color:var(--order-selected-hover-text); border-color:var(--order-selected-hover-border); }
 .order-compact-offer { text-align:center; }
 .order-compact-offer button { min-height:40px; font-size:13px; background:transparent; border:0; box-shadow:none; color:var(--flow-blue); }
 [data-order-design] :is(button,a,input,summary):focus-visible { outline: 2px solid var(--flow-blue); outline-offset: 3px; }
@@ -327,8 +333,7 @@ body [data-order-design] .order-calculator-matrix :is([role=grid], [role=gridcel
 [data-calculator-design="1"] .order-calculator-right { padding:22px; border:1px solid var(--flow-line); border-radius:6px; background:#fafcfe; }
 [data-calculator-design="1"] .order-calculator-summary { padding:0; margin:0; background:transparent; }
 [data-calculator-design="1"] .order-calculator-left > * + * { margin-top:24px; }
-body [data-order-design] .order-calculator-matrix .overflow-x-auto { border-radius:3px !important; box-shadow:none !important; padding:0 !important; border:1px solid #e3e8ee !important; }
-body [data-order-design] .order-calculator-matrix [role=gridcell][aria-selected=true] { background:#0877cb !important; color:white !important; }
+body [data-order-design] .order-calculator-matrix .overflow-x-auto { border-radius:3px !important; box-shadow:none !important; padding:0 !important; border:1px solid var(--matrix-box-border-color, var(--matrix-border)) !important; }
 body [data-order-design] .order-calculator-matrix [role=columnheader] { width:96px !important; }
 body [data-order-design] .order-calculator-matrix [role=gridcell] { width:96px !important; }
 body [data-order-design] .order-calculator-matrix :is([role=gridcell],[role=columnheader]) { flex:1; min-width:76px; width:auto !important; }

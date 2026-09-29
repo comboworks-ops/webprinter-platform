@@ -59,6 +59,7 @@ export function buildBrandingCssVariables(branding?: Partial<BrandingData> | nul
 
     return {
         "--primary": hexToHsl(primaryColor),
+        "--brand-primary": primaryColor,
         "--secondary": hexToHsl(secondaryColor),
         "--background": hexToHsl(backgroundColor),
         "--card": hexToHsl(cardColor),
