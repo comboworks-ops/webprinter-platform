@@ -14,6 +14,8 @@ Spot UV remains `professional_pdf_upload_only`: its PDF needs a production varni
 
 A direct selected PDF without a Designer-library ID previously inherited the old option-linked ID. Designer could then load the previous A4 template instead of the selected A5/A6/M65/square spread. `resolveLinkedDesignerTemplateId` now makes the exact PDF launch authoritative and preserves the legacy ID only for products without a configuration-specific launch.
 
+The browser also exposed a stale paper ID after automatic price-row fallback (A6 soft-touch selects silk). Matrix selection callbacks now emit the actual selected row ID, including manual paper-row clicks. This changes only the selection handoff; the existing price matrix and calculations are untouched.
+
 No pricing formulas, price rows, POD logic, tenant ownership, schema, or publishing flags change.
 
 ## Reproduce the read-only connection plan
@@ -33,10 +35,11 @@ Local evidence is under the original checkout's ignored `output/sales-folder-con
 
 ## Verification
 
-- 66 focused template/3D tests pass, including exact-PDF/legacy-ID regression.
+- 69 focused template/3D tests pass, including exact-PDF/legacy-ID regression.
 - TypeScript and production build pass.
 - All 120 distinct hosted PDFs across both finish-spine candidates match SHA-256.
 - Browser selected all 20 standard format/spine/print combinations: matching download, enabled Designer and rendered 3D canvas for every combination.
+- A6 soft-touch selects the existing silk-paper price and matching PDF/3D; switching to gloss and clicking Chromo updates the template. M65 spot UV 4+4 renders with professional-PDF-only guidance.
 - Authenticated private upload/persistence remains an acceptance check; the existing upload control requires sign-in.
 
 ## Deployment and rollback
