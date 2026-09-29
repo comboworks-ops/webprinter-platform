@@ -1,3 +1,4 @@
+import { withMatrixRowSelection } from '@/lib/products/matrixRowSelection';
 import { WorkspaceEditableSection } from './WorkspacePreviewEditor';
 import { useWorkspacePreviewEditing, useWorkspacePreviewSources } from './workspacePreviewContext';
 import { pictureModes, pictureModeSize } from '@/lib/products/productOptionPresentation';
@@ -2365,9 +2366,15 @@ export function MatrixLayoutV1Renderer({
         }
     }, [matrixData, selectedCell, onCellClick, getValueName]);
 
-    const emitSelectionChange = useCallback((updated: Record<string, string | null>) => {
+    const emitSelectionChange = useCallback((selections: Record<string, string | null>) => {
         if (!onSelectionChange) return;
 
+        // A price-row click or automatic fallback must also reach template,
+        // 3D and checkout consumers, not leave the previous paper selected.
+        const updated = withMatrixRowSelection(
+            selections, pricingStructure.vertical_axis, selectedCell?.row,
+            id => getDisplayValueName(id, pricingStructure.vertical_axis.sectionId),
+        );
         let formatId: string | undefined;
         let materialId: string | undefined;
 
@@ -2391,7 +2398,7 @@ export function MatrixLayoutV1Renderer({
         const variantKey = buildVariantKeyFromSelections(normalizeSelectionsForPricing(updated));
 
         onSelectionChange(updated, formatId, materialId, { variantKey, verticalValueId });
-    }, [buildVariantKeyFromSelections, normalizeSelectionsForPricing, onSelectionChange, pricingStructure]);
+    }, [buildVariantKeyFromSelections, getDisplayValueName, normalizeSelectionsForPricing, onSelectionChange, pricingStructure, selectedCell?.row]);
 
     useEffect(() => {
         emitSelectionChange(selectedSectionValues);

@@ -74,6 +74,17 @@ export type DesignerTemplateLaunch = {
   artworkModeReasonDa?: string;
 };
 
+/** An exact PDF launch owns the document, even without a library template ID.
+ * Falling back to an old linked ID lets Designer replace its dimensions/PDF. */
+export const resolveLinkedDesignerTemplateId = (
+  launch: DesignerTemplateLaunch | null | undefined,
+  hasConfigurationSpecificTemplates: boolean,
+  legacyTemplateId: string | null | undefined,
+): string | null => {
+  if (launch) return launch.templateId || null;
+  return hasConfigurationSpecificTemplates ? null : legacyTemplateId || null;
+};
+
 const readTemplateArtworkMode = (template: ProductTemplateFile): TemplateArtworkMode | undefined => {
   const value = template.artworkMode ?? template.artwork_mode;
   return value === "professional_pdf_upload_only" || value === "online_designer"

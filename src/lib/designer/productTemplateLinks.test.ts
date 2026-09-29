@@ -593,3 +593,14 @@ test("every branded calendar filling resolves only its exact Designer template",
     selectedOptionLabels: ["300 g/m² GC1-karton", "Ukendt fyld"],
   }), null);
 });
+
+// A direct PDF launch is authoritative, including when it has no library ID.
+// Otherwise the previous 5 mm library link overrides other selected spreads.
+test('exact PDF launch does not inherit a legacy designer template ID', async () => {
+  const { resolveLinkedDesignerTemplateId } = await import('./productTemplateLinks.ts');
+  const launch = { name: 'A5 5 mm', pdfUrl: 'https://example.test/a5.pdf' };
+  assert.equal(resolveLinkedDesignerTemplateId(launch, true, 'legacy-a4'), null);
+  assert.equal(resolveLinkedDesignerTemplateId({ ...launch, templateId: 'exact-a5' }, true, 'legacy-a4'), 'exact-a5');
+  assert.equal(resolveLinkedDesignerTemplateId(null, true, 'legacy-a4'), null);
+  assert.equal(resolveLinkedDesignerTemplateId(null, false, 'legacy-a4'), 'legacy-a4');
+});
