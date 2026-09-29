@@ -33,13 +33,18 @@ Only after construction is confirmed, add `--finished-spine=1mm` or `--finished-
 
 Local evidence is under the original checkout's ignored `output/sales-folder-connections-2026-09-29/`. The local review at port 8162 substitutes proposed templates over read-only live catalogue responses and blocks backend writes. It does not prove a persisted upload or live deployment.
 
+## Printed sides versus supplier reference pages
+
+The approved 4+0 folder PDFs contain a second, non-printing inside reference spread. The Designer previously treated both PDF pages as production pages. `printModelArtworkPageIndices` now uses the approved model's printed-side count for export; the reference spread is excluded from the editable page tabs. 4+4 keeps both artwork pages in outside/inside order. Other, unrecognized multipage templates retain their existing page count. The production export, color-management and guide-hiding implementations are unchanged.
+
 ## Verification
 
-- 69 focused template/3D tests pass, including exact-PDF/legacy-ID regression.
+- 70 focused template/3D tests pass, including exact-PDF/legacy-ID regression.
 - TypeScript and production build pass.
 - All 120 distinct hosted PDFs across both finish-spine candidates match SHA-256.
 - Browser selected all 20 standard format/spine/print combinations: matching download, enabled Designer and rendered 3D canvas for every combination.
 - A6 soft-touch selects the existing silk-paper price and matching PDF/3D; switching to gloss and clicking Chromo updates the template. M65 spot UV 4+4 renders with professional-PDF-only guidance.
+- Actual Designer PDF blobs checked through a local-only export hook: A4 1 mm 4+0 exports one 493.998 × 366 mm page; 4+4 exports two pages of that size. Only 4+4 offers the inside artwork tab.
 - Authenticated private upload/persistence remains an acceptance check; the existing upload control requires sign-in.
 
 ## Deployment and rollback

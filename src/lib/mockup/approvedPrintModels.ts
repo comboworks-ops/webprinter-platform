@@ -35,6 +35,12 @@ export type ApprovedPrintModel = typeof APPROVED_PRINT_MODELS[number];
 export function printModelTemplatePageCount(model: ApprovedPrintModel): number {
   return model.kind === 'sales-folder' ? model.templatePageCount : model.kind === 'spine' ? 2 : model.pages;
 }
+/** Some supplier PDFs include non-printing reference spreads. Export only the
+ * approved artwork sides, while ordinary unknown templates retain all pages. */
+export function printModelArtworkPageIndices(model: ApprovedPrintModel | null, templatePageCount: number): number[] {
+  if (model && templatePageCount !== printModelTemplatePageCount(model)) throw new Error('Skabelonens sider er ikke klar.');
+  return Array.from({ length: model?.pages ?? templatePageCount }, (_, index) => index);
+}
 export interface PrintArtwork { outside: string; inside?: string }
 export interface PrintTemplateIdentity { pdfUrl?: string | null; templatePdfSha256?: string | null }
 

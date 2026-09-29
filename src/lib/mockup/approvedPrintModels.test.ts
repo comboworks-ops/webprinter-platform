@@ -75,3 +75,13 @@ test('individually approved 3, 5 and 10 mm models retain one printed spread', ()
   assert.equal(five?.kind === 'spine' && five.definition.nominalSpineMm, 5);
   assert.equal(resolveApprovedPrintModel('7a660eaeacc2a35a7b3a2cedd65b3d2d580c5df07167a97c0b05d9cc42e4de88')?.kind, 'spine');
 });
+
+test('production artwork excludes reference spreads for every approved 4+0 folder', async () => {
+  const { printModelArtworkPageIndices } = await import('./approvedPrintModels.ts');
+  for (const model of APPROVED_PRINT_MODELS) {
+    const indices = printModelArtworkPageIndices(model, printModelTemplatePageCount(model));
+    assert.deepEqual(indices, model.pages === 1 ? [0] : [0, 1], model.label);
+  }
+  assert.deepEqual(printModelArtworkPageIndices(null, 3), [0, 1, 2]);
+  assert.throws(() => printModelArtworkPageIndices(APPROVED_PRINT_MODELS.find(m => m.kind === 'spine')!, 1), /klar/);
+});
