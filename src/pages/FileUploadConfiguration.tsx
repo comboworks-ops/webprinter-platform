@@ -1,3 +1,4 @@
+import { normalizeCheckoutFormatKey, checkoutTemplateFormatLabel } from '@/lib/checkout/formatLabels';
 import { PrintMockupButton } from '@/components/mockup/PrintMockupButton';
 import { useApprovedPrintModel } from '@/components/mockup/useApprovedPrintModel';
 import { resolveApprovedPrintModel } from '@/lib/mockup/approvedPrintModels';
@@ -569,20 +570,7 @@ const parseNonNegativeNumber = (value: unknown): number | null => {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 };
 
-const normalizeFormatKey = (value: unknown): string | null => {
-    if (typeof value !== "string") return null;
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const compact = trimmed.toUpperCase().replace(/\s+/g, "");
-
-    if (compact.includes("DINLANG") || compact.includes("M65")) return "M65";
-    if (compact.includes("85X55")) return "85x55";
-
-    const aFormatMatch = compact.match(/(?:DIN)?A([0-6])/);
-    if (aFormatMatch) return `A${aFormatMatch[1]}`;
-
-    return trimmed;
-};
+const normalizeFormatKey = normalizeCheckoutFormatKey;
 
 const getStandardFormatLabelFromSpecs = (specs: TechnicalSpecs | null) => {
     if (!specs?.width_mm || !specs?.height_mm) return null;
@@ -1636,8 +1624,15 @@ const FileUploadConfiguration = () => {
     const specs = getResolvedSpecs();
     const displayProductName = product?.name || state?.productName || "Produkt";
     const resolvedFormatLabel = useMemo(
-        () => getReadableFormatLabel(state?.selectedFormat || locationSearchParams.get("format"), specs),
-        [state?.selectedFormat, locationSearchParams, specs]
+        () => getReadableFormatLabel(
+            checkoutTemplateFormatLabel(
+                state?.pricingQuote?.formatId || state?.selectedFormat || locationSearchParams.get("format"),
+                checkoutTemplatePdfSha256,
+                product?.template_files as ProductTemplateFile[] | undefined,
+            ) || state?.selectedFormat || locationSearchParams.get("format"),
+            specs,
+        ),
+        [state?.selectedFormat, state?.pricingQuote?.formatId, locationSearchParams, specs, checkoutTemplatePdfSha256, product?.template_files]
     );
     const checkoutTemplateSelectionLabels = useMemo(() => {
         const quotedLabels = Array.isArray(state?.pricingQuote?.variantDisplayLabels)
