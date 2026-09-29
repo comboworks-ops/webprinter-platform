@@ -1,6 +1,8 @@
 # WebPrinter 3D product previews
 
-Checkpoint: 28 September 2026. Read this to continue in a fresh chat.
+Checkpoint: 30 September 2026. Read this to continue in a fresh chat.
+
+**Live Salgsmapper update:** standard folders and the three finished-folder products now resolve exact templates and 3D previews. Thomas selected both 1 mm and 5 mm for laminated, UV-varnish and Spot-UV folders. The finished products add 180 links for A4/A5/A6/M65/21 × 21 cm, with current price rows preserved. Spot-UV requires a professional PDF mask; other finished folders support online Designer. See [FINISHED_FOLDER_CONNECTIONS_2026-09-30.md](../FINISHED_FOLDER_CONNECTIONS_2026-09-30.md) for live evidence, rollout status and rollback. This supersedes the earlier missing-template construction choice for those three products.
 
 ## Current result and authorization
 
@@ -8,7 +10,7 @@ Thomas approved the 10 mm A4 folder and requested **all sales folders automatica
 
 **143 sales-folder review variants are built from 1,421 verified PDFs / 79 measured geometries.** A4, A5, A6, M65 and 21 × 21 cm cover all linked capacities, flap/window/closure constructions and 4+0/4+4 print sides.
 
-**142 configured catalogue variants are integrated locally** across product media, Designer and checkout. The older A4 5 mm PDF is modelled but review-only because its product link lacks configuration conditions. Products without linked templates remain in the backlog. No publishing or deployment has occurred.
+**142 configured catalogue variants are integrated locally** across product media, Designer and checkout. The older A4 5 mm PDF is modelled but review-only because its product link lacks configuration conditions. The batch was subsequently released through the shared system. See the live Salgsmapper checkpoint above for tenant-specific links and the remaining acceptance boundaries.
 
 Open [all sales folders](http://127.0.0.1:8160/sales-folders-review.html). Details and evidence: [SALES_FOLDER_BATCH.md](SALES_FOLDER_BATCH.md).
 
