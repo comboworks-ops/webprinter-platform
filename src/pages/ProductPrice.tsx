@@ -50,6 +50,7 @@ import { resolveMatrixLinkedTemplateId } from "@/lib/designer/linkedTemplates";
 import {
   collectExactTemplateSelectionConstraints,
   resolveSelectedDesignerTemplateLaunch,
+  resolveLinkedDesignerTemplateId,
   selectionUsesFoldedLayout,
   templateHasSelectionConstraints,
   type ProductTemplateFile,
@@ -1282,11 +1283,9 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     selectedFormatLabel,
   ]);
   const linkedTemplateId = useMemo(() => {
-    if (designerTemplateLaunch?.templateId) return designerTemplateLaunch.templateId;
-
-    if (hasConfigurationSpecificTemplates && !designerTemplateLaunch) return null;
-
-    return legacyLinkedTemplateId;
+    return resolveLinkedDesignerTemplateId(
+      designerTemplateLaunch, hasConfigurationSpecificTemplates, legacyLinkedTemplateId,
+    );
   }, [designerTemplateLaunch, hasConfigurationSpecificTemplates, legacyLinkedTemplateId]);
   const currentQuantity = useMemo(() => {
     if (isStorformat) return storformatSelection?.quantity || 0;
