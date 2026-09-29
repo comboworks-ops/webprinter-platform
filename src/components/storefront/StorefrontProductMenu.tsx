@@ -409,10 +409,10 @@ export function StorefrontProductMenuContent(props: StorefrontProductMenuContent
   let content: ReactNode;
   if (loading || error || (!categories.length && !products.length)) {
     content = <div className="spm-status"><p role={error ? "alert" : "status"}>{error || (loading ? "Indlæser produkter…" : "Der er ingen produkter at vise endnu.")}</p><AllProducts href={allProductsHref} onNavigate={onNavigate} /></div>;
-  } else if (preset === "search-and-discover") {
-    content = <SearchAndDiscover {...props} />;
   } else if (compact) {
     content = <CompactCategories {...props} />;
+  } else if (preset === "search-and-discover") {
+    content = <SearchAndDiscover {...props} />;
   } else if (!categories.length) {
     content = <div className="spm-ungrouped"><ProductRows {...props} /><AllProducts href={allProductsHref} onNavigate={onNavigate} /></div>;
   } else {

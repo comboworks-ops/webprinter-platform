@@ -25,6 +25,7 @@ import { getProductImage } from "@/utils/productImages";
 import { ProductCategoryIcon } from "@/components/ProductCategoryIcon";
 import { buildProductFilter } from "@/lib/branding/productAssets";
 import { cn } from "@/lib/utils";
+import { HeaderSearch } from "@/components/storefront/HeaderSearch";
 import { useHeaderFit } from "@/hooks/useHeaderFit";
 import "@/styles/responsiveHeader.css";
 import { appendStorefrontTenantContext } from "@/lib/storefrontTenantContext";
@@ -185,8 +186,9 @@ type DesktopProductsDropdownProps = {
 type DesktopHeaderActionsProps = {
   desktopEnabled: boolean;
   onCompactFocus: () => void;
-  persistentSearch?: boolean;
-  allProducts: DbProduct[];
+  searchFieldId: string;
+  searchOpen: boolean;
+  onSearchOpen: () => void;
   authReady: boolean;
   user: SupabaseUser | null;
   isAdmin: boolean;
@@ -206,8 +208,9 @@ type DesktopHeaderActionsProps = {
 const DesktopHeaderActions = memo(({
   desktopEnabled,
   onCompactFocus,
-  persistentSearch = false,
-  allProducts,
+  searchFieldId,
+  searchOpen,
+  onSearchOpen,
   authReady,
   user,
   isAdmin,
@@ -224,150 +227,26 @@ const DesktopHeaderActions = memo(({
   logoutLabel,
 }: DesktopHeaderActionsProps) => {
   const sharedCta = useSharedButtonStyles()('cta', 'header');
-  const [searchOpen, setSearchOpen] = useState(false);
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   useEffect(() => {
-    if (!desktopEnabled) { setLanguageMenuOpen(false); setUserMenuOpen(false); setSearchOpen(false); }
+    if (!desktopEnabled) { setLanguageMenuOpen(false); setUserMenuOpen(false); }
   }, [desktopEnabled]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const searchFieldId = useId();
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const searchToggleRef = useRef<HTMLButtonElement>(null);
-
-  const filteredProducts = useMemo(() => {
-    if (!searchQuery.trim()) return [];
-    const normalized = searchQuery.toLowerCase();
-    return allProducts.filter((product) =>
-      product.name.toLowerCase().includes(normalized)
-      || (product.icon_text || "").toLowerCase().includes(normalized)
-      || product.slug.toLowerCase().includes(normalized)
-      || (product.category && product.category.toLowerCase().includes(normalized))
-    );
-  }, [allProducts, searchQuery]);
-
-  const handleSearchClose = useCallback(() => {
-    setSearchOpen(false);
-    setSearchQuery("");
-  }, []);
-
-  const handleSearchToggle = useCallback(() => {
-    setSearchOpen((open) => {
-      const next = !open;
-      if (!next) {
-        setSearchQuery("");
-      } else {
-        setTimeout(() => searchInputRef.current?.focus(), 150);
-      }
-      return next;
-    });
-  }, []);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (searchOpen && !target.closest(".search-container")) {
-        handleSearchClose();
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [handleSearchClose, searchOpen]);
-
   return (
     <>
-      <div data-branding-id="header.actions" className="flex items-center relative search-container">
-        <div
-          id={searchFieldId}
-          data-header-search={persistentSearch ? "persistent" : "popover"}
-          data-search-open={searchOpen || undefined}
-          className={persistentSearch ? "storefront-persistent-search relative mr-2 w-64" : searchOpen ? "absolute right-0 top-full z-50 mt-2 w-64" : "hidden"}
-        >
-          <div className="relative w-full">
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Søg produkter..."
-              aria-label="Søg produkter"
-              value={searchQuery}
-              onFocus={() => setSearchOpen(true)}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") { handleSearchClose(); searchToggleRef.current?.focus(); }
-              }}
-              className="w-full h-11 px-3 pr-10 rounded-lg border border-border bg-background/80 backdrop-blur-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-              style={{ color: "#1F2937" }}
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                aria-label="Ryd søgning"
-                className="absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center text-muted-foreground hover:text-foreground header-action-link"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-
-        {(searchOpen || persistentSearch) && searchQuery && (
-          <div className="absolute top-full right-0 mt-2 w-72 max-h-80 overflow-y-auto whitespace-normal break-words bg-card rounded-lg shadow-lg border border-border z-50">
-            {filteredProducts.length > 0 ? (
-              <div className="p-2">
-                <p className="text-xs text-muted-foreground px-2 py-1">
-                  {filteredProducts.length} produkt{filteredProducts.length !== 1 ? "er" : ""} fundet
-                </p>
-                {filteredProducts.map((product) => (
-                  <Link
-                    key={product.id}
-                    to={appendStorefrontTenantContext(`/produkt/${product.slug}`)}
-                    onClick={handleSearchClose}
-                    className="flex items-center gap-3 p-2 rounded-md hover:bg-muted transition-colors"
-                  >
-                    {product.image_url && (
-                      <img
-                        src={getProductImage(product.slug, product.image_url)}
-                        alt={product.name}
-                        className="w-10 h-10 object-cover rounded"
-                        style={{ filter: "var(--product-filter)" }}
-                      />
-                    )}
-                    <ProductCategoryIcon
-                      slug={product.slug}
-                      category={product.category}
-                      packId={selectedIconPackId}
-                      className="h-5 w-5"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{product.name}</p>
-                      <p className="text-xs text-muted-foreground capitalize">{product.category}</p>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <div className="p-4 text-center text-sm text-muted-foreground">
-                Ingen produkter fundet for "{searchQuery}"
-              </div>
-            )}
-          </div>
-        )}
-        </div>
-
-        <Button
-          ref={searchToggleRef}
-          variant="ghost"
-          size="icon"
-          onClick={handleSearchToggle}
-          aria-label={searchOpen ? "Luk søgning" : "Søg produkter"}
-          aria-controls={searchFieldId}
-          aria-expanded={searchOpen}
-          data-branding-id="header.actions"
-          className="h-11 w-11 header-action-link"
-        >
-          {searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
-        </Button>
-      </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onSearchOpen}
+        aria-label="Søg produkter"
+        aria-controls={searchFieldId}
+        aria-expanded={searchOpen}
+        data-header-search-toggle
+        data-branding-id="header.actions"
+        className="h-11 w-11 header-action-link"
+      >
+        <Search className="h-5 w-5" aria-hidden="true" />
+      </Button>
 
       <DropdownMenu modal={false} open={desktopEnabled && languageMenuOpen} onOpenChange={setLanguageMenuOpen}>
         <DropdownMenuTrigger asChild>
@@ -1364,7 +1243,12 @@ const isMissingCategoryHierarchyColumns = (error: unknown) => {
 const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBrandingDraft').BrandingData } = {}) => {
   const sharedCta = useSharedButtonStyles()('cta', 'header');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [compactSearch, setCompactSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchFieldId = useId();
+  const openHeaderSearch = useCallback(() => {
+    setMobileMenuOpen(false);
+    setSearchOpen(true);
+  }, []);
   const [mobileExpandedSectionKey, setMobileExpandedSectionKey] = useState<string | null>(null);
   const [previewProductsMenuOpen, setPreviewProductsMenuOpen] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(cachedHeaderUser);
@@ -1641,8 +1525,15 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
     '--menu-hover-bg': headerSettings.dropdownHoverColor || '#EFF6FC',
   } as React.CSSProperties;
   const menuFontSizePx = Math.min(22, Math.max(12, Number(headerSettings.menuFontSizePx ?? 14)));
-  const headerFit = useHeaderFit({ centered: headerSettings.alignment === "center", minimumDesktopWidth: 640, allowStackedDesktop: true });
+  const headerFit = useHeaderFit({ centered: headerSettings.alignment === "center", minimumDesktopWidth: 640 });
   const menuToggleRef = useRef<HTMLButtonElement>(null);
+  const closeHeaderSearch = useCallback((restoreFocus: boolean) => {
+    setSearchOpen(false);
+    if (restoreFocus) requestAnimationFrame(() => {
+      const selector = headerFit.compact ? '.responsive-header-compact' : '.responsive-header-actions';
+      headerRef.current?.querySelector<HTMLButtonElement>(`${selector} [data-header-search-toggle]`)?.focus();
+    });
+  }, [headerFit.compact]);
   const focusCompactMenu = useCallback(() => menuToggleRef.current?.focus(), []);
 
   useEffect(() => {
@@ -2115,6 +2006,7 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
 
   useEffect(() => {
     setMobileMenuOpen(false);
+    setSearchOpen(false);
   }, [location.pathname, location.search]);
 
   useEffect(() => {
@@ -2291,6 +2183,7 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
       ref={headerRef}
       data-header-mode={headerFit.mode}
       data-storefront-header
+      data-header-search-open={searchOpen || undefined}
       data-header-alignment={headerSettings.alignment}
       data-branding-id="header.background"
       data-shop-header-variant={shopRecipe.header.variant}
@@ -2298,7 +2191,7 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
       className={`${positionClass} z-[1000] transition-all duration-300 ease-in-out`}
       style={{
         ...getHeaderStyles(),
-        height: headerFit.stacked ? 'auto' : `${resolvedHeaderHeightPx}px`,
+        height: `${resolvedHeaderHeightPx}px`,
         '--storefront-header-main-height': `${resolvedHeaderHeightPx}px`,
         zIndex: 1000,
         fontFamily: `'${headerSettings.fontId}', sans-serif`,
@@ -2369,6 +2262,7 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
           <Link
             to={appendStorefrontTenantContext("/")}
             ref={headerFit.logoRef}
+            aria-hidden={searchOpen || undefined}
             className="responsive-header-logo flex min-h-11 items-center hover:opacity-90 transition-opacity"
             data-branding-id="header.logo"
           >
@@ -2423,7 +2317,7 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
           </Link>
 
           {/* Desktop Navigation - alignment based positioning */}
-          <nav ref={headerFit.navigationRef} className="responsive-header-desktop responsive-header-navigation" aria-label="Hovednavigation" aria-hidden={headerFit.compact || undefined}
+          <nav ref={headerFit.navigationRef} className="responsive-header-desktop responsive-header-navigation" aria-label="Hovednavigation" aria-hidden={headerFit.compact || searchOpen || undefined}
             data-branding-id="header.menu.layout"
           >
             {headerSettings.navItems
@@ -2435,7 +2329,7 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
                 if (isProductLink) {
                   return (
                     <DesktopProductsDropdown
-                      desktopEnabled={!headerFit.compact}
+                      desktopEnabled={!headerFit.compact && !searchOpen}
                       onCompactFocus={focusCompactMenu}
                       key={item.id}
                       itemId={item.id}
@@ -2509,12 +2403,13 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
           </nav>
 
           {/* Right Side Actions */}
-          <div ref={headerFit.actionsRef} className="responsive-header-desktop responsive-header-actions relative z-[1210]" aria-hidden={headerFit.compact || undefined}>
+          <div ref={headerFit.actionsRef} className="responsive-header-desktop responsive-header-actions relative z-[1210]" aria-hidden={headerFit.compact || searchOpen || undefined}>
             <DesktopHeaderActions
-              desktopEnabled={!headerFit.compact}
+              desktopEnabled={!headerFit.compact && !searchOpen}
               onCompactFocus={focusCompactMenu}
-              persistentSearch={activeBranding?.themeId === 'print-precise' || activeBranding?.themeId === 'print-familiar'}
-              allProducts={allProducts}
+              searchFieldId={searchFieldId}
+              searchOpen={searchOpen}
+              onSearchOpen={openHeaderSearch}
               authReady={authReady}
               user={user}
               isAdmin={isAdmin}
@@ -2532,7 +2427,19 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
             />
 
           </div>
-          <div className="responsive-header-compact relative z-[1210]">
+          <div className="responsive-header-compact relative z-[1210]" aria-hidden={searchOpen || undefined}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-11 w-11 header-action-link"
+              data-header-search-toggle
+              aria-label="Søg produkter"
+              aria-expanded={searchOpen}
+              aria-controls={searchFieldId}
+              onClick={openHeaderSearch}
+            >
+              <Search className="h-5 w-5" aria-hidden="true" />
+            </Button>
             {/* Compact Menu Button */}
             <Button
               variant="ghost"
@@ -2549,6 +2456,15 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
               {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
             </Button>
           </div>
+          <HeaderSearch
+            id={searchFieldId}
+            open={searchOpen}
+            products={allProducts}
+            loading={catalogLoading}
+            error={catalogError}
+            selectedIconPackId={selectedIconPackId}
+            onClose={closeHeaderSearch}
+          />
         </div>
 
         {/* Mobile Navigation */}
@@ -2558,7 +2474,7 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
               <motion.button
                 type="button"
                 aria-label="Luk menu"
-                className="fixed inset-0 z-[1190] bg-black/20 backdrop-blur-[2px]"
+                className="absolute inset-x-0 top-full h-[100dvh] z-[1190] bg-black/20 backdrop-blur-[2px]"
                 initial={shouldReduceMotion ? { opacity: 1 } : { opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={shouldReduceMotion ? { opacity: 1 } : { opacity: 0 }}
@@ -2569,12 +2485,12 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
                 id="storefront-compact-navigation"
                 aria-label="Hovednavigation"
                 data-branding-id="header.menu.layout"
-                className="fixed left-3 right-3 z-[1200] overflow-hidden rounded-2xl border border-black/10 shadow-2xl backdrop-blur-xl"
+                className="storefront-compact-menu absolute z-[1200] overflow-hidden rounded-2xl border border-black/10 shadow-2xl backdrop-blur-xl"
                 style={{
                   ...getDropdownStyles(),
-                  top: `${resolvedHeaderHeightPx + 8}px`,
+                  top: 'calc(100% + 8px)',
                   maxHeight: `calc(100dvh - ${resolvedHeaderHeightPx + 20}px)`,
-                  color: headerSettings.textColor || "#1F2937",
+                  color: productColor,
                 }}
                 initial={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: -8, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -2582,11 +2498,6 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
                 transition={{ duration: shouldReduceMotion ? 0 : 0.22, ease: [0.16, 1, 0.3, 1] }}
               >
                 <div className="max-h-[inherit] overflow-y-auto overscroll-contain p-3">
-                  {headerSettings.dropdownPreset !== 'search-and-discover' && <form role="search" className="mb-3 flex items-center gap-2 rounded-lg border border-border bg-background px-3" onSubmit={event => { event.preventDefault(); setMobileMenuOpen(false); navigate(appendStorefrontTenantContext(`/produkter?q=${encodeURIComponent(compactSearch.trim())}`)); }}>
-                    <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
-                    <input aria-label="Søg produkter" placeholder="Søg produkter…" className="min-h-11 min-w-0 flex-1 bg-transparent text-base outline-none" value={compactSearch} onChange={event => setCompactSearch(event.target.value)} />
-                    <button type="submit" className="min-h-11 px-2 text-sm font-medium">Søg</button>
-                  </form>}
                   <div className="space-y-1 rounded-xl bg-black/[0.025] p-1">
                     {headerSettings.navItems.filter(item => item.isVisible).sort((a, b) => a.order - b.order).map((item) => (
                       <Link
