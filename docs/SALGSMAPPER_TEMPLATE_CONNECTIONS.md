@@ -12,7 +12,7 @@ Spot UV remains `professional_pdf_upload_only`: its PDF needs a production varni
 
 ## Handoff repair
 
-A direct selected PDF without a Designer-library ID previously inherited the old option-linked ID. Designer could then load the previous A4 template instead of the selected A5/A6/M65/square spread. `resolveLinkedDesignerTemplateId` now makes the exact PDF launch authoritative and preserves the legacy ID only for products without a configuration-specific launch.
+A hash-verified selected PDF without a Designer-library ID previously inherited the old option-linked ID. Designer could then load the previous A4 template instead of the selected A5/A6/M65/square spread. `resolveLinkedDesignerTemplateId` now makes the exact PDF launch authoritative and preserves dimension-bearing library links for older PDFs without a verified fingerprint. A missing configuration-specific launch still fails closed.
 
 The browser also exposed a stale paper ID after automatic price-row fallback (A6 soft-touch selects silk). Matrix selection callbacks now emit the actual selected row ID, including manual paper-row clicks. This changes only the selection handoff; the existing price matrix and calculations are untouched.
 
