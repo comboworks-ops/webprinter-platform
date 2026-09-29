@@ -598,9 +598,10 @@ test("every branded calendar filling resolves only its exact Designer template",
 // Otherwise the previous 5 mm library link overrides other selected spreads.
 test('exact PDF launch does not inherit a legacy designer template ID', async () => {
   const { resolveLinkedDesignerTemplateId } = await import('./productTemplateLinks.ts');
-  const launch = { name: 'A5 5 mm', pdfUrl: 'https://example.test/a5.pdf' };
+  const launch = { name: 'A5 5 mm', pdfUrl: 'https://example.test/a5.pdf', templatePdfSha256: 'a'.repeat(64) };
   assert.equal(resolveLinkedDesignerTemplateId(launch, true, 'legacy-a4'), null);
   assert.equal(resolveLinkedDesignerTemplateId({ ...launch, templateId: 'exact-a5' }, true, 'legacy-a4'), 'exact-a5');
   assert.equal(resolveLinkedDesignerTemplateId(null, true, 'legacy-a4'), null);
   assert.equal(resolveLinkedDesignerTemplateId(null, false, 'legacy-a4'), 'legacy-a4');
+  assert.equal(resolveLinkedDesignerTemplateId({ name: 'Legacy A4', pdfUrl: 'https://example.test/legacy.pdf' }, true, 'legacy-a4'), 'legacy-a4');
 });

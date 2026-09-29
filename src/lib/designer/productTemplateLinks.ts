@@ -74,15 +74,17 @@ export type DesignerTemplateLaunch = {
   artworkModeReasonDa?: string;
 };
 
-/** An exact PDF launch owns the document, even without a library template ID.
- * Falling back to an old linked ID lets Designer replace its dimensions/PDF. */
+/** A fingerprinted PDF owns the document, even without a library template ID.
+ * Legacy PDFs can still depend on their library record for dimensions. */
 export const resolveLinkedDesignerTemplateId = (
   launch: DesignerTemplateLaunch | null | undefined,
   hasConfigurationSpecificTemplates: boolean,
   legacyTemplateId: string | null | undefined,
 ): string | null => {
-  if (launch) return launch.templateId || null;
-  return hasConfigurationSpecificTemplates ? null : legacyTemplateId || null;
+  if (launch?.templateId) return launch.templateId;
+  if (launch?.templatePdfSha256) return null;
+  if (hasConfigurationSpecificTemplates && !launch) return null;
+  return legacyTemplateId || null;
 };
 
 const readTemplateArtworkMode = (template: ProductTemplateFile): TemplateArtworkMode | undefined => {
