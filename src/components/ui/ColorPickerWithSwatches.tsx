@@ -887,6 +887,7 @@ export function ColorPickerWithSwatches({
                     className="h-8 w-8 rounded border overflow-hidden shadow-sm hover:ring-2 ring-primary transition-all relative flex-shrink-0"
                     style={{ backgroundColor: currentColor }}
                     title={currentColor}
+                    aria-label={label ? `${label}: ${currentColor}` : undefined}
                     onClick={() => {
                         openedColorRef.current = currentColor;
                         openedOpacityRef.current = opacity;

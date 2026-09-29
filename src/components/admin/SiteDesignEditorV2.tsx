@@ -1,3 +1,5 @@
+import { applySiteColor, buildSiteColorPatch } from '@/lib/branding/siteColors';
+import { SiteColorResetControls } from './SiteColorResetControls';
 import { SharedButtonLocalControls } from './SharedButtonsControls';
 import { FeaturedProductInspector } from './FeaturedProductInspector';
 import { FIRST_FEATURED_SLIDE, getFeaturedSlides } from '@/lib/branding/featuredProductPresentation';
@@ -5,7 +7,7 @@ import type { USPIconType, BrandingData } from "@/hooks/useBrandingDraft";
 import { requestPreviewScreenshot } from '@/lib/preview/previewScreenshot';
 import { assignDesignToShop, loadShopDesignLibrary } from '@/lib/branding/premadeDesignLibrary';
 import { HeroQuickControls, HeaderQuickControls, MainButtonsControls } from './SiteDesignQuickControls';
-import { standardSiteDesign, applyMainButtonSettings, getMainButtonSettings } from '@/lib/branding/siteDesignControls';
+import { standardSiteDesign, applyMainButtonSettings } from '@/lib/branding/siteDesignControls';
 import { ProductPresentationPicker } from "@/components/admin/ProductPresentationPicker";
 import { applyProductPresentation, PRODUCT_PRESENTATIONS, resolveProductPresentation } from "@/lib/branding/productPresentations";
 import { resolveDropdownPreset } from "@/lib/branding/dropdownPresets";
@@ -1402,328 +1404,12 @@ const VISUAL_THEME_PRESETS: VisualThemePreset[] = [
     }),
 ];
 
-const buildColorPresetThemePatch = (
-    draft: BrandingData,
-    presetColors: BrandingColorPresetColors,
-): Partial<BrandingData> => {
-    const colors = {
-        ...draft.colors,
-        ...presetColors,
-        backgroundType: "solid" as const,
-        backgroundGradientType: draft.colors.backgroundGradientType || "linear",
-        backgroundGradientStart: presetColors.background,
-        backgroundGradientEnd: presetColors.secondary,
-        backgroundGradientUseMiddle: false,
-        backgroundGradientMiddle: presetColors.card,
-        backgroundGradientAngle: draft.colors.backgroundGradientAngle ?? 135,
-        backgroundImageUrl: null,
-    };
-    const primary = colors.primary || DEFAULT_BRANDING.colors.primary;
-    const secondary = colors.secondary || DEFAULT_BRANDING.colors.secondary;
-    const background = colors.background || DEFAULT_BRANDING.colors.background;
-    const card = colors.card || DEFAULT_BRANDING.colors.card;
-    const dropdown = colors.dropdown || card;
-    const hover = colors.hover || primary;
-    const heading = colors.headingText || DEFAULT_BRANDING.colors.headingText;
-    const body = colors.bodyText || DEFAULT_BRANDING.colors.bodyText;
-    const pricing = colors.pricingText || primary;
-    const primaryFillText = getReadableTextForSolid(primary);
-    const hoverFillText = getReadableTextForSolid(hover, primaryFillText);
-    const cardFillText = getReadableTextForSolid(card, heading);
-    const buttonText = primaryFillText;
-
-    const currentProductPage = draft.productPage || DEFAULT_BRANDING.productPage;
-    const currentHero = draft.hero || DEFAULT_BRANDING.hero;
-    const currentHeroOverlay = currentHero.overlay || DEFAULT_BRANDING.hero.overlay;
-    const currentUspStrip = draft.uspStrip || DEFAULT_BRANDING.uspStrip;
-    const currentMatrix = currentProductPage.matrix || DEFAULT_BRANDING.productPage.matrix;
-    const currentPricePanel = currentProductPage.pricePanel || DEFAULT_BRANDING.productPage.pricePanel;
-    const currentOrderButtons = currentProductPage.orderButtons || DEFAULT_BRANDING.productPage.orderButtons;
-    const currentOptionSelectors = currentProductPage.optionSelectors || DEFAULT_BRANDING.productPage.optionSelectors;
-    const currentForside = draft.forside || DEFAULT_BRANDING.forside;
-    const currentProductsSection = currentForside.productsSection || DEFAULT_BRANDING.forside.productsSection;
-    const currentFeatured = currentProductsSection.featuredProductConfig || DEFAULT_BRANDING.forside.productsSection.featuredProductConfig;
-    const themeHeroButton = (
-        button: typeof DEFAULT_BRANDING.hero.overlay.buttons[number],
-        index = 0,
-    ) => {
-        const isSecondary = button.variant === "secondary" || index > 0;
-        const backgroundColor = isSecondary ? card : primary;
-        return {
-            ...button,
-            textColor: isSecondary ? cardFillText : buttonText,
-            bgColor: backgroundColor,
-            bgHoverColor: isSecondary ? secondary : hover,
-            bgOpacity: button.bgOpacity ?? 1,
-        };
-    };
-    const themedHeroButtons = (currentHeroOverlay.buttons?.length
-        ? currentHeroOverlay.buttons
-        : DEFAULT_BRANDING.hero.overlay.buttons
-    ).map(themeHeroButton);
-
-    return {
-        colors,
-        hero: {
-            ...currentHero,
-            overlay_color: heading,
-            overlay_opacity: currentHero.overlay_opacity ?? 0.3,
-            overlay: {
-                ...currentHeroOverlay,
-                titleColor: buttonText,
-                subtitleColor: hexToRgba(buttonText, 0.9),
-                buttons: themedHeroButtons,
-            },
-            images: (currentHero.images || []).map((image) => ({
-                ...image,
-                overlayColor: currentHero.usePerBannerOverlay ? heading : image.overlayColor,
-                overlayOpacity: currentHero.usePerBannerOverlay ? (image.overlayOpacity ?? currentHero.overlay_opacity ?? 0.3) : image.overlayOpacity,
-                buttons: image.buttons?.map(themeHeroButton),
-            })),
-        },
-        header: {
-            ...draft.header,
-            logoTextColor: heading,
-            bgColor: card,
-            textColor: heading,
-            hoverTextColor: hover,
-            activeTextColor: primary,
-            actionHoverBgColor: hexToRgba(primary, 0.1),
-            actionHoverTextColor: hover,
-            dropdownBgColor: dropdown,
-            dropdownHoverColor: secondary,
-            dropdownCategoryColor: body,
-            dropdownProductColor: heading,
-            dropdownMetaColor: body,
-            cta: {
-                ...draft.header.cta,
-                bgColor: primary,
-                textColor: buttonText,
-                hoverBgColor: hover,
-                hoverTextColor: hoverFillText,
-            },
-        },
-        footer: {
-            ...draft.footer,
-            background: "solid" as const,
-            bgColor: heading,
-        },
-        uspStrip: {
-            ...currentUspStrip,
-            backgroundColor: primary,
-            useGradient: true,
-            gradientFrom: primary,
-            gradientTo: hover,
-            textColor: buttonText,
-            iconColor: buttonText,
-            titleColor: buttonText,
-            descriptionColor: hexToRgba(buttonText, 0.9),
-        },
-        forside: {
-            ...currentForside,
-            productsSection: {
-                ...currentProductsSection,
-                categoryTabs: {
-                    ...currentProductsSection.categoryTabs,
-                    textColor: heading,
-                    hoverTextColor: hover,
-                    activeTextColor: primaryFillText,
-                    bgColor: card,
-                    hoverBgColor: secondary,
-                    activeBgColor: primary,
-                    borderColor: secondary,
-                    activeBorderColor: primary,
-                },
-                card: {
-                    ...currentProductsSection.card,
-                    titleColor: heading,
-                    bodyColor: body,
-                    priceColor: pricing,
-                },
-                button: {
-                    ...currentProductsSection.button,
-                    bgColor: primary,
-                    hoverBgColor: hover,
-                    textColor: buttonText,
-                    hoverTextColor: hoverFillText,
-                },
-                background: {
-                    ...currentProductsSection.background,
-                    type: "solid" as const,
-                    color: background,
-                    gradientStart: background,
-                    gradientEnd: secondary,
-                    opacity: 1,
-                },
-                featuredProductConfig: {
-                    ...currentFeatured,
-                    backgroundColor: card,
-                    ctaColor: primary,
-                    ctaTextColor: buttonText,
-                    sidePanel: {
-                        ...currentFeatured.sidePanel,
-                        ctaColor: primary,
-                        ctaTextColor: buttonText,
-                    },
-                },
-            },
-        },
-        productPage: {
-            ...currentProductPage,
-            heading: {
-                ...currentProductPage.heading,
-                color: heading,
-                subtext: {
-                    ...currentProductPage.heading.subtext,
-                    color: body,
-                },
-            },
-            infoSection: {
-                ...currentProductPage.infoSection,
-                bgColor: card,
-                borderColor: secondary,
-                titleColor: heading,
-                textColor: body,
-            },
-            matrix: {
-                ...currentMatrix,
-                headerBg: secondary,
-                headerText: heading,
-                rowHeaderBg: card,
-                rowHeaderText: heading,
-                cellBg: card,
-                cellText: heading,
-                cellHoverBg: secondary,
-                cellHoverText: heading,
-                selectedBg: primary,
-                selectedText: buttonText,
-                borderColor: secondary,
-                navButtonBg: card,
-                navButtonText: heading,
-                navButtonHoverBg: secondary,
-                navButtonHoverText: hover,
-                navButtonBorder: secondary,
-                navButtonHoverBorder: primary,
-                boxBackgroundColor: card,
-                boxBorderColor: secondary,
-                textButtons: {
-                    ...currentMatrix.textButtons,
-                    backgroundColor: card,
-                    hoverBackgroundColor: secondary,
-                    textColor: heading,
-                    hoverTextColor: hover,
-                    selectedBackgroundColor: primary,
-                    selectedTextColor: buttonText,
-                    borderColor: secondary,
-                    hoverBorderColor: primary,
-                },
-                pictureButtons: {
-                    ...currentMatrix.pictureButtons,
-                    hoverColor: primary,
-                    selectedColor: primary,
-                },
-            },
-            pricePanel: {
-                ...currentPricePanel,
-                backgroundType: "solid" as const,
-                backgroundColor: hexToRgba(primary, 0.05),
-                gradientStart: hexToRgba(primary, 0.1),
-                gradientEnd: card,
-                titleColor: heading,
-                textColor: heading,
-                mutedTextColor: body,
-                priceColor: pricing,
-                borderColor: hexToRgba(primary, 0.18),
-                dividerColor: hexToRgba(primary, 0.12),
-                optionBg: card,
-                optionHoverBg: hexToRgba(primary, 0.06),
-                optionSelectedBg: hexToRgba(primary, 0.1),
-                optionBorderColor: secondary,
-                optionHoverBorderColor: hexToRgba(primary, 0.35),
-                optionSelectedBorderColor: primary,
-                badgeBg: hexToRgba(primary, 0.1),
-                badgeText: primary,
-                badgeBorderColor: primary,
-                downloadButtonBg: card,
-                downloadButtonHoverBg: secondary,
-                downloadButtonText: heading,
-                downloadButtonHoverText: hover,
-                downloadButtonBorder: secondary,
-                downloadButtonHoverBorder: primary,
-            },
-            orderButtons: {
-                ...currentOrderButtons,
-                primary: {
-                    ...currentOrderButtons.primary,
-                    bgColor: primary,
-                    hoverBgColor: hover,
-                    textColor: buttonText,
-                    hoverTextColor: hoverFillText,
-                    borderColor: primary,
-                    hoverBorderColor: hover,
-                },
-                secondary: {
-                    ...currentOrderButtons.secondary,
-                    bgColor: card,
-                    hoverBgColor: secondary,
-                    textColor: heading,
-                    hoverTextColor: hover,
-                    borderColor: secondary,
-                    hoverBorderColor: primary,
-                },
-                selected: {
-                    ...currentOrderButtons.selected,
-                    bgColor: primary,
-                    hoverBgColor: hover,
-                    textColor: buttonText,
-                    hoverTextColor: hoverFillText,
-                    borderColor: primary,
-                    hoverBorderColor: hover,
-                },
-            },
-            optionSelectors: {
-                ...currentOptionSelectors,
-                button: {
-                    ...currentOptionSelectors.button,
-                    bgColor: card,
-                    textColor: heading,
-                    selectedBgColor: primary,
-                    selectedTextColor: buttonText,
-                    hoverBgColor: secondary,
-                    hoverTextColor: hover,
-                    borderColor: secondary,
-                    selectedRingColor: primary,
-                },
-                image: {
-                    ...currentOptionSelectors.image,
-                    bgColor: card,
-                    selectedBgColor: hexToRgba(primary, 0.1),
-                    hoverBgColor: secondary,
-                    selectedRingColor: primary,
-                    hoverRingColor: primary,
-                    labelColor: heading,
-                },
-                dropdown: {
-                    ...currentOptionSelectors.dropdown,
-                    bgColor: card,
-                    textColor: heading,
-                    borderColor: secondary,
-                },
-                checkbox: {
-                    ...currentOptionSelectors.checkbox,
-                    accentColor: primary,
-                    labelColor: heading,
-                },
-            },
-        },
-    };
-};
 
 const buildVisualThemePresetPatch = (
     draft: BrandingData,
     preset: VisualThemePreset,
 ): Partial<BrandingData> => {
-    const basePatch = buildColorPresetThemePatch(draft, preset.colors);
+    const basePatch = buildSiteColorPatch(draft, preset.colors);
     const primary = preset.colors.primary;
     const secondary = preset.colors.secondary;
     const background = preset.colors.background;
@@ -1779,7 +1465,7 @@ const buildVisualThemePresetPatch = (
         ...basePatch,
         themeId,
         themeSettings: {
-            ...(draft.themeSettings || {}),
+            ...(basePatch.themeSettings || draft.themeSettings),
             visualThemePresetId: preset.id,
             visualThemePresetName: preset.name,
             visualStyleId: preset.id,
@@ -2896,6 +2582,8 @@ const BRANDING_COLOR_GROUPS: BrandingColorGroupConfig[] = [
         title: "Side og flader",
         description: "Disse farver styrer de store flader og bokse, som brugeren ser først på forsiden.",
         fields: [
+            { key: "background", label: "Sidebaggrund", description: "Ensfarvet baggrund bag sidens indhold. Erstatter baggrundsbillede eller gradient." },
+            { key: "dropdown", label: "Dropdownmenu", description: "Baggrund i headerens produktmenu." },
             {
                 key: "secondary",
                 label: "Sektioner / bløde flader",
@@ -2912,6 +2600,7 @@ const BRANDING_COLOR_GROUPS: BrandingColorGroupConfig[] = [
         title: "Brand og handlinger",
         description: "Disse farver driver knapper, accenter og de elementer, der skal trække brugerens blik.",
         fields: [
+            { key: "hover", label: "Hoverfarve", description: "Knapper og links, når markøren holdes over dem." },
             {
                 key: "primary",
                 label: "Primær accent",
@@ -6104,7 +5793,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     : DEFAULT_BRANDING.colorPresets;
 	                const presetName = colorPresetName.trim();
 	                const applyColorPreset = (preset: typeof DEFAULT_BRANDING.colorPresets[number]) => {
-	                    editor.updateDraft(buildColorPresetThemePatch(editor.draft, preset.colors));
+	                    editor.updateDraft(buildSiteColorPatch(editor.draft, preset.colors));
 	                    toast.success("Farvesæt anvendt på temaet");
 	                };
                 const saveCurrentColorPreset = () => {
@@ -6147,14 +5836,17 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         </div>
                         <div className="space-y-3 pt-2">
                             <div className="rounded-md border border-border/60 bg-muted/25 px-2.5 py-2 text-[11px] leading-4 text-muted-foreground">
-		                                Farvesæt opdaterer nu de delte tema-farver samt header, sidebaggrund, produktknapper, matrix, prisboks og hover-tilstande.
+		                                Farverne bruges på tværs af shoppen. En enkelt farve ændrer kun de tilhørende elementer. Et farvesæt erstatter alle temaets farver; indhold og layout bevares.
                             </div>
+                            {!isColorsFocusMode && <SiteColorResetControls draft={editor.draft} updateDraft={editor.updateDraft} />}
                             {!isColorsFocusMode && (
-                                <Card className="overflow-hidden">
+                                <details className="rounded-md border">
+                                    <summary className="cursor-pointer px-2.5 py-3 text-xs font-medium">Farvesæt · vælg eller gem</summary>
+                                <Card className="overflow-hidden border-0 shadow-none">
                                     <CardHeader className="space-y-1 p-2.5 pb-0">
                                         <CardTitle className="text-sm">Farvesæt</CardTitle>
                                         <CardDescription className="text-[11px] leading-4 text-muted-foreground">
-                                            Vælg et samlet sæt med sikre tekst/flade-kontraster, eller gem de aktuelle farver som et nyt preset.
+                                            Vælg et samlet farvesæt, eller gem de aktuelle farver til senere brug.
                                         </CardDescription>
                                     </CardHeader>
                                     <CardContent className="space-y-2 p-2.5 pt-2">
@@ -6238,6 +5930,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         </div>
                                     </CardContent>
                                 </Card>
+                                </details>
                             )}
                             {BRANDING_COLOR_GROUPS.map((group) => {
                                 const visibleFields = group.fields.filter((field) => (
@@ -6262,7 +5955,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                         <p className="text-[11px] leading-4 text-muted-foreground">{group.description}</p>
                                     </div>
                                     <Separator />
-                                    <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+                                    <div className="grid grid-cols-1 gap-2">
                                         {visibleFields.map((field, index) => {
                                             const value = editor.draft.colors[field.key];
                                             return (
@@ -6281,9 +5974,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                                         <div className="flex flex-col items-end gap-0.5">
                                                             <ColorPickerWithSwatches
                                                                 value={value}
+                                                                label={field.label}
                                                                 onChange={(color) => editor.updateDraft({
-                                                                    ...(field.key === 'primary' ? applyMainButtonSettings(editor.draft, { ...getMainButtonSettings(editor.draft), bgColor: color }) : {}),
-                                                                    colors: { ...editor.draft.colors, [field.key]: color }
+                                                                    ...applySiteColor(editor.draft, field.key, color)
                                                                 })}
                                                                 compact={true}
                                                                 showFullSwatches={false}
@@ -8573,7 +8266,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     <AlertDialogHeader>
                         <AlertDialogTitle>Nulstil til standard?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Standarddesignet Refined Familiar indlæses i din kladde. Shopnavn, logo, tekster, produktvalg og priser bevares.
+                            Standarddesignet Refined Familiar indlæses i din kladde. Farver på siden og i fælles knapper nulstilles også, og lokale knaplåse fjernes. Shopnavn, logo, tekster, produktvalg, priser og gemte farvesæt/knapdesign bevares.
                             <br /><br />
                             Du kan fortryde ændringen. Kunderne ser først ændringerne, når du vælger Publicér.
                         </AlertDialogDescription>

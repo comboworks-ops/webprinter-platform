@@ -1,3 +1,5 @@
+import { resetSiteColors } from './siteColors.ts';
+import { readSharedButtons } from './sharedButtons.ts';
 import { styleFeaturedButtons } from './featuredProductPresentation.ts';
 import type { BrandingData, HeroButton, HeroSettings } from '@/hooks/useBrandingDraft';
 import { DEFAULT_DROPDOWN_PRESET } from './dropdownPresets.ts';
@@ -28,6 +30,8 @@ export function resolvePrintHero(draft: BrandingData): HeroSettings {
 
 export interface MainButtonSettings { bgColor: string; hoverBgColor: string; textColor: string; radiusPx: number; fontSizePx: number; paddingYPx: number; }
 export function getMainButtonSettings(draft: BrandingData): MainButtonSettings {
+  const master = readSharedButtons(draft).cta;
+  if (master) return master;
   const buttons = draft.productPage.orderButtons;
   return { bgColor: buttons.primary.bgColor || draft.colors.primary, hoverBgColor: buttons.primary.hoverBgColor || draft.colors.hover || draft.colors.primary,
     textColor: buttons.primary.textColor || '#FFFFFF', radiusPx: buttons.radiusPx, fontSizePx: buttons.fontSizePx, paddingYPx: buttons.paddingYPx };
@@ -46,7 +50,12 @@ export function applyMainButtonSettings(draft: BrandingData, settings: MainButto
     gradientStart: settings.bgColor, gradientEnd: settings.bgColor,
     hoverGradientStart: settings.hoverBgColor, hoverGradientEnd: settings.hoverBgColor,
   };
+  const shared = readSharedButtons(draft);
   return {
+    ...(shared.cta ? { themeSettings: { ...draft.themeSettings, sharedButtons: { ...shared,
+      cta: { ...shared.cta, ...settings, hoverTextColor: settings.textColor, borderColor: settings.bgColor,
+        selectedBgColor: settings.bgColor, selectedTextColor: settings.textColor },
+    } } } : {}),
     hero: { ...hero, overlay: { ...hero.overlay, buttons: hero.overlay.buttons.map(styleButton) },
       // Preserve all authored per-slide content even when shared text is currently selected.
       images: draft.hero.images.map(image => ({ ...image, ...(image.buttons ? { buttons: image.buttons.map(styleButton) } : {}) })) },
@@ -65,13 +74,14 @@ export function applyMainButtonSettings(draft: BrandingData, settings: MainButto
 
 /** Restore the standard presentation as an unsaved draft, retaining shop content and product selections. */
 export function standardSiteDesign(draft: BrandingData): BrandingData {
-  const standard = applyPrintDesignPreset({ ...draft, forside: { ...draft.forside,
+  const colors = resetSiteColors(draft, true);
+  const standard = applyPrintDesignPreset({ ...draft, ...colors, forside: { ...colors.forside!,
     layout: { ...DEFAULT_STOREFRONT_LAYOUT },
-    productsSection: { ...draft.forside.productsSection, presentation: 'standard' },
+    productsSection: { ...colors.forside!.productsSection, presentation: 'standard' },
   } }, DEFAULT_PRINT_DESIGN_ID);
   const buttons = applyMainButtonSettings(standard, { bgColor: '#087FC5', hoverBgColor: '#066BA8', textColor: '#FFFFFF', radiusPx: 6, fontSizePx: 16, paddingYPx: 14 });
   return { ...standard, ...buttons,
-    themeSettings: { ...standard.themeSettings, dropdownColorsCustomized: false },
+    themeSettings: { ...standard.themeSettings, ...buttons.themeSettings, dropdownColorsCustomized: false },
     header: { ...standard.header, dropdownPreset: DEFAULT_DROPDOWN_PRESET, dropdownCategoryColor: '#6B7280', dropdownProductColor: '#1F2937', dropdownHoverColor: '#EFF6FC' },
     hero: { ...buttons.hero!, mediaType: 'images', parallax: false, heightPx: undefined, overlay_opacity: 0, textSource: 'shared',
     videoSettings: { ...standard.hero.videoSettings, parallaxEnabled: false },

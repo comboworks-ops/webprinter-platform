@@ -91,3 +91,32 @@ test('primary action tokens retain gradients, square corners and distinct select
   const patched=applyMainButtonSettings(draft,{bgColor:'#005533',hoverBgColor:'#002211',textColor:'#ffffff',radiusPx:0,fontSizePx:18,paddingYPx:18});
   assert.equal(patched.forside!.productsSection.featuredProductConfig.sidePanel!.ctaColor,'#005533');
 });
+
+test('main button edits reach the active shared master and retain deliberate local locks', async () => {
+  const { legacyButtonStyle, resolveSharedButton, readSharedButtons } = await import('./sharedButtons.ts');
+  const { primaryButtonStyle } = await import('./primaryButtonStyle.ts');
+  const { getMainButtonSettings } = await import('./siteDesignControls.ts');
+  const draft = fixture();
+  const stale = { ...legacyButtonStyle(draft, 'cta'), bgColor: '#CC0077', effect: 'sheen' as const };
+  draft.themeSettings.sharedButtons = { version: 1, cta: stale, bank: [{ id: 'saved', name: 'Saved', role: 'cta', style: stale }], overrides: { header: { role: 'cta', style: stale } } };
+  assert.equal(getMainButtonSettings(draft).bgColor, '#CC0077', 'controls must show the active master');
+  const next = { ...draft, ...applyMainButtonSettings(draft, { bgColor: '#004400', hoverBgColor: '#002200', textColor: '#FFFFFF', radiusPx: 6, fontSizePx: 16, paddingYPx: 14 }) };
+  assert.equal(primaryButtonStyle(next)['--shop-action-bg'], '#004400');
+  assert.equal(resolveSharedButton(next, 'cta')?.effect, 'sheen');
+  assert.equal(resolveSharedButton(next, 'cta', 'header')?.bgColor, '#CC0077');
+  assert.deepEqual(readSharedButtons(next).bank, readSharedButtons(draft).bank);
+});
+
+test('full standard reset clears stale shared colors and locks, retaining the saved button bank', async () => {
+  const { legacyButtonStyle, readSharedButtons } = await import('./sharedButtons.ts');
+  const { primaryButtonStyle } = await import('./primaryButtonStyle.ts');
+  const draft = fixture();
+  const stale = { ...legacyButtonStyle(draft, 'cta'), bgColor: '#CC0077' };
+  draft.themeSettings.sharedButtons = { version: 1, cta: stale, bank: [{ id: 'saved', name: 'Saved', role: 'cta', style: stale }], overrides: { order: { role: 'cta', style: stale } } };
+  draft.colors.hover = '#CC0077';
+  const next = standardSiteDesign(draft);
+  assert.equal(primaryButtonStyle(next)['--shop-action-bg'], '#087FC5');
+  assert.equal(next.colors.hover, '#066BA8');
+  assert.deepEqual(readSharedButtons(next).overrides, {});
+  assert.deepEqual(readSharedButtons(next).bank, readSharedButtons(draft).bank);
+});
