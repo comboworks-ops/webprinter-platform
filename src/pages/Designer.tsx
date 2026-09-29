@@ -1,5 +1,5 @@
 import { PrintMockupButton } from '@/components/mockup/PrintMockupButton';
-import { resolveApprovedPrintModel, printModelTemplatePageCount } from '@/lib/mockup/approvedPrintModels';
+import { resolveApprovedPrintModel, printModelTemplatePageCount, printModelArtworkPageIndices } from '@/lib/mockup/approvedPrintModels';
 import { StorefrontPrimaryButton } from "@/components/storefront/StorefrontPrimaryButton";
 import { FolderMockupButton } from '@/components/mockup/FolderMockupButton';
 import { resolveFolderDefinition } from '@/lib/mockup/folderDefinition';
@@ -2053,6 +2053,10 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
         };
     }, [colorProofing, documentSpec, productionColorMode, displayMmToPx, pasteboardPaddingPx, buildCanvasOrderArtworkDataUrl]);
 
+    const artworkTemplatePages = approvedPrintModel
+        ? linkedTemplatePages.slice(0, approvedPrintModel.pages)
+        : linkedTemplatePages;
+
     const buildLinkedTemplateOrderPdfBlob = useCallback(async (options: ExportOptions = { mode: 'print_pdf', includeBleed: true }) => {
         if (linkedTemplatePages.length <= 1 || !editorRef.current) return null;
         const originalPageIndex = activeTemplatePageIndex;
@@ -2064,7 +2068,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
         const warnings = new Set<string>();
         let previewDataUrl: string | null = null;
         try {
-            for (let pageIndex = 0; pageIndex < linkedTemplatePages.length; pageIndex += 1) {
+            for (const pageIndex of printModelArtworkPageIndices(approvedPrintModel, linkedTemplatePages.length)) {
                 const pageLoaded = await loadLinkedTemplatePageDraft(pageIndex);
                 const pageCanvas = editorRef.current?.getCanvas();
                 if (!pageLoaded || !pageCanvas) throw new Error(`Skabelonside ${pageIndex + 1} kunne ikke indlæses.`);
@@ -2094,7 +2098,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             blob: new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/pdf' }),
             filename: `${documentSpec.name.replace(/[^a-z0-9_.-]/gi, '_')}${isProof ? '_proof' : ''}.pdf`, previewDataUrl,
         };
-    }, [activeTemplatePageIndex, buildCanvasOrderArtworkDataUrl, colorProofing, documentSpec, productionColorMode,
+    }, [activeTemplatePageIndex, approvedPrintModel, buildCanvasOrderArtworkDataUrl, colorProofing, documentSpec, productionColorMode,
         displayMmToPx, pasteboardPaddingPx, linkedTemplatePages.length, loadLinkedTemplatePageDraft, saveLinkedTemplatePageDraft]);
 
     const buildCanvasOrderPngBlob = useCallback(async (canvas: fabric.Canvas, nameOverride?: string) => {
@@ -3303,7 +3307,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                 downloadLink.click();
                 downloadLink.remove();
                 URL.revokeObjectURL(downloadUrl);
-                toast.success(`${modeLabels[options.mode]} eksporteret med ${linkedTemplatePages.length} sider!`);
+                toast.success(`${modeLabels[options.mode]} eksporteret med ${artworkTemplatePages.length} sider!`);
                 setIsExportDialogOpen(false);
                 return;
             }
@@ -4586,14 +4590,14 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                     data-designer-template-verification={JSON.stringify(designerTemplateVerification)}
                     className="flex-1 overflow-auto bg-[#e5e5e5] relative flex items-center justify-center p-20"
                 >
-                    {linkedTemplatePages.length > 1 && (
+                    {artworkTemplatePages.length > 1 && (
                         <div
                             className="absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm backdrop-blur"
                             role="tablist"
                             aria-label="Skabelonens sider"
                         >
                             <Files className="mx-2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                            {linkedTemplatePages.map((page) => {
+                            {artworkTemplatePages.map((page) => {
                                 const isActive = page.index === activeTemplatePageIndex;
                                 return (
                                     <button
