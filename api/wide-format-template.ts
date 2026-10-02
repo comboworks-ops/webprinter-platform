@@ -1,4 +1,4 @@
-import { generateWideFormatTemplate } from '../src/lib/designer/generateWideFormatTemplate.ts';
+import { generateWideFormatTemplate } from '../src/lib/designer/generateWideFormatTemplate.js';
 export const config = { runtime: 'edge' };
 export default async function handler(request: Request): Promise<Response> {
   if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });

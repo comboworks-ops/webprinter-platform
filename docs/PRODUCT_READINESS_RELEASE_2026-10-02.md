@@ -6,7 +6,7 @@ This release brings the existing October 1 storefront, wide-format artwork and p
 
 The source-quote formulas and commercial rows are unchanged. Preparing an immutable quote snapshot avoids repeatedly validating the large matrix. The frontend and deployment-local source mirrors match. Existing main fixes for matrix row selection and fingerprinted PDF template launches are preserved.
 
-Validation in the isolated checkout: 91 focused tests passed, TypeScript passed, frontend health reported zero new ESLint regressions, Vite production build passed, and git diff --check passed. These are local checks; hosted behavior requires release verification.
+Validation in the isolated checkout: 92 focused tests passed, TypeScript passed, frontend health reported zero new ESLint regressions, Vite production build passed, and git diff --check passed. These are local checks; hosted behavior requires release verification.
 
 ## Commercial and operational holds
 
@@ -19,3 +19,9 @@ The Salgsmapper canary reached approved artwork in the hosted checkout, with a 7
 ## Rollback
 
 Revert this release commit and redeploy the prior main revision. No schema or data rollback is needed. The stateless /api/wide-format-template endpoint can be removed with the revert; existing uploaded template URLs remain available. Keep any order artwork or proof already created intact.
+
+## Preview packaging repair
+
+The first Vercel preview rejected a .ts shared-module import after transpilation. The endpoint and its two runtime dependencies now use .js specifiers, following the existing Edge endpoint convention. A transpiled-module regression test reproduced the failure before repair and verifies actual PDF output, HEAD, invalid input and method rejection after repair. No runtime or routing change was required.
+
+Run the source suite with `node --import ./scripts/tests/typescript-source-hooks.mjs --test ...`; the hook resolves deployment-style .js imports to their TypeScript sources for native Node tests. The packaging regression separately runs emitted JavaScript without that fallback.

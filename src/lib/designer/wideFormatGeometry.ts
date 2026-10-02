@@ -1,4 +1,4 @@
-import { gulvfolieShapes } from './gulvfolieShapes.ts';
+import { gulvfolieShapes } from './gulvfolieShapes.js';
 import type { DesignerTemplateLaunch } from './productTemplateLinks.ts';
 
 export type WideFormatShape = { id: string; label: string; kind: 'rectangle' | 'freeform' | 'preset'; ratio?: number; path?: string; sourceSha256?: string };

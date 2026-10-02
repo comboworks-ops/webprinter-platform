@@ -1,5 +1,5 @@
 import { PDFDocument, PDFName, PDFOperator, PDFOperatorNames, setLineJoin, LineJoinStyle, LineCapStyle, rgb } from 'pdf-lib';
-import { readWideFormatTemplate } from './wideFormatGeometry.ts';
+import { readWideFormatTemplate } from './wideFormatGeometry.js';
 
 /** Geometry is regenerated; fixed physical offsets are never scaled with the source. */
 export async function generateWideFormatTemplate(url: string): Promise<Uint8Array> {
