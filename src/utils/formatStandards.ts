@@ -48,7 +48,10 @@ export function getDimensionsFromVariant(variantName: string): { width: number, 
     );
 
     if (directMatch) {
-        return { width: directMatch.width, height: directMatch.height };
+        const landscape = /(?:landscape|vandret|liggende)/i.test(normalized);
+        return landscape
+            ? { width: Math.max(directMatch.width, directMatch.height), height: Math.min(directMatch.width, directMatch.height) }
+            : { width: directMatch.width, height: directMatch.height };
     }
 
     return null;

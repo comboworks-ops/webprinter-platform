@@ -525,3 +525,6 @@ body [data-order-design] .order-calculator-matrix > div { box-shadow:none !impor
   .product-calculator-layout .order-calculator-extras,
   .product-calculator-layout .order-calculator-summary { padding-left: 0; border-left: 0; }
 }
+
+.order-calculator-details { min-width:0; margin-top:var(--ui-space-6, 24px); order:4; }
+.order-calculator-details > [data-branding-id="productPage.infoSection"] { margin-top:0; }

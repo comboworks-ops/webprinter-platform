@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { calculateStorformatPrice, tryCalculateStorformatPrice } from "./storformatPricing.ts";
-import { StorformatQuoteUnavailableError, validateStorformatQuoteModel } from "./storformatQuoteModel.ts";
+import { StorformatQuoteUnavailableError, validateStorformatQuoteModel, prepareStorformatQuoteModel } from "./storformatQuoteModel.ts";
 import { calculateStorformatPrice as serverPrice } from "../../supabase/functions/_shared/storefrontStorformatFormula.ts";
 
 function fixture() {
@@ -137,4 +137,16 @@ test("deployment-local quote resolver is an exact source mirror", () => {
   const source = readFileSync(new URL("./storformatQuoteModel.ts", import.meta.url), "utf8");
   const mirror = readFileSync(new URL("../../supabase/functions/_shared/storformatQuoteModel.ts", import.meta.url), "utf8");
   assert.equal(mirror.split("// BEGIN STOREFRONT QUOTE MODEL\n")[1], source);
+});
+
+test("prepared matrix snapshots are immutable and cannot cache later changes to raw input", () => {
+  const input = fixture();
+  const raw = input.config.source_quote_model;
+  const prepared = prepareStorformatQuoteModel(raw);
+  assert.equal(validateStorformatQuoteModel(prepared), prepared);
+  assert.throws(() => {prepared.combinations[0].points[0].total_price = 1;}, TypeError);
+  assert.throws(() => {prepared.combinations.push(prepared.combinations[0]);}, TypeError);
+  raw.combinations[0].points[0].total_price = 0;
+  assert.throws(() => validateStorformatQuoteModel(raw), StorformatQuoteUnavailableError);
+  assert.equal(validateStorformatQuoteModel(prepared), prepared);
 });

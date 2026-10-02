@@ -1,3 +1,4 @@
+import { validateProductionCutContour } from "../validateProductionCutContour";
 import { fabric } from 'fabric';
 import { jsPDF } from 'jspdf';
 import { svg2pdf } from 'svg2pdf.js';
@@ -123,6 +124,7 @@ function imagePixels(object: fabric.Object, pixelsPerMm: number, maxTrimMm: numb
 export async function createProductionPdf(context: ProductionPdfContext): Promise<ProductionPdfResult> {
   const { documentSpec: spec, fabricCanvas } = context;
   if (!fabricCanvas) throw new Error('Designfladen er ikke klar.');
+  if (spec.requires_cut_contour) await validateProductionCutContour(fabricCanvas, spec.preset_cut_contour_template);
   const colorMode = context.colorMode || 'convert_cmyk';
   // The explicit export mode owns this choice even when callers retain a selected
   // CMYK profile for preview. An RGB supplier file must not advertise that target.

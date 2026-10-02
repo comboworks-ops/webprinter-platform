@@ -2,6 +2,9 @@ export interface SelectorValueGroupConfig {
   id: string;
   label: string;
   valueIds: readonly string[];
+  collapsible?: boolean;
+  initiallyExpanded?: boolean;
+  uiMode?: string;
 }
 
 export interface ResolvedSelectorValueGroup<TValue> {
@@ -9,6 +12,9 @@ export interface ResolvedSelectorValueGroup<TValue> {
   label: string;
   values: TValue[];
   isFallback: boolean;
+  collapsible?: boolean;
+  initiallyExpanded?: boolean;
+  uiMode?: string;
 }
 
 export const UNASSIGNED_SELECTOR_VALUE_GROUP_ID = "__unassigned__";
@@ -56,6 +62,11 @@ export function resolveSelectorValueGroups<TValue extends { id: string }>(
       label: String(group.label || "Muligheder"),
       values,
       isFallback: false,
+      collapsible: group.collapsible === true,
+      initiallyExpanded: group.initiallyExpanded === true,
+      uiMode: ["buttons", "dropdown", "checkboxes", "small", "medium", "large", "xl", "xl_notext"].includes(group.uiMode || "")
+        ? group.uiMode
+        : undefined,
     });
   });
 

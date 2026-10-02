@@ -1,4 +1,4 @@
-// Exact deployment-local mirror of src/utils/storformatQuoteModel.ts.
+// Deployment-local mirror; formulas are unchanged.
 // BEGIN STOREFRONT QUOTE MODEL
 /** Public retail prices only. Source files, supplier costs and extraction evidence stay in the import review. */
 export type StorformatQuotePoint = { area_m2: number; quantity: number; total_price: number };
@@ -39,9 +39,28 @@ const ids = (value: unknown, reason: StorformatQuoteUnavailableReason = "model_i
   return [...value].sort();
 };
 const combinationKey = (materialId: string, finishIds: string[], productIds: string[]) => JSON.stringify([materialId, finishIds, productIds]);
+const preparedModels = new WeakSet<object>();
+
+/** Prepare a read-only runtime snapshot once, instead of validating a large matrix for every cell. */
+export function prepareStorformatQuoteModel(value: unknown): StorformatSourceQuoteModel {
+  const model = validateStorformatQuoteModel(value);
+  for (const combination of model.combinations) {
+    combination.points.forEach(Object.freeze);
+    Object.freeze(combination.points);
+    Object.freeze(combination.finish_ids);
+    Object.freeze(combination.product_ids);
+    Object.freeze(combination);
+  }
+  Object.freeze(model.base_product_ids);
+  Object.freeze(model.combinations);
+  Object.freeze(model);
+  preparedModels.add(model);
+  return model;
+}
 
 /** Validate the entire payload before any quote is used; never fall back to legacy rates on malformed opt-in data. */
 export function validateStorformatQuoteModel(value: unknown): StorformatSourceQuoteModel {
+  if (record(value) && preparedModels.has(value)) return value as unknown as StorformatSourceQuoteModel;
   if (!record(value) || value.version !== 1 || value.currency !== "DKK" || value.price_basis !== "regular"
     || !Array.isArray(value.combinations) || value.combinations.length === 0) unavailable();
   const baseProductIds = ids(value.base_product_ids);

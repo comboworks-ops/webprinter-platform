@@ -1,3 +1,5 @@
+import { resolveWideFormatShape, proportionalSize, type WideFormatShape, type WideFormatShapeBinding } from "@/lib/designer/wideFormatGeometry";
+import type { SiteCheckoutState } from "@/lib/checkout/siteCheckoutSession";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { readFeaturedStorformatSelection, resolveFeaturedQuantity } from "@/lib/storefront/featuredProductNavigation";
@@ -6,6 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { MaterialLabel, MaterialOptionHelp } from './MaterialLabel';
+import { materialPresentation } from '@/lib/products/materialPresentation';
+import { useProductTooltipConfigs } from '@/hooks/useProductAvailabilityTooltips';
 import { PriceMatrix } from "@/components/product-price-page/PriceMatrix";
 import {
   type StorformatConfig,
@@ -17,6 +22,7 @@ import {
 } from "@/utils/storformatPricing";
 import { cn } from "@/lib/utils";
 import { usesStorformatSourceQuotes, getStorformatSourceQuoteFields, STORFORMAT_QUOTE_UNAVAILABLE_MESSAGE } from "@/lib/pricing/storformatQuoteUi";
+import { prepareStorformatQuoteModel } from "@/utils/storformatQuoteModel";
 import {
   normalizeThumbnailCustomPx,
   normalizeThumbnailSize,
@@ -35,6 +41,8 @@ import {
   type SelectorStyling
 } from "@/lib/pricing/selectorStyling";
 import { resolveStorformatLinkedTemplateId } from "@/lib/designer/linkedTemplates";
+import { resolveSelectorValueGroups, type SelectorValueGroupConfig } from "@/lib/pricing/selectorValueGroups";
+import { SelectorValueGroupSection } from "./SelectorValueGroupSection";
 
 export type StorformatSelection = {
   totalPrice: number;
@@ -59,11 +67,14 @@ export type StorformatSelection = {
   exceedsMax: boolean;
   allowSplit: boolean;
   linkedTemplateId?: string | null;
+  templateShape?: WideFormatShape | null;
 };
 
 type StorformatConfiguratorProps = {
   productId: string;
-  layout?: { design: number; intro: ReactNode; media?: ReactNode; summary: ReactNode; extras: ReactNode };
+  initialState?: SiteCheckoutState | null;
+  sourceShapeBindings?: WideFormatShapeBinding[];
+  layout?: { design: number; intro: ReactNode; media?: ReactNode; summary: ReactNode; extras: ReactNode; details?: ReactNode };
   onSelectionChange: (selection: StorformatSelection | null) => void;
 };
 
@@ -102,6 +113,7 @@ type LayoutSection = {
   description?: string;
   valueIds?: string[];
   valueSettings?: Record<string, ValueSettings>;
+  valueGroups?: SelectorValueGroupConfig[];
   selectorStyling?: SelectorStyling;
 };
 
@@ -141,11 +153,18 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 export function StorformatConfigurator({
   layout,
   productId,
+  initialState,
+  sourceShapeBindings,
   onSelectionChange
 }: StorformatConfiguratorProps) {
+  const materialTooltips = useProductTooltipConfigs(productId);
   const noneFinishValue = "__none__";
   const [searchParams] = useSearchParams();
-  const { widthCm: initialWidthCm, heightCm: initialHeightCm, quantity: initialQuantity } = readFeaturedStorformatSelection(searchParams);
+  const requested = readFeaturedStorformatSelection(searchParams);
+  const restored = initialState?.productId === productId ? initialState.pricingQuote?.storformat : null;
+  const initialWidthCm = restored ? restored.widthMm / 10 : requested.widthCm;
+  const initialHeightCm = restored ? restored.heightMm / 10 : requested.heightCm;
+  const initialQuantity = restored ? initialState!.quantity || 1 : requested.quantity;
   const settings = useShopSettings();
   const { branding: previewBranding, isPreviewMode } = usePreviewBranding();
   const activeBranding = (isPreviewMode && previewBranding)
@@ -158,7 +177,7 @@ export function StorformatConfigurator({
   const [loading, setLoading] = useState(true);
   const [layoutRows, setLayoutRows] = useState<LayoutRow[]>([]);
   const [verticalAxis, setVerticalAxis] = useState<VerticalAxisConfig | null>(null);
-  const [selectedSectionValues, setSelectedSectionValues] = useState<Record<string, string | null>>({});
+  const [selectedSectionValues, setSelectedSectionValues] = useState<Record<string, string | null>>(restored?.selectedSectionValues || {});
 
   const [widthCm, setWidthCm] = useState(initialWidthCm);
   const [heightCm, setHeightCm] = useState(initialHeightCm);
@@ -380,6 +399,7 @@ export function StorformatConfigurator({
                       description: section?.description,
                       valueIds: normalizeValueIds(section?.valueIds, available),
                       valueSettings: section?.valueSettings || {},
+                      valueGroups: section?.valueGroups || section?.value_groups,
                       selectorStyling: section?.selectorStyling || {}
                     } satisfies LayoutSection;
                   })
@@ -446,6 +466,13 @@ export function StorformatConfigurator({
             }
           : defaultConfig;
 
+        if (nextConfig.source_quote_model != null) {
+          try {
+            nextConfig.source_quote_model = prepareStorformatQuoteModel(nextConfig.source_quote_model);
+          } catch {
+            // Keep malformed opt-in data unavailable; never replace it with a legacy pricing fallback.
+          }
+        }
         setConfig(nextConfig);
         setQuantity(resolveFeaturedQuantity(initialQuantity, nextConfig.quantities || [1]));
         setLayoutRows(nextLayoutRows);
@@ -454,8 +481,8 @@ export function StorformatConfigurator({
         setFinishes(finishesWithTiers);
         setProducts(productsWithPricing);
         if (materialsWithTiers.length) {
-          const firstMaterial = materialsWithTiers[0];
-          setMaterialId(firstMaterial.id);
+          const firstMaterial = materialsWithTiers.find(item => item.id === restored?.materialId) || materialsWithTiers[0];
+          setMaterialId(restored?.materialId || firstMaterial.id);
 
           const maxWidthCm =
             Number(firstMaterial.max_width_mm) > 0 ? Number(firstMaterial.max_width_mm) / 10 : null;
@@ -469,8 +496,9 @@ export function StorformatConfigurator({
             setHeightCm((prev) => Math.max(1, Math.min(prev, maxHeightCm)));
           }
         }
+        setFinishId(restored?.finishIds?.[0] || noneFinishValue);
         if (productsWithPricing.length) {
-          setProductIdSelection(productsWithPricing[0].id);
+          setProductIdSelection(restored?.productIds?.[0] || productsWithPricing[0].id);
         }
       } catch (error) {
         console.error("Storformat fetch error", error);
@@ -716,6 +744,22 @@ export function StorformatConfigurator({
     [resolveSelectionsForType]
   );
 
+  const templateShape = useMemo(() => {
+    const ids = hasUsableLayout ? resolveSelectionsForType("products") : productIdSelection === noneFinishValue ? [] : [productIdSelection];
+    return resolveWideFormatShape(products.filter(product => ids.includes(product.id || "")), sourceShapeBindings);
+  }, [hasUsableLayout, resolveSelectionsForType, productIdSelection, products, sourceShapeBindings]);
+  const effectiveSize = proportionalSize(templateShape, widthCm, heightCm);
+  const effectiveWidthCm = effectiveSize.width;
+  const effectiveHeightCm = effectiveSize.height;
+  // Keep the actual input/quote dimensions in sync when a proportional shape is selected.
+  useEffect(() => {
+    if (templateShape?.ratio) setHeightCm(effectiveHeightCm);
+  }, [templateShape?.ratio, effectiveHeightCm]);
+  const editDimension = (axis: 'width' | 'height', value: number) => {
+    const next = proportionalSize(templateShape, axis === 'width' ? value : widthCm, axis === 'height' ? value : heightCm, axis);
+    setWidthCm(next.width); setHeightCm(next.height);
+  };
+
   const selection = useMemo<StorformatSelection | null>(() => {
     const selectedMaterialIds = hasUsableLayout ? resolveSelectionsForType("materials") : materialId ? [materialId] : [];
     const selectedMaterialId = selectedMaterialIds[0] || null;
@@ -723,8 +767,8 @@ export function StorformatConfigurator({
     if (!material) return null;
     if (widthCm <= 0 || heightCm <= 0 || quantity <= 0) return null;
 
-    const widthMm = widthCm * 10;
-    const heightMm = heightCm * 10;
+    const widthMm = effectiveWidthCm * 10;
+    const heightMm = effectiveHeightCm * 10;
     const selectedFinishIds = hasUsableLayout
       ? resolveSelectionsForType("finishes")
       : finishId === noneFinishValue
@@ -765,8 +809,9 @@ export function StorformatConfigurator({
       areaM2: result.areaM2,
       totalAreaM2: result.totalAreaM2,
       quantity,
-      widthCm,
-      heightCm,
+      widthCm: effectiveWidthCm,
+      heightCm: effectiveHeightCm,
+      templateShape,
       materialId: material.id,
       finishIds: selectedFinishes.map((item) => item.id),
       productIds: selectedProducts.map((item) => item.id),
@@ -789,13 +834,13 @@ export function StorformatConfigurator({
         selectedSectionValues,
       ),
     };
-  }, [materials, finishes, products, materialId, finishId, productIdSelection, widthCm, heightCm, quantity, config, hasUsableLayout, resolveSelectionsForType, getConfiguredValueDisplayName, verticalAxis, layoutRows, selectedSectionValues]);
+  }, [materials, finishes, products, materialId, finishId, productIdSelection, effectiveWidthCm, effectiveHeightCm, widthCm, heightCm, templateShape, quantity, config, hasUsableLayout, resolveSelectionsForType, getConfiguredValueDisplayName, verticalAxis, layoutRows, selectedSectionValues]);
 
   useEffect(() => {
     onSelectionChange(selection);
   }, [selection, onSelectionChange]);
 
-  const quantities = config.quantities?.length ? config.quantities : [1];
+  const quantities = useMemo(() => config.quantities?.length ? config.quantities : [1], [config.quantities]);
   const sortedQuantities = useMemo(() => [...quantities].sort((a, b) => a - b), [quantities]);
 
   const getSectionLabel = useCallback((sectionType: LayoutSectionType, title?: string) => {
@@ -812,7 +857,7 @@ export function StorformatConfigurator({
     }
   }, []);
 
-  const renderValueSelector = useCallback((section: LayoutSection, values: Array<StorformatMaterial | StorformatFinish | StorformatProduct>) => {
+  const renderUngroupedValueSelector = useCallback((section: LayoutSection, values: Array<StorformatMaterial | StorformatFinish | StorformatProduct>) => {
     const displayMode = section.ui_mode || "buttons";
     const isOptional = isOptionalSelectionMode(selectionModeById[section.id]);
     const selectedValue = selectedSectionValues[section.id] || "";
@@ -832,6 +877,9 @@ export function StorformatConfigurator({
       fallbackHoverColor: activeBranding?.colors?.hover || activeBranding?.colors?.primary || "#0EA5E9",
       fallbackSelectedColor: activeBranding?.colors?.primary || "#0EA5E9",
     });
+    const sourceFor = (value: StorformatMaterial | StorformatFinish | StorformatProduct) => ({name:getDisplayName(value.name,valueSettings[value.id || ""]),sourceName:value.name || ""});
+    const presentedName = (value: StorformatMaterial | StorformatFinish | StorformatProduct) => section.sectionType === "materials" ? materialPresentation(sourceFor(value)).label : sourceFor(value).name;
+    const selectedMaterial = values.find(value=>value.id===selectedValue);
     const isOptionalEnabled = !isOptional || Boolean(selectedSectionValues[section.id]);
 
     const handleSelect = (valueId: string | null) => {
@@ -848,6 +896,7 @@ export function StorformatConfigurator({
 
     if (displayMode === "dropdown") {
       return (
+        <MaterialOptionHelp source={selectedMaterial ? sourceFor(selectedMaterial) : {name:''}} sectionId={section.id} valueId={selectedValue} tooltips={materialTooltips} enabled={section.sectionType==='materials' && Boolean(selectedMaterial)}>
         <Select
           value={selectedValue || (isOptional ? "__none__" : "")}
           onValueChange={(value) => {
@@ -878,13 +927,14 @@ export function StorformatConfigurator({
                         style={{ width: thumbnailPx, height: thumbnailPx }}
                       />
                     )}
-                    {displayName}
+                    {presentedName(value)}
                   </div>
                 </SelectItem>
               );
             })}
           </SelectContent>
         </Select>
+        </MaterialOptionHelp>
       );
     }
 
@@ -904,8 +954,8 @@ export function StorformatConfigurator({
             const imagePx = valueSetting?.imageSizePx ?? thumbnailPx;
             const contextualId = `product-option.${productId}.${section.id}.${value.id || ""}.${encodeURIComponent(displayName)}`;
             return (
+              <MaterialOptionHelp key={value.id} source={sourceFor(value)} sectionId={section.id} valueId={value.id || ''} tooltips={materialTooltips} enabled={section.sectionType==='materials'}>
               <label
-                key={value.id}
                 data-site-design-target={contextualId}
                 className={cn(
                   "flex items-center gap-2 p-1.5 rounded border cursor-pointer text-xs transition-all",
@@ -935,13 +985,14 @@ export function StorformatConfigurator({
                       imagePx,
                       imagePx
                     )}
-                    alt={displayName}
+                    alt={presentedName(value)}
                     className="rounded object-cover shrink-0"
                     style={{ width: imagePx, height: imagePx }}
                   />
                 )}
-                <span className="font-medium flex-1">{displayName}</span>
+                <span className="font-medium flex-1">{presentedName(value)}</span>
               </label>
+              </MaterialOptionHelp>
             );
           })}
         </div>
@@ -990,9 +1041,12 @@ export function StorformatConfigurator({
             const pictureBorderWidth = valueSetting?.borderWidthPx ?? sectionPictureButtonsConfig.borderWidthPx;
 
             return (
+              <MaterialOptionHelp key={value.id} source={sourceFor(value)} sectionId={section.id} valueId={value.id || ''} tooltips={materialTooltips} enabled={section.sectionType==='materials'}>
               <button
-                key={value.id}
                 data-site-design-target={contextualId}
+                type="button"
+                aria-pressed={isSelected}
+                aria-label={presentedName(value)}
                 onClick={() => {
                   if (window.parent !== window) {
                     window.parent.postMessage({
@@ -1054,7 +1108,7 @@ export function StorformatConfigurator({
                       {thumbnailUrl ? (
                         <img
                           src={getHiResThumbnailUrl(thumbnailUrl, pictureImagePx, pictureImagePx)}
-                          alt={displayName}
+                          alt={presentedName(value)}
                           className="relative z-0 w-full object-cover"
                           style={{ height: pictureImagePx }}
                         />
@@ -1067,18 +1121,18 @@ export function StorformatConfigurator({
                             backgroundColor: pictureBackgroundColor,
                           }}
                         >
-                          {(displayName || "?").slice(0, 3).toUpperCase()}
+                          {(presentedName(value) || "?").slice(0, 3).toUpperCase()}
                         </div>
                       )}
                     </span>
                     <span
-                      className="w-full px-1 text-center leading-tight"
+                      className="w-full break-words px-1 text-center leading-snug"
                       style={{
                         color: sectionPictureButtonsConfig.textColor,
                         fontSize: `${valueSetting?.fontSizePx ?? sectionPictureButtonsConfig.labelFontSizePx}px`,
                       }}
                     >
-                      {displayName}
+                      {presentedName(value)}
                     </span>
                   </>
                 ) : (
@@ -1092,7 +1146,7 @@ export function StorformatConfigurator({
                     {sectionPictureButtonsConfig.showImage && (thumbnailUrl ? (
                       <img
                         src={getHiResThumbnailUrl(thumbnailUrl, pictureImagePx, pictureImagePx)}
-                        alt={displayName}
+                        alt={presentedName(value)}
                         className="relative z-0 w-full object-cover"
                         style={{
                           height: pictureImagePx,
@@ -1109,7 +1163,7 @@ export function StorformatConfigurator({
                           borderRadius: sectionPictureButtonsConfig.isTextBelow ? `${pictureBorderRadius}px ${pictureBorderRadius}px 0 0` : undefined
                         }}
                       >
-                        {(displayName || "?").slice(0, 3).toUpperCase()}
+                        {(presentedName(value) || "?").slice(0, 3).toUpperCase()}
                       </div>
                     ))}
                     {sectionPictureButtonsConfig.showLabel && (
@@ -1120,12 +1174,13 @@ export function StorformatConfigurator({
                           fontSize: `${valueSetting?.fontSizePx ?? sectionPictureButtonsConfig.labelFontSizePx}px`,
                         }}
                       >
-                        {displayName}
+                        {presentedName(value)}
                       </span>
                     )}
                   </>
                 )}
               </button>
+              </MaterialOptionHelp>
             );
           })}
         </div>
@@ -1165,9 +1220,12 @@ export function StorformatConfigurator({
             : (valueSetting?.borderColor || sectionTextButtonsConfig.borderColor);
 
           return (
+            <MaterialOptionHelp key={value.id} source={sourceFor(value)} sectionId={section.id} valueId={value.id || ''} tooltips={materialTooltips} enabled={section.sectionType==='materials'}>
             <button
-              key={value.id}
               data-site-design-target={contextualId}
+              type="button"
+              aria-pressed={isSelected}
+              aria-label={presentedName(value)}
               onClick={() => {
                 if (window.parent !== window) {
                   window.parent.postMessage({
@@ -1184,6 +1242,7 @@ export function StorformatConfigurator({
               disabled={!isOptionalEnabled}
               className={cn(
                 "transition-all duration-200 flex items-center gap-2",
+                isSelected && "font-semibold",
                 !isOptionalEnabled && "opacity-45 cursor-not-allowed"
               )}
               style={{
@@ -1219,8 +1278,8 @@ export function StorformatConfigurator({
                     imagePx,
                     imagePx
                   )}
-                  alt={displayName}
-                  className="object-cover shrink-0"
+                  alt={presentedName(value)}
+                  className={cn("object-contain shrink-0", isSelected && "bg-white p-1")}
                   style={{
                     width: imagePx,
                     height: imagePx,
@@ -1228,15 +1287,41 @@ export function StorformatConfigurator({
                   }}
                 />
               )}
-              {displayName}
+              {presentedName(value)}
             </button>
+            </MaterialOptionHelp>
           );
         })}
       </div>
     );
-  }, [activeBranding?.colors?.hover, activeBranding?.colors?.primary, hoveredPictureKey, pictureButtonsConfig, textButtonsConfig, selectionModeById, selectedSectionValues, valueSettingsById]);
+  }, [materialTooltips, getDisplayName, productId, activeBranding?.colors?.hover, activeBranding?.colors?.primary, hoveredPictureKey, pictureButtonsConfig, textButtonsConfig, selectionModeById, selectedSectionValues, valueSettingsById]);
 
   const verticalAxisValues = useMemo(() => getVerticalAxisValues(), [getVerticalAxisValues]);
+
+  const renderValueSelector = (section: LayoutSection, values: Array<StorformatMaterial | StorformatFinish | StorformatProduct>) => {
+    const groups = resolveSelectorValueGroups(
+      values.filter((value): value is typeof value & { id: string } => typeof value.id === "string"),
+      section.valueGroups,
+    );
+    if (!groups.length) return renderUngroupedValueSelector(section, values);
+    const selectedId = selectedSectionValues[section.id];
+    return (
+      <div className="space-y-4" data-selector-value-groups="true">
+        {groups.map((group) => {
+          const selected = group.values.find(value => value.id === selectedId);
+          return (
+            <SelectorValueGroupSection
+              key={group.id}
+              group={group}
+              selectedLabel={selected ? (section.sectionType === "materials" ? materialPresentation({name:getDisplayName(selected.name,section.valueSettings?.[selected.id]),sourceName:selected.name || ""}).label : getDisplayName(selected.name, section.valueSettings?.[selected.id])) : undefined}
+            >
+              {renderUngroupedValueSelector({ ...section, ui_mode: (group.uiMode as LayoutDisplayMode) || section.ui_mode }, group.values)}
+            </SelectorValueGroupSection>
+          );
+        })}
+      </div>
+    );
+  };
 
   const matrixData = useMemo(() => {
     if (!verticalAxis || verticalAxisValues.length === 0 || sortedQuantities.length === 0) {
@@ -1249,8 +1334,8 @@ export function StorformatConfigurator({
       };
     }
 
-    const widthMm = widthCm * 10;
-    const heightMm = heightCm * 10;
+    const widthMm = effectiveWidthCm * 10;
+    const heightMm = effectiveHeightCm * 10;
     const rows: string[] = [];
     const cells: Record<string, Record<number, number>> = {};
     const rowIdByLabel: Record<string, string> = {};
@@ -1307,7 +1392,7 @@ export function StorformatConfigurator({
       rowIdByLabel,
       rowLabelById
     };
-  }, [verticalAxis, verticalAxisValues, sortedQuantities, widthCm, heightCm, resolveSelectionForType, resolveSelectionsForType, materials, finishes, products, config, getDisplayName]);
+  }, [verticalAxis, verticalAxisValues, sortedQuantities, effectiveWidthCm, effectiveHeightCm, resolveSelectionForType, resolveSelectionsForType, materials, finishes, products, config, getDisplayName]);
 
   const matrixSelectedCell = useMemo(() => {
     if (!verticalAxis) return null;
@@ -1343,13 +1428,14 @@ export function StorformatConfigurator({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
         <div className="space-y-2">
-          <Label htmlFor="storformat-width">Længde (cm)</Label>
+          <Label htmlFor="storformat-width">{templateShape?.id === "round" ? "Diameter (cm)" : "Længde (cm)"}</Label>
           <Input
             id="storformat-width"
             type="number"
             min="1"
-            value={widthCm}
-            onChange={(e) => setWidthCm(Number(e.target.value) || 0)}
+            step="any"
+            value={effectiveWidthCm}
+            onChange={(e) => editDimension("width", Number(e.target.value) || 0)}
           />
         </div>
         <div className="space-y-2">
@@ -1358,12 +1444,14 @@ export function StorformatConfigurator({
             id="storformat-height"
             type="number"
             min="1"
-            value={heightCm}
-            onChange={(e) => setHeightCm(Number(e.target.value) || 0)}
+            step="any"
+            value={effectiveHeightCm}
+            onChange={(e) => editDimension("height", Number(e.target.value) || 0)}
           />
         </div>
       </div>
 
+      {templateShape?.ratio ? <p className="text-sm text-muted-foreground">Formens proportioner bevares. Ændrer du ét mål, følger det andet med. Skabelonen har 3 mm udfald omkring skærelinjen.</p> : templateShape?.kind === 'freeform' ? <p className="text-sm text-muted-foreground">Fri form har ingen standardskabelon. Upload PDF i designeren, og tilføj én sammenhængende, lukket skærelinje fra motivet eller en SVG-fil. Har du EPS, gem først filen som PDF eller SVG.</p> : null}
       <div className={cn("grid grid-cols-1 gap-4 items-end", hasUsableLayout ? "md:grid-cols-1" : "md:grid-cols-4")}>
         {!hasUsableLayout && (
           <>
@@ -1382,16 +1470,18 @@ export function StorformatConfigurator({
             </div>
             <div className="space-y-2">
               <Label>Materiale</Label>
+              <MaterialOptionHelp source={{name:materials.find(m=>m.id===materialId)?.name || ''}} sectionId={verticalAxisId} valueId={materialId} tooltips={materialTooltips}>
               <Select value={materialId} onValueChange={setMaterialId}>
                 <SelectTrigger className="h-10">
                   <SelectValue placeholder="Vaelg materiale" />
                 </SelectTrigger>
                 <SelectContent>
                   {materials.map((m) => (
-                    <SelectItem key={m.id} value={m.id!}>{m.name || "Unavngivet"}</SelectItem>
+                    <SelectItem key={m.id} value={m.id!}>{materialPresentation({name:m.name || "Unavngivet"}).label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              </MaterialOptionHelp>
             </div>
             <div className="space-y-2">
               <Label>Efterbehandling</Label>
@@ -1545,6 +1635,11 @@ export function StorformatConfigurator({
         <div className="pt-2">
           <PriceMatrix
             maxColumnsPerPage={layout ? 4 : undefined}
+            renderRowLabel={(row) => {
+              const valueId=matrixData.rowIdByLabel[row];
+              const value=verticalAxisValues.find(item=>item.id===valueId);
+              return verticalAxis.sectionType==='materials' && value ? <MaterialLabel source={{name:getDisplayName(value.name,verticalAxis.valueSettings?.[valueId]),sourceName:value.name || ''}} sectionId={verticalAxisId} valueId={valueId} tooltips={materialTooltips}/> : row;
+            }}
             rows={matrixData.rows}
             columns={matrixData.columns}
             cells={matrixData.cells}
@@ -1565,7 +1660,7 @@ export function StorformatConfigurator({
       {loading ? <div className="py-6 text-sm text-muted-foreground" role="status">Indlæser priser…</div> : layout.summary}
     </aside>;
     return <div className="order-calculator-layout" data-calculator-design={layout.design}>
-      <div className="order-calculator-left">{intro}{layout.design === 1 && controls}{matrix}{layout.design === 1 && extras}</div>
+      <div className="order-calculator-left">{intro}{layout.design === 1 && controls}{matrix}{layout.details && <div className="order-calculator-details">{layout.details}</div>}{layout.design === 1 && extras}</div>
       <div className="order-calculator-right">{layout.design === 2 && controls}{layout.design === 2 && extras}{summary}</div>
     </div>;
   }

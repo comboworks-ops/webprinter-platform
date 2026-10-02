@@ -25,6 +25,8 @@ import {
   calculateStorformatPrice,
   tryCalculateStorformatPrice
 } from "@/utils/storformatPricing";
+import { SelectorValueGroupsEditor } from '@/components/admin/SelectorValueGroupsEditor';
+import { persistStorformatValueGroups } from '@/lib/pricing/storformatVisualGroups';
 import { cn } from "@/lib/utils";
 import { usesStorformatSourceQuotes, getStorformatSourceQuoteFields, getStorformatQuoteCoverage, normalizeStorformatAnchorState, STORFORMAT_QUOTE_UNAVAILABLE_MESSAGE } from "@/lib/pricing/storformatQuoteUi";
 import {
@@ -41,6 +43,7 @@ import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
 import { getThumbnailSizeFromUiMode, type SelectorStyling } from "@/lib/pricing/selectorStyling";
 import { TemplateConnectDialog } from "@/components/admin/TemplateConnectDialog";
 import { StorformatPriceWorkspace } from "./StorformatPriceWorkspace";
+import { type SelectorValueGroupConfig } from "@/lib/pricing/selectorValueGroups";
 
 type StorformatManagerProps = {
   surface?: 'all' | 'product' | 'prices';
@@ -75,6 +78,7 @@ type LayoutSection = {
   description?: string;
   valueIds?: string[];
   valueSettings?: Record<string, ValueSettings>;
+  valueGroups?: SelectorValueGroupConfig[];
   selectorStyling?: SelectorStyling;
 };
 
@@ -534,6 +538,7 @@ export function StorformatManager({
                     description: section?.description,
                     valueIds: normalizeValueIds(section?.valueIds, available),
                     valueSettings: section?.valueSettings || {},
+                    valueGroups: section?.valueGroups || section?.value_groups,
                     selectorStyling: section?.selectorStyling || {}
                   } satisfies LayoutSection;
                 })
@@ -1509,6 +1514,17 @@ export function StorformatManager({
 
   const markSetupSaved = useProductSetupGuard(JSON.stringify({ config, materials, finishes, products, verticalAxis, layoutRows }), !loading && !loadError);
 
+  const [savingValueGroupSectionId, setSavingValueGroupSectionId] = useState<string | null>(null);
+  const saveValueGroups = async (section: LayoutSection) => {
+    setSavingValueGroupSectionId(section.id);
+    try {
+      await persistStorformatValueGroups(supabase, tenantId, productId, section.id, section.valueGroups || []);
+      toast.success('Grupper gemt');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Grupperne kunne ikke gemmes');
+    } finally { setSavingValueGroupSectionId(null); }
+  };
+
   const handleSave = async () => {
     const normalizedQuantities = normalizeQuantities(config.quantities || []);
     if (!normalizedQuantities.length) {
@@ -1996,7 +2012,7 @@ export function StorformatManager({
       <div className="admin-storformat-editor space-y-6">
         <div className="space-y-6">
           <div className="space-y-6">
-            {usesSourceQuotes && (
+            {surface !== 'product' && usesSourceQuotes && (
             <div className="rounded-lg border bg-muted/30 p-4 space-y-2" role="note">
               <p className="font-medium">Prisgrundlag: Leverandørtilbud pr. emne og antal</p>
               <p className="text-sm text-muted-foreground">Ordinære tilbud, inklusive kombinationens tilvalg. Globale tillæg og afrunding anvendes bagefter. De tidligere m²-tabeller bruges ikke til denne beregning.</p>
@@ -3617,6 +3633,19 @@ export function StorformatManager({
                                 className="h-7 text-xs text-muted-foreground"
                               />
                             </div>
+
+                            <SelectorValueGroupsEditor
+                              groups={section.valueGroups || []}
+                              values={(section.valueIds || []).flatMap(id => {
+                                const value = getValuesForType(section.sectionType).find(item => item.id === id);
+                                return value ? [{ id, name: getDisplayName(value.name, section.valueSettings?.[id]) }] : [];
+                              })}
+                              onChange={valueGroups => setLayoutRows(previous => previous.map(item => ({
+                                ...item, sections: item.sections.map(candidate => candidate.id === section.id ? { ...candidate, valueGroups } : candidate)
+                              })))}
+                            />
+                            {section.valueGroups && <Button type="button" variant="outline" size="sm"
+                              disabled={savingValueGroupSectionId !== null} onClick={() => void saveValueGroups(section)}>Gem grupper</Button>}
 
                             <div className="flex-1 flex flex-col gap-1 p-1 min-h-[60px]">
                               {(section.valueIds || []).map((id) => {

@@ -1,3 +1,5 @@
+import { wideFormatTemplateLaunch, readWideFormatShapeBindings } from "@/lib/designer/wideFormatGeometry";
+import { productArtworkDimensions } from "@/lib/designer/productArtworkDefaults";
 import { approvedPrintTemplateLaunch } from '@/lib/mockup/approvedPrintModels';
 import { ProductPrintMedia } from '@/components/mockup/ProductPrintMedia';
 import { useApprovedPrintModel } from '@/components/mockup/useApprovedPrintModel';
@@ -1108,9 +1110,12 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
   // Loading State
   // Determine current dimensions based on selection
   const selectedFormatLabel = useMemo(() => {
+    if (isStorformat && storformatSelection) {
+      return `${storformatSelection.widthCm} × ${storformatSelection.heightCm} cm`;
+    }
     if (selectedFormatId && valueNameById[selectedFormatId]) return valueNameById[selectedFormatId];
     return selectedFormat || selectedVariantName || "";
-  }, [selectedFormat, selectedFormatId, selectedVariantName, valueNameById]);
+  }, [isStorformat, storformatSelection, selectedFormat, selectedFormatId, selectedVariantName, valueNameById]);
   const availableProductTemplates = useMemo(() => {
     return Array.isArray(dbProduct?.template_files) ? dbProduct.template_files : [];
   }, [dbProduct?.template_files]);
@@ -1118,14 +1123,22 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     collectExactTemplateSelectionConstraints(availableProductTemplates)
   ), [availableProductTemplates]);
   const designerTemplateLaunch = useMemo(() => {
+    if (isStorformat && storformatSelection?.templateShape) {
+      return wideFormatTemplateLaunch(storformatSelection.templateShape, storformatSelection.widthCm * 10, storformatSelection.heightCm * 10);
+    }
     return resolveSelectedDesignerTemplateLaunch({
       templates: availableProductTemplates,
       selectedFormat,
       selectedFormatLabel,
-      selectedOptionLabels: matrixSelectionSummary,
-      selectedSectionValues: matrixSelectedSectionValues,
+      selectedOptionLabels: isStorformat && storformatSelection
+        ? [storformatSelection.productName, storformatSelection.materialName, storformatSelection.finishName].filter((label): label is string => Boolean(label))
+        : matrixSelectionSummary,
+      selectedSectionValues: isStorformat ? storformatSelection?.selectedSectionValues || {} : matrixSelectedSectionValues,
+      ...(isStorformat ? { selectedDimensionsMm: storformatSelection
+        ? { width: storformatSelection.widthCm * 10, height: storformatSelection.heightCm * 10 }
+        : null } : {}),
     });
-  }, [availableProductTemplates, matrixSelectedSectionValues, matrixSelectionSummary, selectedFormat, selectedFormatLabel]);
+  }, [availableProductTemplates, isStorformat, storformatSelection, matrixSelectedSectionValues, matrixSelectionSummary, selectedFormat, selectedFormatLabel]);
   const approvedPrintModel = useApprovedPrintModel(designerTemplateLaunch, pricingStructure?.workspaceContent, matrixSelectedSectionValues);
   const approvedDesignerLaunch = useMemo(() => approvedPrintTemplateLaunch(designerTemplateLaunch, approvedPrintModel), [designerTemplateLaunch, approvedPrintModel]);
   const legacyLinkedTemplateId = useMemo(() => {
@@ -1146,6 +1159,13 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     template_files: dbProduct?.template_files || null,
   }), [dbProduct?.category, dbProduct?.name, dbProduct?.pricing_type, dbProduct?.technical_specs, dbProduct?.template_files, product]);
   const productFlow = useMemo(() => {
+    if (isStorformat && storformatSelection?.templateShape?.kind === "freeform") return { ...baseProductFlow, designerMode: "storformat" as const, showDesignerButton: true, showTemplateDownload: false, prefersTemplateOverlay: false, requiresCutContour: true };
+    if (isStorformat && designerTemplateLaunch) {
+      return { ...baseProductFlow, showTemplateDownload: true, prefersTemplateOverlay: true, requiresCutContour: storformatSelection?.templateShape?.kind === "preset" || baseProductFlow.requiresCutContour };
+    }
+    if (isStorformat && storformatSelection?.templateShape) {
+      return { ...baseProductFlow, showDesignerButton: false, showTemplateDownload: false, customerHelpText: "Vælg gyldige mål for at åbne skabelonen. Over 507,4 cm skal produktionsskalering aftales." };
+    }
     const hasCompatibleLegacyTemplate = Boolean(legacyLinkedTemplateId) && !hasConfigurationSpecificTemplates;
     if (
       baseProductFlow.designerMode !== "pdf_template"
@@ -1162,17 +1182,18 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
       showDesignerButton: false,
       showTemplateDownload: false,
     };
-  }, [baseProductFlow, designerTemplateLaunch, hasConfigurationSpecificTemplates, legacyLinkedTemplateId]);
+  }, [baseProductFlow, designerTemplateLaunch, hasConfigurationSpecificTemplates, isStorformat, legacyLinkedTemplateId, storformatSelection?.templateShape]);
   const currentDimensions = useMemo(() => {
     const techSpecs = dbProduct?.technical_specs;
+    const orient = <T extends { width: number; height: number }>(dimensions: T) => productArtworkDimensions(product, dimensions, matrixSelectionSummary);
     if (selectedFormatId) {
       const meta = valueMetaById[selectedFormatId];
       if (meta?.width_mm && meta?.height_mm) {
-        return {
+        return orient({
           width: meta.width_mm,
           height: meta.height_mm,
           bleed: typeof meta.bleed_mm === "number" ? meta.bleed_mm : (techSpecs?.bleed_mm || 3)
-        };
+        });
       }
     }
 
@@ -1181,20 +1202,20 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     const variantDims = getDimensionsFromVariant(
       fallbackLabel || selectedFormat || selectedVariantName || ""
     );
-    if (variantDims) return { ...variantDims, bleed: parseFloat(techSpecs?.bleed_mm) || 3 };
+    if (variantDims) return orient({ ...variantDims, bleed: parseFloat(techSpecs?.bleed_mm) || 3 });
 
     // 2. Fall back to product-wide technical specs
     if (techSpecs) {
-      return {
+      return orient({
         width: techSpecs.width_mm || 210,
         height: techSpecs.height_mm || 297,
         bleed: techSpecs.bleed_mm || 3
-      };
+      });
     }
 
     // 3. Ultimate default
-    return { width: 210, height: 297, bleed: 3 };
-  }, [selectedFormatId, selectedFormat, selectedVariantName, dbProduct?.technical_specs, valueMetaById, valueNameById]);
+    return orient({ width: 210, height: 297, bleed: 3 });
+  }, [selectedFormatId, selectedFormat, selectedVariantName, dbProduct?.technical_specs, valueMetaById, valueNameById, product, matrixSelectionSummary]);
   const designDimensions = useMemo(() => {
     const isAreaBased = product?.id === "bannere" || product?.id === "skilte" || product?.id === "folie";
     if (isStorformat && storformatSelection) {
@@ -1552,6 +1573,19 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
         </div>
   );
 
+  const infoBelowCalculator = isStorformat && (product.slug === 'gulvfolie'
+    || dbProduct?.technical_specs?.supplier_import_review?.runId === 'wmd-gulvfolie-2026-09-30');
+  const staticProductInfo = <StaticProductInfo
+    productId={dbProductId || product.slug || product.id}
+    selectedFormat={selectedFormat}
+    selectedFormatLabel={selectedFormatLabel}
+    selectedOptionLabels={matrixSelectionSummary}
+    selectedSectionValues={matrixSelectedSectionValues}
+    showTemplateDownloads={false}
+    formatGuide={formatGuideData}
+    productData={dbProduct}
+  />;
+
   const renderPricingInterface = () => {
     if (isStorformat && dbProductId) {
       const storformatDeliveryBusinessDayOffset = /fast production/i.test(
@@ -1571,8 +1605,11 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
 
       return <StorformatConfigurator
         productId={dbProductId}
+        initialState={restoredCheckoutSelection}
+        sourceShapeBindings={readWideFormatShapeBindings(dbProduct?.technical_specs)}
         onSelectionChange={handleStorformatSelection}
         layout={{ design: orderDesign, intro: productIntro, media: productMedia,
+          details: infoBelowCalculator ? staticProductInfo : undefined,
           extras: <><DynamicProductOptions productId={dbProductId} onSelectionChange={handleOptionSelectionChange} />{sizeDistributionBlock}</>,
           summary: (
             <ProductPricePanel
@@ -1840,16 +1877,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
 
         {renderPricingInterface()}
 
-        <StaticProductInfo
-          productId={dbProductId || product.slug || product.id}
-          selectedFormat={selectedFormat}
-          selectedFormatLabel={selectedFormatLabel}
-          selectedOptionLabels={matrixSelectionSummary}
-          selectedSectionValues={matrixSelectedSectionValues}
-          showTemplateDownloads={false}
-          formatGuide={formatGuideData}
-          productData={dbProduct}
-        />
+        {!infoBelowCalculator && staticProductInfo}
 
         {/* Debug Overlay */}
         {searchParams.get('debug') === 'true' && (

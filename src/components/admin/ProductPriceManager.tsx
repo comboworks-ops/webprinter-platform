@@ -2311,6 +2311,13 @@ export function ProductPriceManager() {
         </Button>
       </div>
 
+      {product.technical_specs?.supplier_import_review?.status === 'review_draft' &&
+        typeof product.technical_specs.supplier_import_review.message === 'string' && (
+          <div role="note" className="rounded-lg border bg-muted/30 p-4 text-sm">
+            <p className="font-medium">Importeret kladde · til gennemgang</p>
+            <p className="mt-1 text-muted-foreground">{product.technical_specs.supplier_import_review.message}</p>
+          </div>
+        )}
 
 
       <Tabs value={activeTab} onValueChange={(value) => {

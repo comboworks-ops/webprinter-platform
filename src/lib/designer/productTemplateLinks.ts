@@ -479,18 +479,34 @@ export const resolveSelectedDesignerTemplateLaunch = ({
   selectedFormatLabel,
   selectedOptionLabels = [],
   selectedSectionValues = {},
+  selectedDimensionsMm,
 }: {
   templates: ProductTemplateFile[];
   selectedFormat?: string | null;
   selectedFormatLabel?: string | null;
   selectedOptionLabels?: string[];
   selectedSectionValues?: Record<string, string | null>;
+  selectedDimensionsMm?: { width: number; height: number } | null;
 }) => {
+  // Free-size products must match both orientation and size. A template for
+  // another size must never override the customer's configured dimensions.
+  const matchesDimensions = (template: ProductTemplateFile) => {
+    if (selectedDimensionsMm === undefined) return true;
+    if (!selectedDimensionsMm) return false;
+    const width = readPositiveTemplateNumber(template.widthMm, template.width_mm);
+    const height = readPositiveTemplateNumber(template.heightMm, template.height_mm);
+    return Number.isFinite(selectedDimensionsMm.width)
+      && Number.isFinite(selectedDimensionsMm.height)
+      && selectedDimensionsMm.width > 0 && selectedDimensionsMm.height > 0
+      && width !== undefined && height !== undefined
+      && Math.abs(width - selectedDimensionsMm.width) < 0.01
+      && Math.abs(height - selectedDimensionsMm.height) < 0.01;
+  };
   const structuredTemplates = templates.filter((template) => (
     readTemplateSelectionConstraints(template).isStructured
   ));
   const matchingStructuredTemplates = structuredTemplates.filter((template) => (
-    templateMatchesSelectedSectionValues(template, selectedSectionValues)
+    templateMatchesSelectedSectionValues(template, selectedSectionValues) && matchesDimensions(template)
   ));
 
   // An exact structured link must be unique. Choosing the first duplicate could
@@ -524,6 +540,7 @@ export const resolveSelectedDesignerTemplateLaunch = ({
 
   const matchingLegacyTemplates = templates.filter((template) => (
     !readTemplateSelectionConstraints(template).isStructured
+    && matchesDimensions(template)
     && templateMatchesSelectedConfiguration(
       template,
       selectedFormat,
@@ -531,6 +548,8 @@ export const resolveSelectedDesignerTemplateLaunch = ({
       selectedOptionLabels,
     )
   ));
+
+  if (selectedDimensionsMm !== undefined && matchingLegacyTemplates.length !== 1) return null;
 
   for (const template of matchingLegacyTemplates) {
     const launch = templateFileToDesignerLaunch(template);

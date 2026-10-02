@@ -1,4 +1,8 @@
 import { withMatrixRowSelection } from '@/lib/products/matrixRowSelection';
+import { MaterialLabel, MaterialInfoIcons } from './MaterialLabel';
+import { MaterialOptionInfoContext } from './materialOptionInfoContext';
+import { materialPresentation, materialTooltipDefaults } from '@/lib/products/materialPresentation';
+import { useProductTooltipConfigs } from '@/hooks/useProductAvailabilityTooltips';
 import { WorkspaceEditableSection } from './WorkspacePreviewEditor';
 import { useWorkspacePreviewEditing, useWorkspacePreviewSources } from './workspacePreviewContext';
 import { pictureModes, pictureModeSize } from '@/lib/products/productOptionPresentation';
@@ -19,7 +23,6 @@ import { ProductCalculatorLayout, type ProductCalculatorLayoutSlots } from "./Pr
 import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode, type CSSProperties } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ProductOptionButton } from './ProductOptionButton';
-import { useProductAvailabilityTooltips } from '@/hooks/useProductAvailabilityTooltips';
 import { getAvailabilityAlternatives, resolveAvailabilityText } from '@/lib/products/optionAvailability';
 import { PriceMatrix } from "@/components/product-price-page/PriceMatrix";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -47,7 +50,8 @@ import {
     type ExactCombinationCandidate,
 } from "@/lib/pricing/exactCombinationResolver";
 import { shouldShowInitialMatrixSkeleton } from "@/lib/pricing/matrixLoadingPresentation";
-import { resolveSelectorValueGroups } from "@/lib/pricing/selectorValueGroups";
+import { resolveSelectorValueGroups, type SelectorValueGroupConfig } from "@/lib/pricing/selectorValueGroups";
+import { SelectorValueGroupSection } from "./SelectorValueGroupSection";
 import {
     getBuiltInCalendarOptionArtworkLabel,
     getBuiltInCalendarOptionImage,
@@ -117,8 +121,8 @@ interface LayoutColumn {
         pictureButtons?: Record<string, unknown>;
         selectorBox?: Record<string, unknown>;
     };
-    valueGroups?: Array<{ id: string; label: string; valueIds: string[] }>;
-    value_groups?: Array<{ id: string; label: string; valueIds: string[] }>;
+    valueGroups?: SelectorValueGroupConfig[];
+    value_groups?: SelectorValueGroupConfig[];
     labelOverride?: string;
     title?: string;
     description?: string;
@@ -665,7 +669,8 @@ export function MatrixLayoutV1Renderer({
     onQuantityTiers,
 }: MatrixLayoutV1RendererProps) {
     const settings = useShopSettings();
-    const availabilityTooltips = useProductAvailabilityTooltips(productId);
+    const materialTooltips = useProductTooltipConfigs(productId);
+    const availabilityTooltips = materialTooltips;
     const { branding: previewBranding, productPricingOverrides, isPreviewMode } = usePreviewBranding();
     const activeBranding = (isPreviewMode && previewBranding)
         ? previewBranding
@@ -2007,6 +2012,15 @@ export function MatrixLayoutV1Renderer({
         return sectionName || fallback;
     }, [attributeValueById, pricingStructure.vertical_axis.sectionId, pricingStructure.vertical_axis.valueSettings, valueSettingsById]);
 
+    const materialSource = (valueId: string, sectionId?: string) => ({name:getDisplayValueName(valueId, sectionId), sourceName:attributeValueById[valueId]?.name, meta:attributeValueById[valueId]?.meta});
+    const presentedName = (valueId: string, sectionId?: string) => materialValueIdSet.has(valueId)
+        ? materialPresentation(materialSource(valueId, sectionId)).label : getDisplayValueName(valueId, sectionId);
+    const materialConfigs = (valueId: string, sectionId: string) => materialValueIdSet.has(valueId)
+        ? materialTooltipDefaults(materialSource(valueId, sectionId), sectionId, valueId).map(config => materialTooltips.find(item => item.anchor === config.anchor) || config) : [];
+    const materialOptionInfo = Object.fromEntries(pricingStructure.layout_rows.flatMap(row => row.columns.flatMap(section => section.valueIds.filter(id => materialValueIdSet.has(id)).map(id => [
+        `product-option.${productId}.${section.id}.${id}.`, materialConfigs(id, section.id),
+    ]))));
+
     const selectedVariantDisplayParts = useMemo(() => {
         return Object.entries(pricingSelectedSectionValues)
             .filter(([sectionId, valueId]) => sectionId !== pricingStructure.vertical_axis.sectionId && !!valueId)
@@ -2958,7 +2972,7 @@ export function MatrixLayoutV1Renderer({
                                         loading="eager"
                                     />
                                 ) : (
-                                    <span className="text-sm font-semibold text-foreground">{displayName}</span>
+                                    <span className="text-sm font-semibold text-foreground">{presentedName(selectedAttributeValue.id, sectionId)}</span>
                                 )}
                                 {selectedBadge && <OptionBrandBadgeOverlay badge={selectedBadge} />}
                             </div>
@@ -2973,9 +2987,10 @@ export function MatrixLayoutV1Renderer({
                                         id={focusedDetailHeadingId}
                                         className="text-xl font-semibold leading-tight text-foreground sm:text-2xl"
                                     >
-                                        {displayName}
+                                        {presentedName(selectedAttributeValue.id, sectionId)}
                                     </h3>
-                                    {selectedAttributeValue.meta?.descriptionDa && (
+                                    {materialValueIdSet.has(selectedAttributeValue.id) && <MaterialInfoIcons configs={materialConfigs(selectedAttributeValue.id, sectionId)}/> }
+                                    {!materialValueIdSet.has(selectedAttributeValue.id) && selectedAttributeValue.meta?.descriptionDa && (
                                         <p className="max-w-prose text-sm leading-6 text-muted-foreground">
                                             {selectedAttributeValue.meta.descriptionDa}
                                         </p>
@@ -3093,11 +3108,12 @@ export function MatrixLayoutV1Renderer({
                         const isSelectable = isOptionAvailable(sectionId, v.id);
                         return (
                             <option key={v.id} value={v.id} disabled={!isSelectable}>
-                                {getDisplayValueName(v.id, sectionId)}
+                                {presentedName(v.id, sectionId)}
                             </option>
                         );
                     })}
                 </select>
+                {materialValueIdSet.has(selectedValue) && <div className="flex justify-end"><MaterialInfoIcons configs={materialConfigs(selectedValue, sectionId)}/></div>}
                 {visibleValues.some(value => !isOptionAvailable(sectionId, value.id)) && (
                     <div className="flex flex-wrap gap-2" aria-label="Utilgængelige valg — tryk for hjælp">
                         {visibleValues.filter(value => !isOptionAvailable(sectionId, value.id)).map(value => (
@@ -3126,18 +3142,17 @@ export function MatrixLayoutV1Renderer({
             return (
                 <div className="space-y-4" data-selector-value-groups="true">
                     {resolvedValueGroups.map((group, groupIndex) => (
-                        <section
+                        <SelectorValueGroupSection
                             key={`${group.id}:${groupIndex}`}
-                            className="space-y-2"
-                            data-selector-value-group={group.id}
+                            group={group}
+                            selectedLabel={group.values.some(value => value.id === selectedValue)
+                                ? getDisplayValueName(selectedValue, sectionId)
+                                : undefined}
                         >
-                            <h4 className="text-xs font-semibold text-foreground">
-                                {group.label}
-                            </h4>
                             {renderValueSelector(
                                 sectionId,
                                 group.values,
-                                effectiveUiMode,
+                                group.uiMode || effectiveUiMode,
                                 isOptionalEnabled,
                                 {
                                     ...groupedRender,
@@ -3146,7 +3161,7 @@ export function MatrixLayoutV1Renderer({
                                     valuesAreVisible: true,
                                 },
                             )}
-                        </section>
+                        </SelectorValueGroupSection>
                     ))}
                 </div>
             );
@@ -3204,7 +3219,7 @@ export function MatrixLayoutV1Renderer({
                                         style={{ width: imagePx, height: imagePx }}
                                     />
                                 )}
-                                <span className="font-medium">{displayName}</span>
+                                <span className="font-medium">{presentedName(v.id, sectionId)}</span>
                             </ProductOptionButton>
                         );
                     })}
@@ -3426,7 +3441,7 @@ export function MatrixLayoutV1Renderer({
                                                 fontSize: `${valueSetting?.fontSizePx ?? sectionPictureButtonsConfig.labelFontSizePx}px`,
                                             }}
                                         >
-                                            {displayName}
+                                            {presentedName(v.id, sectionId)}
                                         </span>
                                     </>
                                 ) : (
@@ -3481,7 +3496,7 @@ export function MatrixLayoutV1Renderer({
                                                     fontSize: `${valueSetting?.fontSizePx ?? sectionPictureButtonsConfig.labelFontSizePx}px`,
                                                 }}
                                             >
-                                                {displayName}
+                                                {presentedName(v.id, sectionId)}
                                             </span>
                                         )}
                                     </>
@@ -3634,7 +3649,7 @@ export function MatrixLayoutV1Renderer({
                                     {brandBadge && <OptionBrandBadgeOverlay badge={brandBadge} compact />}
                                 </span>
                             )}
-                            <span className="workspace-option-label">{displayName}</span>
+                            <span className="workspace-option-label">{presentedName(v.id, sectionId)}</span>
                         </ProductOptionButton>
                     );
                 })}
@@ -3870,7 +3885,12 @@ export function MatrixLayoutV1Renderer({
                             const axis = pricingStructure.vertical_axis;
                             const valueId = axis.valueIds.find(id => getDisplayValueName(id, axis.sectionId) === row);
                             return valueId ? <ProductOptionButton data-site-design-target={`product-option.${productId}.${axis.sectionId}.${valueId}.${encodeURIComponent(row)}`} className="workspace-matrix-edit-value" aria-label={`Rediger ${axis.sectionType === 'formats' ? 'format' : 'materiale'} ${row}`}>{row}</ProductOptionButton> : row;
-                        } : undefined}
+                        } : row => {
+                            const axis = pricingStructure.vertical_axis;
+                            if (axis.sectionType !== 'materials') return row;
+                            const valueId = axis.valueIds.find(id => getDisplayValueName(id, axis.sectionId) === row);
+                            return <MaterialLabel source={{name:row, sourceName:valueId ? attributeValueById[valueId]?.name : undefined, meta:valueId ? attributeValueById[valueId]?.meta : undefined}} sectionId={axis.sectionId} valueId={valueId || row} tooltips={materialTooltips}/>;
+                        }}
                         matrixBox={(pricingStructure as any).matrixBox}
                     />
                 </div>
@@ -3893,9 +3913,11 @@ export function MatrixLayoutV1Renderer({
             data-matrix-loading={matrixLoading ? "true" : "false"}
             aria-busy={matrixLoading}
         >
+            <MaterialOptionInfoContext.Provider value={materialOptionInfo}>
             {layout ? (
                 <ProductCalculatorLayout {...layout} controls={controls} matrix={matrix} />
             ) : <>{controls}{matrix}</>}
+            </MaterialOptionInfoContext.Provider>
         </div>
     );
 }

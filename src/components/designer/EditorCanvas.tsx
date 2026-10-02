@@ -1,3 +1,4 @@
+import { isSingleClosedContour, contourObjects, cutContourGeometrySignature } from "@/lib/designer/cutContourValidation";
 // EditorCanvas - Core Drawing and Guide Logic
 // PROTECTED - See .agent/workflows/preflight-protected.md for boundary rules
 // PROTECTED - See .agent/workflows/soft-proof-protected.md for Proofing Overlay rules
@@ -97,7 +98,7 @@ export interface EditorCanvasRef {
     loadArtworkJSON: (json: object) => Promise<void>;
     importJSON: (json: any) => void;
     importSVG: (svgString: string) => void;
-    addCutContour: (svgString: string) => void;
+    addCutContour: (svgString: string, preset?: { widthMm: number; heightMm: number; templateUrl: string }) => Promise<boolean>;
     addCutContourFromPdfSvg: (
         svgString: string,
         placement: {
@@ -155,6 +156,7 @@ export interface EditorCanvasRef {
     moveLayerDown: (id: string) => void;
     toggleLayerVisibility: (id: string) => void;
     updateSelectedProps: (props: Partial<SelectedObjectProps>) => void;
+    rotateSelected: (direction: 'left' | 'right') => boolean;
     bringToFront: () => void;
     sendToBack: () => void;
 }
@@ -176,6 +178,29 @@ const SERIALIZED_CANVAS_PROPS = [
     'excludeFromExport',
     'hoverCursor',
 ] as const;
+type ProductionCanvasObject = fabric.Object & { __isCutContour?: boolean; __isGuide?: boolean; data?: { kind?: string; templateUrl?: string; geometrySignature?: string } };
+// Keep cutting geometry in saved designs and undo history at full precision.
+function serializeCanvasObject(obj: fabric.Object) {
+    // ActiveSelection children have coordinates relative to the selection.
+    // Mirror Fabric Canvas serialization so saves and Undo retain the artwork's
+    // actual placement when several objects are rotated together.
+    const transformKeys = ['angle', 'flipX', 'flipY', 'left', 'scaleX', 'scaleY', 'skewX', 'skewY', 'top'] as const;
+    const selection = obj.group?.type === 'activeSelection' && obj.canvas?.getActiveObject() === obj.group ? obj.group : null;
+    const original = selection ? Object.fromEntries(transformKeys.map(key => [key, obj[key]])) : null;
+    try {
+        if (selection) (fabric.util as typeof fabric.util & { addTransformToObject: (object: fabric.Object, matrix: number[]) => void }).addTransformToObject(obj, selection.calcOwnMatrix());
+        const serialized = obj.toObject([...SERIALIZED_CANVAS_PROPS]);
+        if ((obj as ProductionCanvasObject).__isCutContour) {
+            // Fabric rounds transforms by default; preset integrity uses exact values.
+            for (const key of ['width', 'height', 'scaleX', 'scaleY', 'left', 'top', 'angle', 'skewX', 'skewY'] as const) {
+                serialized[key] = obj[key];
+            }
+        }
+        return serialized;
+    } finally {
+        if (original) obj.set(original);
+    }
+}
 const PASTEBOARD_PADDING_MM = 50;
 const PDF_TEMPLATE_GUIDE_OPACITY = 0.7;
 
@@ -346,6 +371,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 name = 'Billede';
             }
 
+            if ((obj as ProductionCanvasObject).__isCutContour) name = 'Skærelinje (CutContour)';
             return {
                 id: (obj as any).__layerId || `layer-${index}`,
                 type: obj.type || 'object',
@@ -384,7 +410,10 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         });
 
         canvas.getObjects().forEach((obj) => {
-            if ((obj as any).__isCutContour) {
+            if ((obj as ProductionCanvasObject).__isCutContour) {
+                if ((obj as ProductionCanvasObject).data?.kind === 'preset_cut_contour') {
+                    obj.set({ selectable: false, evented: false, lockMovementX: true, lockMovementY: true, lockScalingX: true, lockScalingY: true, lockRotation: true, hasControls: false });
+                }
                 obj.bringToFront();
             }
         });
@@ -399,7 +428,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
 
     const isVectorSafeCutContourCandidate = useCallback((obj: fabric.Object): boolean => {
         if (!obj) return false;
-        if ((obj as any).__isGuide || (obj as any).__isDocumentBackground || (obj as any).__isCutContour) {
+        if ((obj as any).__isGuide || (obj as any).__isDocumentBackground || (obj as ProductionCanvasObject).__isCutContour) {
             return false;
         }
         if ((obj as any).data?.kind === 'pdf_page_background') {
@@ -430,12 +459,13 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             fill: 'transparent',
             stroke: '#ff00ff',
             strokeWidth: 2,
+            strokeUniform: true,
             strokeDashArray: [6, 3],
             selectable: true,
             evented: true,
             excludeFromExport: true,
         });
-        (obj as any).__isCutContour = true;
+        (obj as ProductionCanvasObject).__isCutContour = true;
         (obj as any).__layerId = `cutcontour-${objectCounter.current++}`;
 
         if (obj.type === 'group' && (obj as fabric.Group).getObjects) {
@@ -444,6 +474,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                     fill: 'transparent',
                     stroke: '#ff00ff',
                     strokeWidth: 2,
+            strokeUniform: true,
                     strokeDashArray: [6, 3],
                 });
             });
@@ -474,14 +505,6 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
 
         if (obj.type === 'group' && (obj as fabric.Group).getObjects) {
             return (obj as fabric.Group).getObjects().some(objectLooksLikeCutContour);
-        }
-
-        if (
-            hasStroke &&
-            fillIsTransparent &&
-            ['path', 'polygon', 'polyline', 'rect', 'circle', 'ellipse', 'line'].includes(obj.type || '')
-        ) {
-            return true;
         }
 
         return false;
@@ -526,6 +549,11 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             objects?: unknown[];
             [key: string]: unknown;
         };
+        // Fabric omits excludeFromExport objects from canvas JSON. Cutting lines
+        // must survive saving even though raster artwork exports exclude them.
+        snapshot.objects = canvas.getObjects()
+            .filter(obj => !obj.excludeFromExport || (obj as ProductionCanvasObject).__isCutContour)
+            .map(serializeCanvasObject);
         return cloneCanvasSnapshot(stripPdfTemplateOverlaysFromCanvasJson(snapshot));
     }, [cloneCanvasSnapshot]);
 
@@ -533,7 +561,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         const objects = canvas
             .getObjects()
             .filter((obj) => !(obj as any).__isStaticFrame)
-            .map((obj) => obj.toObject([...SERIALIZED_CANVAS_PROPS]));
+            .map(serializeCanvasObject);
 
         return cloneCanvasSnapshot({
             version: (fabric as any).version,
@@ -955,12 +983,15 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
         const isInteractive = selectedTool === 'select';
         canvas.forEachObject(obj => {
             // Document background and guides should remain unselectable/unevented unless specific logic exists
-            const isSystemObj = (obj as any).__isDocumentBackground || (obj as any).__isGuide || (obj as any).__isGuideLabel || (obj as any).__isPdfTemplate;
+            const isPresetCut = (obj as ProductionCanvasObject).data?.kind === 'preset_cut_contour';
+            const isSystemObj = isPresetCut || (obj as any).__isDocumentBackground || (obj as any).__isGuide || (obj as any).__isGuideLabel || (obj as any).__isPdfTemplate;
             if (!isSystemObj) {
                 obj.selectable = isInteractive;
                 obj.evented = isInteractive;
             } else if ((obj as any).__isPdfTemplate) {
                 lockPdfTemplate(obj);
+            } else if (isPresetCut) {
+                obj.set({ selectable: false, evented: false });
             }
         });
 
@@ -1075,76 +1106,26 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             });
         },
 
-        addCutContour: (svgString: string) => {
+        addCutContour: (svgString: string, preset) => {
             const canvas = fabricRef.current;
-            if (!canvas) return;
-
-            fabric.loadSVGFromString(svgString, (objects, options) => {
-                const obj = fabric.util.groupSVGElements(objects, options);
-
-                // SVGs are typically 96 DPI. Scale to our DISPLAY_DPI
-                const physicalScale = effectiveDisplayDpi / 96;
-                let scale = physicalScale;
-
-                // Safety: If SVG is larger than 90% of the document, scale it down to fit
-                const maxWidth = docWidth * 0.9;
-                const maxHeight = docHeight * 0.9;
-                if ((obj.width || 0) * scale > maxWidth || (obj.height || 0) * scale > maxHeight) {
-                    scale = Math.min(maxWidth / (obj.width || 1), maxHeight / (obj.height || 1));
-                    console.log(`[Editor] CutContour SVG too large, downscaling to fit.`);
-                }
-
-                // Apply CutContour styling - magenta dashed stroke, no fill
-                obj.set({
-                    left: canvasWidth / 2,
-                    top: canvasHeight / 2,
-                    originX: 'center',
-                    originY: 'center',
-                    scaleX: scale,
-                    scaleY: scale,
-                    fill: 'transparent',
-                    stroke: '#ff00ff',        // Magenta (CutContour spot color)
-                    strokeWidth: 2,
-                    strokeDashArray: [6, 3],  // Dashed line
-                    selectable: true,
-                    evented: true,
-                    excludeFromExport: true,  // Non-printing by default
+            if (!canvas || contourObjects(canvas.getObjects()).length) return Promise.resolve(false);
+            return new Promise<boolean>((resolve) => {
+                fabric.loadSVGFromString(svgString, (objects, options) => {
+                    const obj = fabric.util.groupSVGElements(objects, options);
+                    if (!isSingleClosedContour(obj) || contourObjects(canvas.getObjects()).length) { resolve(false); return; }
+                    const physicalScale = effectiveDisplayDpi / 96;
+                    const scale = preset ? mmToPx(preset.widthMm, effectiveDisplayDpi) / (obj.width || 1)
+                        : Math.min(physicalScale, (docWidth - 2 * bleedPx) / (obj.width || 1), (docHeight - 2 * bleedPx) / (obj.height || 1));
+                    applyCutContourStyle(obj);
+                    obj.set({ left: canvasWidth / 2, top: canvasHeight / 2, originX: 'center', originY: 'center', scaleX: scale, scaleY: scale,
+                        ...(preset ? { selectable: false, evented: false, lockMovementX: true, lockMovementY: true, lockScalingX: true, lockScalingY: true, lockRotation: true } : {}) });
+                    if (preset) (obj as ProductionCanvasObject).data = { kind: 'preset_cut_contour', templateUrl: preset.templateUrl, geometrySignature: cutContourGeometrySignature(obj) };
+                    canvas.add(obj);
+                    obj.bringToFront();
+                    canvas.getObjects().forEach(item => { if ((item as ProductionCanvasObject).__isGuide) item.bringToFront(); });
+                    if (!preset) canvas.setActiveObject(obj);
+                    canvas.renderAll(); emitLayersUpdate(); saveHistory(); resolve(true);
                 });
-
-                // Mark as CutContour for special handling
-                (obj as any).__isCutContour = true;
-                (obj as any).__layerId = `cutcontour-${objectCounter.current++}`;
-
-                // If it's a group, apply styling to children too
-                if (obj.type === 'group') {
-                    (obj as fabric.Group).getObjects().forEach((child) => {
-                        child.set({
-                            fill: 'transparent',
-                            stroke: '#ff00ff',
-                            strokeWidth: 2,
-                            strokeDashArray: [6, 3],
-                        });
-                    });
-                }
-
-                canvas.add(obj);
-
-                // Bring CutContour to front (but below guide lines)
-                obj.bringToFront();
-
-                // Keep actual guide lines on top
-                canvas.getObjects().forEach(canvasObj => {
-                    if ((canvasObj as any).__isGuide) {
-                        canvasObj.bringToFront();
-                    }
-                });
-
-                canvas.setActiveObject(obj);
-                canvas.renderAll();
-                emitLayersUpdate();
-                saveHistory();
-
-                console.log('[Editor] CutContour added successfully');
             });
         },
 
@@ -1159,7 +1140,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                             ? objectLooksLikeVectorOutlineFallback
                             : objectLooksLikeCutContour
                     );
-                    if (contourObjects.length === 0) {
+                    if (contourObjects.length !== 1 || !isSingleClosedContour(contourObjects[0]) || canvas.getObjects().some(item => (item as ProductionCanvasObject).__isCutContour)) {
                         resolve(false);
                         return;
                     }
@@ -1204,7 +1185,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             if (!canvas) return false;
 
             const activeObject = canvas.getActiveObject();
-            if (!activeObject || !isVectorSafeCutContourCandidate(activeObject)) {
+            if (!activeObject || !isVectorSafeCutContourCandidate(activeObject) || !isSingleClosedContour(activeObject) || contourObjects(canvas.getObjects()).length) {
                 return false;
             }
 
@@ -1236,6 +1217,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
             });
             canvas.setActiveObject(clone);
             canvas.renderAll();
+            emitLayersUpdate(); saveHistory();
 
             return true;
         },
@@ -1800,6 +1782,28 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 canvas.renderAll();
                 emitLayersUpdate();
             }
+        },
+
+        rotateSelected: (direction) => {
+            const canvas = fabricRef.current;
+            const activeObject = canvas?.getActiveObject();
+            if (!canvas || !activeObject) return false;
+            const protectedObject = (object: fabric.Object): boolean => {
+                const system = object as fabric.Object & { __isGuide?: boolean; __isDocumentBackground?: boolean; __isPdfTemplate?: boolean; __isStaticFrame?: boolean; data?: { kind?: string } };
+                return Boolean(system.__isGuide || system.__isDocumentBackground || system.__isPdfTemplate || system.__isStaticFrame
+                    || system.lockRotation || system.data?.kind === 'preset_cut_contour'
+                    || ('getObjects' in object && (object as fabric.Group).getObjects().some(protectedObject)));
+            };
+            if (protectedObject(activeObject)) return false;
+            const center = activeObject.getCenterPoint();
+            const angle = ((activeObject.angle || 0) + (direction === 'left' ? -90 : 90) + 360) % 360;
+            activeObject.rotate(angle);
+            activeObject.setPositionByOrigin(center, 'center', 'center');
+            activeObject.setCoords();
+            canvas.requestRenderAll();
+            // Use the normal edit event for dirty state, properties and Undo.
+            canvas.fire('object:modified', { target: activeObject });
+            return true;
         },
 
         updateSelectedProps: (props: Partial<SelectedObjectProps>) => {
