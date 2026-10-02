@@ -7,6 +7,8 @@ import { useShopSettings } from "@/hooks/useShopSettings";
 import { usePreviewBranding } from "@/contexts/PreviewBrandingContext";
 import { getMatrixStyleVars } from "@/lib/branding/matrix";
 
+import { MaterialLabel } from './MaterialLabel';
+
 type PriceMatrixProps = {
   productionMethods?: Record<string, Record<number, string>>;
   maxColumnsPerPage?: number;
@@ -222,7 +224,7 @@ export function PriceMatrix({
           {rows.map((row) => (
             <div key={row} role="row" className="flex border-b border-[var(--matrix-border)] last:border-b-0">
               <div className="sticky left-0 w-28 flex-shrink-0 border-r border-[var(--matrix-border)] bg-[var(--matrix-row-header-bg)] p-2 text-xs font-medium text-[var(--matrix-row-header-text)] sm:w-32 sm:p-3 sm:text-sm md:w-40" data-site-design-target="productPage.matrix.vertical">
-                {renderRowLabel ? renderRowLabel(row) : row}
+                {renderRowLabel ? renderRowLabel(row) : <MaterialLabel source={{name:row}}/>}
               </div>
               {visibleColumns.map((col) => {
                 const { base, display } = getPrices(row, col);

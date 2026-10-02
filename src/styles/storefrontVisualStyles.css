@@ -515,8 +515,8 @@
     box-shadow: var(--storefront-card-shadow) !important;
   }
 
-  .storefront-order-flow [data-branding-id="productPage.matrix"] button:not([data-product-option-styled]),
-  .storefront-order-flow [data-branding-id="productPage.optionSelectors"] button:not([data-product-option-styled]),
+  .storefront-order-flow [data-branding-id="productPage.matrix"] button:not([data-product-option-styled]):not([data-tooltip-overlay]),
+  .storefront-order-flow [data-branding-id="productPage.optionSelectors"] button:not([data-product-option-styled]):not([data-tooltip-overlay]),
   .storefront-order-flow .price-panel-download-button,
   .storefront-order-flow .order-primary-button,
   .storefront-order-flow .order-secondary-button,
@@ -532,8 +532,8 @@
       color 180ms ease;
   }
 
-  .storefront-order-flow [data-branding-id="productPage.matrix"] button:hover,
-  .storefront-order-flow [data-branding-id="productPage.optionSelectors"] button:hover,
+  .storefront-order-flow [data-branding-id="productPage.matrix"] button:not([data-tooltip-overlay]):hover,
+  .storefront-order-flow [data-branding-id="productPage.optionSelectors"] button:not([data-tooltip-overlay]):hover,
   .storefront-checkout-flow button:hover {
     transform: var(--storefront-button-transform);
   }

@@ -66,3 +66,26 @@ test("renders duplicate visible UUIDs only once", () => {
     ["a", "b"],
   );
 });
+
+test("keeps mixed display and disclosure metadata without changing value membership", () => {
+  const groups = resolveSelectorValueGroups(values, [
+    { id: "primary", label: "Primary", valueIds: ["a", "b"], uiMode: "buttons" },
+    { id: "presets", label: "Presets", valueIds: ["c", "d"], uiMode: "medium", collapsible: true },
+  ]);
+  assert.equal(groups[0].uiMode, "buttons");
+  assert.equal(groups[0].collapsible, false);
+  assert.equal(groups[1].uiMode, "medium");
+  assert.equal(groups[1].collapsible, true);
+  assert.equal(groups[1].initiallyExpanded, false);
+  assert.deepEqual(groups.flatMap(group => group.values.map(value => value.id)), ["a", "b", "c", "d"]);
+});
+
+test("ignores invalid modes and keeps unassigned options accessible outside the disclosure", () => {
+  const groups = resolveSelectorValueGroups(values, [
+    { id: "presets", label: "Presets", valueIds: ["a"], uiMode: "hidden", collapsible: true, initiallyExpanded: true },
+  ]);
+  assert.equal(groups[0].uiMode, undefined);
+  assert.equal(groups[0].initiallyExpanded, true);
+  assert.equal(groups[1].collapsible, undefined);
+  assert.deepEqual(groups[1].values.map(value => value.id), ["b", "c", "d"]);
+});

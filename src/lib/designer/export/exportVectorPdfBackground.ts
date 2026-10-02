@@ -1,3 +1,5 @@
+import { assertSingleCanvasContour } from "../cutContourValidation";
+import { validateProductionCutContour } from "../validateProductionCutContour";
 /**
  * Export Vector PDF Background
  * PROTECTED - See .agent/workflows/vector-pdf-protected.md
@@ -128,6 +130,7 @@ export async function buildVectorPdfBackgroundPdf(
         pasteboardPaddingPx: PASTEBOARD_PADDING_PX,
     };
 
+    if (documentSpec.requires_cut_contour) await validateProductionCutContour(fabricCanvas, documentSpec.preset_cut_contour_template);
     const originalPdf = await PDFDocument.load(pdfBackgroundMeta.originalPdfBytes);
     const pageIndex = pdfBackgroundMeta.pageIndex;
 
@@ -297,6 +300,7 @@ export async function drawCutContoursAsVector(
 ): Promise<void> {
     const cutContourObjects = getCutContourObjects(fabricCanvas);
     if (cutContourObjects.length === 0) return;
+    assertSingleCanvasContour(fabricCanvas.getObjects());
 
     const { width: pageWidth, height: pageHeight } = page.getSize();
     const canvasToPageMatrix = getCanvasCropToPageMatrix(

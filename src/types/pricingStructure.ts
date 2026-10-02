@@ -173,6 +173,9 @@ export interface SelectorValueGroup {
     id: string;
     label: string;
     valueIds: string[];
+    collapsible?: boolean;
+    initiallyExpanded?: boolean;
+    uiMode?: string;
 }
 
 // ============ Vertical Axis Config ============
@@ -183,6 +186,8 @@ export interface VerticalAxisConfig {
     selection_mode?: SelectionMode;
     valueIds: string[];
     valueSettings?: Record<string, LayoutValueSetting>;
+    valueGroups?: SelectorValueGroup[];
+    value_groups?: SelectorValueGroup[];
     selectorStyling?: SelectorStyling;
     title?: string;       // User-defined Display Title
     description?: string; // User-defined Description

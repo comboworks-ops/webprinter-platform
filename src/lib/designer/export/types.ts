@@ -24,6 +24,8 @@ export interface ExportOptions {
 }
 
 export interface DocumentSpec {
+    requires_cut_contour?: boolean;
+    preset_cut_contour_template?: string | null;
     name: string;
     width_mm: number;
     height_mm: number;

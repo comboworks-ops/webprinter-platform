@@ -1,5 +1,9 @@
+import { validateProductionCutContour } from "@/lib/designer/validateProductionCutContour";
+import { productArtworkDimensions } from "@/lib/designer/productArtworkDefaults";
+import { readWideFormatTemplate, wideFormatCutSvg, readSavedWideFormatRules, type SavedWideFormatRules } from "@/lib/designer/wideFormatGeometry";
+import { SINGLE_CUT_CONTOUR_MESSAGE, contourObjects } from "@/lib/designer/cutContourValidation";
 import { PrintMockupButton } from '@/components/mockup/PrintMockupButton';
-import { resolveApprovedPrintModel, printModelTemplatePageCount, printModelArtworkPageIndices } from '@/lib/mockup/approvedPrintModels';
+import { resolveApprovedPrintModel, printModelTemplatePageCount } from '@/lib/mockup/approvedPrintModels';
 import { StorefrontPrimaryButton } from "@/components/storefront/StorefrontPrimaryButton";
 import { FolderMockupButton } from '@/components/mockup/FolderMockupButton';
 import { resolveFolderDefinition } from '@/lib/mockup/folderDefinition';
@@ -108,6 +112,8 @@ import {
     Minus,
     Undo2,
     Redo2,
+    RotateCcw,
+    RotateCw,
     MousePointer2,
     FileUp,
     Settings2,
@@ -680,6 +686,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cutContourInputRef = useRef<HTMLInputElement>(null);
     const autoPreflightTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const preflightRunRef = useRef(0);
     const pdfRerenderTimerRef = useRef<NodeJS.Timeout | null>(null);
     const pdfRerenderInFlightRef = useRef<Set<string>>(new Set());
     const canvasAreaRef = useRef<HTMLDivElement>(null);
@@ -698,8 +705,10 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
     const format = searchParams.get("format");
     const variant = searchParams.get("variant");
     const orderMode = searchParams.get("order") === "1" || searchParams.get("mode") === "order";
+    const [savedWideFormatRules, setSavedWideFormatRules] = useState<SavedWideFormatRules | null>(null);
     const directTemplatePdfUrl = searchParams.get("templatePdfUrl")
         || searchParams.get("templatePdf")
+        || savedWideFormatRules?.templateUrl
         || (orderMode ? checkoutSession?.templatePdfUrl || null : null);
     const directTemplatePdfName = searchParams.get("templatePdfName") || (orderMode ? checkoutSession?.templatePdfName || null : null);
     const expectedTemplatePdfSha256 = normalizeSha256(
@@ -709,7 +718,8 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
     const designerMode = searchParams.get("designerMode") || checkoutSession?.designerMode || null;
     const pricingModel = searchParams.get("pricingModel") || checkoutSession?.pricingModel || null;
     const productFlowLabel = checkoutSession?.productFlowLabel || null;
-    const requiresCutContour = searchParams.get("requiresCutContour") === "1"
+    const presetContourTemplate = readWideFormatTemplate(directTemplatePdfUrl)?.shape.kind === "preset" ? directTemplatePdfUrl : null;
+    const requiresCutContour = savedWideFormatRules?.requiresCutContour === true || Boolean(presetContourTemplate) || searchParams.get("requiresCutContour") === "1"
         || checkoutSession?.requiresCutContour === true;
     const safeReturnTo = getSafeInternalPath(searchParams.get("returnTo"));
     const safeBackTo = getSafeInternalPath(searchParams.get("backTo"));
@@ -1355,6 +1365,9 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                         .single();
 
                     if (design && !error) {
+                        const savedSnapshot = decodeDesignerSnapshot((design as any).editor_json);
+                        const savedRules = readSavedWideFormatRules(savedSnapshot);
+                        setSavedWideFormatRules(savedRules);
                         preferredProfileDesignIdRef.current = designId;
                         setPreferredColorProfile(readSavedColorProfile((design as any).editor_json));
                         setDocumentSpec({
@@ -1371,9 +1384,10 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                             tenant_id: (design as any).tenant_id,
                             format: null,
                         });
-                        setTimeout(() => {
+                        setTimeout(async () => {
                             if ((design as any).editor_json && editorRef.current) {
-                                void editorRef.current.loadJSON(decodeDesignerSnapshot((design as any).editor_json));
+                                await editorRef.current.loadArtworkJSON(savedSnapshot);
+                                if (savedRules?.templateUrl) setPendingTemplatePdf(savedRules.templateUrl);
                             }
                         }, 100);
                         setLoading(false);
@@ -1486,11 +1500,12 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                             }
                         }
 
+                        const dimensions = productArtworkDimensions({ name: productName }, { width: formatValue.width_mm || 210, height: formatValue.height_mm || 297 }, [formatValue.name || '']);
                         setDocumentSpec(prev => ({
                             ...prev,
                             name: `Design: ${productName}`,
-                            width_mm: formatValue.width_mm || 210,
-                            height_mm: formatValue.height_mm || 297,
+                            width_mm: dimensions.width,
+                            height_mm: dimensions.height,
                             bleed_mm: typeof customBleedMm === "number"
                                 ? customBleedMm
                                 : typeof formatBleed === "number"
@@ -1524,11 +1539,12 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                         }
                     }
 
+                    const dimensions = productArtworkDimensions({ name: productName }, dims, [format]);
                     setDocumentSpec(prev => ({
                         ...prev,
                         name: `Design: ${productName}`,
-                        width_mm: dims.width,
-                        height_mm: dims.height,
+                        width_mm: dimensions.width,
+                        height_mm: dimensions.height,
                         bleed_mm: typeof customBleedMm === "number" ? customBleedMm : (dims.bleed || 3),
                         safe_area_mm: typeof customSafeMm === "number" ? customSafeMm : (prev.safe_area_mm || 3),
                         product_id: productDbId,
@@ -1548,11 +1564,12 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
 
                     if (product && !error) {
                         const specs = product.technical_specs as any || {};
+                        const dimensions = productArtworkDimensions(product, { width: specs.width_mm || 210, height: specs.height_mm || 297 });
                         setDocumentSpec(prev => ({
                             ...prev,
                             name: `Design til ${product.name}`,
-                            width_mm: specs.width_mm || 210,
-                            height_mm: specs.height_mm || 297,
+                            width_mm: dimensions.width,
+                            height_mm: dimensions.height,
                             bleed_mm: typeof customBleedMm === "number" ? customBleedMm : (specs.bleed_mm || 3),
                             safe_area_mm: typeof customSafeMm === "number" ? customSafeMm : (specs.safe_area_mm || 3),
                             dpi: specs.min_dpi || 300,
@@ -1725,6 +1742,14 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             return () => clearTimeout(timer);
         }
     }, [pendingCutContour, fabricCanvas]);
+
+    useEffect(() => {
+        if (loading || !fabricCanvas || !editorRef.current) return;
+        const generated = readWideFormatTemplate(directTemplatePdfUrl);
+        if (!generated || generated.shape.kind !== 'preset' || contourObjects(fabricCanvas.getObjects()).length) return;
+        const svg = wideFormatCutSvg(generated.shape, generated.widthMm, generated.heightMm);
+        if (svg) void editorRef.current.addCutContour(svg, { ...generated, templateUrl: directTemplatePdfUrl! });
+    }, [loading, fabricCanvas, directTemplatePdfUrl]);
 
     // Apply pending template PDF once canvas is ready
     useEffect(() => {
@@ -2041,7 +2066,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
     const buildCanvasOrderPdfBlob = useCallback(async (canvas: fabric.Canvas, nameOverride?: string) => {
         const outputProfile = productionColorMode === 'convert_cmyk' ? await colorProofing.resolveOutputProfile() : undefined;
         const result = await createProductionPdf({
-            documentSpec: { ...documentSpec, name: nameOverride || documentSpec.name },
+            documentSpec: { ...documentSpec, requires_cut_contour: requiresCutContour, preset_cut_contour_template: presetContourTemplate, name: nameOverride || documentSpec.name },
             fabricCanvas: canvas, includeBleed: true, outputProfile, colorMode: productionColorMode,
             displayMetrics: { mmToPx: displayMmToPx, pasteboardPaddingPx },
         });
@@ -2051,11 +2076,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             filename: result.filename,
             previewDataUrl: await createCheckoutPreviewDataUrl(await buildCanvasOrderArtworkDataUrl(canvas)),
         };
-    }, [colorProofing, documentSpec, productionColorMode, displayMmToPx, pasteboardPaddingPx, buildCanvasOrderArtworkDataUrl]);
-
-    const artworkTemplatePages = approvedPrintModel
-        ? linkedTemplatePages.slice(0, approvedPrintModel.pages)
-        : linkedTemplatePages;
+    }, [colorProofing, documentSpec, productionColorMode, displayMmToPx, pasteboardPaddingPx, buildCanvasOrderArtworkDataUrl, requiresCutContour, presetContourTemplate]);
 
     const buildLinkedTemplateOrderPdfBlob = useCallback(async (options: ExportOptions = { mode: 'print_pdf', includeBleed: true }) => {
         if (linkedTemplatePages.length <= 1 || !editorRef.current) return null;
@@ -2068,12 +2089,12 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
         const warnings = new Set<string>();
         let previewDataUrl: string | null = null;
         try {
-            for (const pageIndex of printModelArtworkPageIndices(approvedPrintModel, linkedTemplatePages.length)) {
+            for (let pageIndex = 0; pageIndex < linkedTemplatePages.length; pageIndex += 1) {
                 const pageLoaded = await loadLinkedTemplatePageDraft(pageIndex);
                 const pageCanvas = editorRef.current?.getCanvas();
                 if (!pageLoaded || !pageCanvas) throw new Error(`Skabelonside ${pageIndex + 1} kunne ikke indlæses.`);
                 const context = {
-                    documentSpec, fabricCanvas: pageCanvas, outputProfile, colorMode,
+                    documentSpec: { ...documentSpec, requires_cut_contour: requiresCutContour, preset_cut_contour_template: presetContourTemplate }, fabricCanvas: pageCanvas, outputProfile, colorMode,
                     displayMetrics: { mmToPx: displayMmToPx, pasteboardPaddingPx },
                     colorProofing,
                 };
@@ -2098,7 +2119,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             blob: new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/pdf' }),
             filename: `${documentSpec.name.replace(/[^a-z0-9_.-]/gi, '_')}${isProof ? '_proof' : ''}.pdf`, previewDataUrl,
         };
-    }, [activeTemplatePageIndex, approvedPrintModel, buildCanvasOrderArtworkDataUrl, colorProofing, documentSpec, productionColorMode,
+    }, [activeTemplatePageIndex, buildCanvasOrderArtworkDataUrl, colorProofing, documentSpec, productionColorMode, requiresCutContour, presetContourTemplate,
         displayMmToPx, pasteboardPaddingPx, linkedTemplatePages.length, loadLinkedTemplatePageDraft, saveLinkedTemplatePageDraft]);
 
     const buildCanvasOrderPngBlob = useCallback(async (canvas: fabric.Canvas, nameOverride?: string) => {
@@ -2130,10 +2151,21 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             const fabricCanvas = editorRef.current?.getCanvas();
             const pdfBackgroundMeta = detectPdfBackground(fabricCanvas || null);
 
+            if (requiresCutContour) {
+                try {
+                    if (!fabricCanvas) throw new Error("Designfladen er ikke klar.");
+                    await validateProductionCutContour(fabricCanvas, presetContourTemplate);
+                } catch (error) {
+                    toast.error(error instanceof Error ? error.message : "Skærelinjen kunne ikke kontrolleres.");
+                    return;
+                }
+            }
+
             if (
                 !fabricCanvas
                 || (
                     !apparelConfig
+                    && !requiresCutContour
                     && linkedTemplatePages.length <= 1
                     && !pdfBackgroundMeta
                     && !hasOverlayObjects(fabricCanvas)
@@ -2328,7 +2360,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
         };
 
         void prepareDesignerOrderFile();
-    }, [queryTenantId, designShopSettings.data?.id, apparelConfig, buildCanvasOrderArtworkDataUrl, buildCanvasOrderPdfBlob, buildCanvasOrderPngBlob, buildLinkedTemplateOrderPdfBlob, documentSpec, linkedTemplatePages.length, markDesignReady, navigate, orderMode, productId, returningToOrder, safeReturnTo, saveApparelSideDraft]);
+    }, [queryTenantId, designShopSettings.data?.id, apparelConfig, buildCanvasOrderArtworkDataUrl, buildCanvasOrderPdfBlob, buildCanvasOrderPngBlob, buildLinkedTemplateOrderPdfBlob, documentSpec, linkedTemplatePages.length, markDesignReady, navigate, orderMode, productId, returningToOrder, safeReturnTo, saveApparelSideDraft, requiresCutContour, presetContourTemplate]);
 
     // Save and then navigate back
     const handleSaveAndLeave = async () => {
@@ -2351,7 +2383,8 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
 
     // Run preflight checks
     // PROTECTED - See .agent/workflows/preflight-protected.md
-    const runPreflight = useCallback(() => {
+    const runPreflight = useCallback(async () => {
+        const run = ++preflightRunRef.current;
         const canvas = editorRef.current?.getCanvas();
         if (!canvas) return;
 
@@ -2366,6 +2399,17 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             mmToPx: displayMmToPx,
         });
 
+        if (requiresCutContour) {
+            try {
+                await validateProductionCutContour(canvas, presetContourTemplate);
+            } catch (error) {
+                result.errors.push({ id: 'single-cut-contour', type: 'error', code: 'CUT_CONTOUR_INVALID', message: 'Skærelinje mangler eller er ugyldig', details: error instanceof Error ? error.message : SINGLE_CUT_CONTOUR_MESSAGE, canIgnore: false });
+            }
+        }
+        result.passed = result.errors.length === 0;
+        // A newer canvas check owns the sidebar; slower PDF checks must not
+        // replace its result or move focus back to an obsolete error.
+        if (run !== preflightRunRef.current) return result;
         setPreflightWarnings(result.warnings);
         setPreflightErrors(result.errors);
         setPreflightInfos(result.infos);
@@ -2379,7 +2423,8 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             setActiveTab('preflight');
             toast.warning(`Preflight fandt ${result.warnings.length} advarsler`);
         }
-    }, [documentSpec, displayMmToPx]);
+        return result;
+    }, [documentSpec, displayMmToPx, requiresCutContour, presetContourTemplate]);
 
     // Handle selection changes
     const handleSelectionChange = useCallback((hasSel: boolean, props?: SelectedObjectProps) => {
@@ -2590,10 +2635,11 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
         }
 
         const reader = new FileReader();
-        reader.onload = (event) => {
+        reader.onload = async (event) => {
             const svgString = event.target?.result as string;
-            editorRef.current?.addCutContour(svgString);
-            toast.success('CutContour tilføjet');
+            const added = await editorRef.current?.addCutContour(svgString);
+            if (added) toast.success("CutContour tilføjet");
+            else toast.error(SINGLE_CUT_CONTOUR_MESSAGE);
         };
         reader.readAsText(file);
 
@@ -3090,6 +3136,11 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
         try {
             setSaving(true);
 
+            if (requiresCutContour) {
+                const canvas = editorRef.current?.getCanvas();
+                if (!canvas) throw new Error("Designfladen er ikke klar.");
+                await validateProductionCutContour(canvas, presetContourTemplate);
+            }
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) {
                 // Keep all canvas/vector/multi-page state mounted during login.
@@ -3102,7 +3153,13 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             if (!canvas || loading) throw new Error('Designet er ikke klar endnu. Behold fanen åben, og prøv igen.');
             assertDesignerDocumentSaveSupported(linkedTemplatePages.length, apparelConfig?.sides.length || 0);
             const outputProfile = await colorProofing.resolveOutputProfile();
-            const artworkJson = encodeDesignerSnapshot(editorRef.current?.getJSON() || {});
+            const snapshotForSave = () => ({
+                ...(editorRef.current?.getJSON() || {}),
+                ...((requiresCutContour || readWideFormatTemplate(directTemplatePdfUrl)) ? {
+                    wideFormatRules: { version: 1, requiresCutContour, templateUrl: readWideFormatTemplate(directTemplatePdfUrl) ? directTemplatePdfUrl : null },
+                } : {}),
+            });
+            const artworkJson = encodeDesignerSnapshot(snapshotForSave());
             const savedColor: SavedColorProfile = { version: 1, id: outputProfile.id, name: outputProfile.name, sha256: outputProfile.metadata.sha256, productionColorMode };
             const editorJson = withSavedColorProfile(artworkJson, savedColor);
             const saveName = customName || documentSpec.name;
@@ -3223,7 +3280,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             }
 
             // Changes made while the request was pending are still unsaved.
-            const currentJson = encodeDesignerSnapshot(editorRef.current?.getJSON() || {});
+            const currentJson = encodeDesignerSnapshot(snapshotForSave());
             const savedCurrentArtwork = JSON.stringify(currentJson) === JSON.stringify(artworkJson)
                 && latestColorProfileIdRef.current === outputProfile.id
                 && latestProductionColorModeRef.current === savedColor.productionColorMode;
@@ -3270,9 +3327,9 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
     // Export with dialog - uses runDesignerExport for mode selection
     const handleExportWithDialog = async (options: ExportOptions) => {
         // Run preflight first
-        runPreflight();
+        const checked = await runPreflight();
 
-        if (preflightErrors.length > 0) {
+        if (checked?.errors.length) {
             toast.error("Ret venligst preflight-fejl før eksport");
             setActiveTab('preflight');
             return;
@@ -3307,7 +3364,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                 downloadLink.click();
                 downloadLink.remove();
                 URL.revokeObjectURL(downloadUrl);
-                toast.success(`${modeLabels[options.mode]} eksporteret med ${artworkTemplatePages.length} sider!`);
+                toast.success(`${modeLabels[options.mode]} eksporteret med ${linkedTemplatePages.length} sider!`);
                 setIsExportDialogOpen(false);
                 return;
             }
@@ -3331,7 +3388,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             }
 
             const result = await runDesignerExport(options, {
-                documentSpec,
+                documentSpec: { ...documentSpec, requires_cut_contour: requiresCutContour, preset_cut_contour_template: presetContourTemplate },
                 fabricCanvas,
                 colorProofing: {
                     settings: colorProofing.settings,
@@ -3442,7 +3499,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
     // Add to order
     const handleAddToOrder = async () => {
         // Run preflight
-        runPreflight();
+        await runPreflight();
 
         // Continue only after a checked save, including name/login dialogs.
         await handleSave('checkout');
@@ -3875,7 +3932,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                 type: "info",
                 code: "CUT_CONTOUR_FOUND_IN_PDF",
                 message: "CutContour fundet i PDF-basen",
-                details: `PDF-scannen fandt CutContour${detectedPdfCutContour.separationHintDetected ? ", spotfarve/separation" : ""}${detectedPdfCutContour.overprintHintDetected ? " og overprint" : ""}. Du behøver ikke oprette en ny contour i designeren, hvis denne PDF skal bevares som vector ved eksport.`,
+                details: `PDF-scannen fandt CutContour${detectedPdfCutContour.separationHintDetected ? ", spotfarve/separation" : ""}${detectedPdfCutContour.overprintHintDetected ? " og overprint" : ""}. Skærelinjen kontrolleres for én lukket sti før produktionseksport. Et farvenavn alene er ikke en godkendelse.`,
                 canIgnore: false,
             });
         } else if (requiresCutContour && hasVectorPdfBase && hasCutContourOnCanvas) {
@@ -4507,6 +4564,14 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                     </div>
 
                     <div className="flex-1" />
+                    <div className="flex flex-col gap-2 mb-2" role="group" aria-label="Drej valgt grafik">
+                        <Button variant="ghost" size="icon" className="h-11 w-11" disabled={!hasSelection}
+                            title="Drej 90° mod venstre" aria-label="Drej 90° mod venstre"
+                            onClick={() => editorRef.current?.rotateSelected('left')}><RotateCcw className="h-5 w-5" /></Button>
+                        <Button variant="ghost" size="icon" className="h-11 w-11" disabled={!hasSelection}
+                            title="Drej 90° mod højre" aria-label="Drej 90° mod højre"
+                            onClick={() => editorRef.current?.rotateSelected('right')}><RotateCw className="h-5 w-5" /></Button>
+                    </div>
                     <input
                         type="file"
                         ref={fileInputRef}
@@ -4514,7 +4579,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                         accept="image/*"
                         onChange={handleImageUpload}
                     />
-                    {!companyControlledMode && requiresCutContour && (
+                    {!companyControlledMode && requiresCutContour && !presetContourTemplate && (
                         <>
                             <input
                                 type="file"
@@ -4590,14 +4655,14 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                     data-designer-template-verification={JSON.stringify(designerTemplateVerification)}
                     className="flex-1 overflow-auto bg-[#e5e5e5] relative flex items-center justify-center p-20"
                 >
-                    {artworkTemplatePages.length > 1 && (
+                    {linkedTemplatePages.length > 1 && (
                         <div
                             className="absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm backdrop-blur"
                             role="tablist"
                             aria-label="Skabelonens sider"
                         >
                             <Files className="mx-2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                            {artworkTemplatePages.map((page) => {
+                            {linkedTemplatePages.map((page) => {
                                 const isActive = page.index === activeTemplatePageIndex;
                                 return (
                                     <button
@@ -4662,11 +4727,12 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                             onSelectionChange={handleSelectionChange}
                             onCanvasChange={() => {
                                 if (apparelSideChangeRef.current || templatePageChangeRef.current) return;
+                                ++preflightRunRef.current;
                                 setHasChanges(true);
                                 // Debounce auto-preflight
                                 if (autoPreflightTimerRef.current) clearTimeout(autoPreflightTimerRef.current);
                                 autoPreflightTimerRef.current = setTimeout(() => {
-                                    runPreflight();
+                                    void runPreflight();
                                 }, 500);
                             }}
                             onLayersChange={handleLayersChange}
@@ -4816,7 +4882,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                                     <PdfToolsPanel
                                         pdfMeta={selectedPdfMeta}
                                         preflightIssueCount={Math.max(0, preflightErrors.length + preflightWarnings.length)}
-                                        allowCutContour={requiresCutContour}
+                                        allowCutContour={requiresCutContour && !presetContourTemplate}
                                         onFitToDocument={handleFitSelectedPdfToDocument}
                                         onCenterOnDocument={handleCenterSelectedPdf}
                                         onImportNewPdf={handleImportNewPdfFromPanel}
