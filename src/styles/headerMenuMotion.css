@@ -1,0 +1,35 @@
+/* Optional shared entrance master. No setting retains the authored preset.
+   Animate the panel itself, never Radix's positioning wrapper or layout size. */
+[data-menu-entrance="fade"] { --menu-open-name: menu-slow-fade; --menu-open-time: 540ms; --menu-open-ease: ease-out; }
+[data-menu-entrance="zoom"] { --menu-open-name: menu-quick-zoom; --menu-open-time: 190ms; --menu-open-ease: cubic-bezier(.16,1,.3,1); }
+[data-menu-entrance="bounce"] { --menu-open-name: menu-bounce; --menu-open-time: 480ms; --menu-open-ease: ease-out; }
+[data-menu-entrance="unfold"] { --menu-open-name: menu-unfold; --menu-open-time: 460ms; --menu-open-ease: cubic-bezier(.16,1,.3,1); }
+[data-menu-entrance="cascade"] { --menu-open-name: menu-build; --menu-open-time: 280ms; --menu-open-ease: cubic-bezier(.16,1,.3,1); }
+:is(.spm-popover,.header-utility-panel,.storefront-compact-menu,.storefront-legacy-menu)[data-menu-entrance][data-state="open"] {
+  animation: var(--menu-open-name) var(--menu-open-time) var(--menu-open-ease) both;
+  transform-origin: top right;
+}
+[data-menu-entrance][data-state="open"] .spm-paper-panel { animation: none; }
+:is([data-menu-entrance="unfold"],[data-menu-entrance="cascade"])[data-state="open"] :is(.header-utility-items,.header-language-options,.header-search-results-list,.spm-category-links,.spm-showroom-grid,.spm-product-rows,.spm-stage-categories,.spm-quick-list ul,.spm-filmstrip-rail,.spm-tab-grid,.spm-directory-grid) > * {
+  --menu-item-delay: 280ms;
+  animation: menu-item-arrive 260ms cubic-bezier(.16,1,.3,1) var(--menu-item-delay) both;
+}
+[data-menu-entrance="cascade"][data-state="open"] :is(.header-utility-items,.header-language-options,.header-search-results-list,.spm-category-links,.spm-showroom-grid,.spm-product-rows,.spm-stage-categories,.spm-quick-list ul,.spm-filmstrip-rail,.spm-tab-grid,.spm-directory-grid) > * { --menu-item-delay: 140ms; }
+[data-menu-entrance="cascade"][data-state="open"] :is(.header-utility-items,.header-language-options,.header-search-results-list,.spm-category-links,.spm-showroom-grid,.spm-product-rows,.spm-stage-categories,.spm-quick-list ul,.spm-filmstrip-rail,.spm-tab-grid,.spm-directory-grid) > :nth-child(2) { --menu-item-delay: 185ms; }
+[data-menu-entrance="cascade"][data-state="open"] :is(.header-utility-items,.header-language-options,.header-search-results-list,.spm-category-links,.spm-showroom-grid,.spm-product-rows,.spm-stage-categories,.spm-quick-list ul,.spm-filmstrip-rail,.spm-tab-grid,.spm-directory-grid) > :nth-child(3) { --menu-item-delay: 230ms; }
+[data-menu-entrance="cascade"][data-state="open"] :is(.header-utility-items,.header-language-options,.header-search-results-list,.spm-category-links,.spm-showroom-grid,.spm-product-rows,.spm-stage-categories,.spm-quick-list ul,.spm-filmstrip-rail,.spm-tab-grid,.spm-directory-grid) > :nth-child(4) { --menu-item-delay: 275ms; }
+[data-menu-entrance="cascade"][data-state="open"] :is(.header-utility-items,.header-language-options,.header-search-results-list,.spm-category-links,.spm-showroom-grid,.spm-product-rows,.spm-stage-categories,.spm-quick-list ul,.spm-filmstrip-rail,.spm-tab-grid,.spm-directory-grid) > :nth-child(n+5) { --menu-item-delay: 320ms; }
+.header-utility-panel[data-menu-entrance][data-query-active="true"] .header-search-results-list > * { animation:none; }
+/* Keyboard users never have to wait for a staged link to appear. */
+[data-menu-entrance][data-state="open"] :is(a,button,[role="menuitemradio"]):focus-visible { animation: none; opacity: 1; }
+:is(.spm-popover,.header-utility-panel,.storefront-compact-menu,.storefront-legacy-menu)[data-menu-entrance][data-state="open"]:has(:is(a,button,[role="menuitemradio"]):focus-visible) { animation:none; }
+[data-menu-entrance][data-state="open"] :is(.header-utility-items,.header-language-options,.header-search-results-list,.spm-category-links,.spm-showroom-grid,.spm-product-rows,.spm-stage-categories,.spm-filmstrip-rail,.spm-tab-grid,.spm-directory-grid) > *:has(:focus-visible) { animation:none; opacity:1; }
+@keyframes menu-slow-fade { from { opacity:0; } to { opacity:1; } }
+@keyframes menu-quick-zoom { from { opacity:0; transform:translateY(6px) scale(.94); } to { opacity:1; transform:translateY(0) scale(1); } }
+@keyframes menu-bounce { 0% { opacity:0; transform:translateY(-8px) scale(.88); } 55% { opacity:1; transform:translateY(2px) scale(1.025); } 78% { transform:translateY(-1px) scale(.99); } 100% { opacity:1; transform:translateY(0) scale(1); } }
+@keyframes menu-unfold { 0% { opacity:.4; clip-path:inset(0 0 100% 0 round var(--menu-radius,8px)); } 70%,100% { opacity:1; clip-path:inset(0 round var(--menu-radius,8px)); } }
+@keyframes menu-build { from { opacity:0; transform:translateY(-5px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
+@keyframes menu-item-arrive { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+@media(prefers-reduced-motion:reduce) {
+  [data-menu-entrance][data-state], [data-menu-entrance][data-state] * { animation:none !important; transition:none !important; }
+}

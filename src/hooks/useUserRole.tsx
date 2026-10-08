@@ -20,13 +20,16 @@ export const useUserRole = () => {
   const [role, setRole] = useState<UserRole>(null);
   const [loading, setLoading] = useState(true);
   const [serverVerified, setServerVerified] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
   useEffect(() => {
     let active = true;
+    let authTimer: ReturnType<typeof setTimeout> | undefined;
 
     const fetchUserRole = async () => {
       const requestId = ++requestIdRef.current;
+      let checkedUserId: string | null = null;
       const setIfActive = (fn: () => void) => {
         if (!active) return;
         if (requestId !== requestIdRef.current) return;
@@ -41,6 +44,7 @@ export const useUserRole = () => {
         if (!user) {
           user = (await supabase.auth.getUser()).data.user;
         }
+        checkedUserId = user?.id ?? null;
 
         if (!user) {
           setIfActive(() => {
@@ -159,6 +163,7 @@ export const useUserRole = () => {
         });
       } finally {
         setIfActive(() => {
+          setUserId(checkedUserId);
           setLoading(false);
         });
       }
@@ -167,17 +172,27 @@ export const useUserRole = () => {
     void fetchUserRole();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
-      void fetchUserRole();
+      // Invalidate the previous identity immediately. Supabase reads run outside
+      // its auth callback so they cannot wait on the callback's own auth lock.
+      ++requestIdRef.current;
+      setRole(null);
+      setServerVerified(false);
+      setUserId(null);
+      setLoading(true);
+      clearTimeout(authTimer);
+      authTimer = setTimeout(() => { if (active) void fetchUserRole(); }, 0);
     });
 
     return () => {
       active = false;
+      clearTimeout(authTimer);
       subscription.unsubscribe();
     };
   }, []);
 
   return {
     role,
+    userId,
     loading,
     isAdmin: (role === 'admin' || role === 'master_admin') && serverVerified,
     isMasterAdmin: role === 'master_admin' && serverVerified,

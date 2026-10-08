@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/hooks/use-toast";
+import { useUserRole } from "@/hooks/useUserRole";
+import { customerAuthHref, customerLink } from "@/lib/account/navigation";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,49 +11,39 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Shield, Loader2 } from "lucide-react";
 import { z } from "zod";
 
-const adminAuthSchema = z.object({
-  email: z.string().trim().email("Invalid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-});
-
 const AdminLogin = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [submittedUserId, setSubmittedUserId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const location = useLocation();
   const { t } = useLanguage();
+  const { isAdmin, loading: roleLoading, userId: checkedUserId } = useUserRole();
+  const checkingAccess = !!submittedUserId && (roleLoading || checkedUserId !== submittedUserId);
+  const busy = loading || checkingAccess;
+  const accessDenied = !!submittedUserId && !checkingAccess && !isAdmin;
 
   useEffect(() => {
-    const checkAdmin = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        // Check if user has admin role
-        const { data } = await (supabase as any)
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", session.user.id)
-          .in("role", ["admin", "master_admin"]);
-
-        if (Array.isArray(data) && data.length > 0) {
-          navigate("/admin");
-        }
-      }
-    };
-
-    checkAdmin();
-  }, [navigate]);
+    if (!roleLoading && isAdmin && (!submittedUserId || checkedUserId === submittedUserId)) {
+      navigate(customerLink('/admin', location.search), { replace: true });
+    }
+  }, [isAdmin, roleLoading, checkedUserId, submittedUserId, navigate, location.search]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
+    setErrorMessage("");
+    setSubmittedUserId(null);
 
+    const adminAuthSchema = z.object({
+      email: z.string().trim().email(t("invalidEmail")),
+      password: z.string().min(6, t("passwordMinLength")),
+    });
     const validation = adminAuthSchema.safeParse({ email, password });
     if (!validation.success) {
-      toast({
-        title: "Validation Error",
-        description: validation.error.errors[0].message,
-        variant: "destructive",
-      });
+      setErrorMessage(validation.error.errors[0].message);
       return;
     }
 
@@ -65,42 +56,11 @@ const AdminLogin = () => {
       });
 
       if (error) throw error;
-
-      if (data.user) {
-        // Check if user has admin role
-        const { data: roleData, error: roleError } = await (supabase as any)
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", data.user.id)
-          .in("role", ["admin", "master_admin"]);
-
-        if (roleError && roleError.code !== "PGRST116") {
-          throw roleError;
-        }
-
-        if (!Array.isArray(roleData) || roleData.length === 0) {
-          await supabase.auth.signOut();
-          toast({
-            title: "Access Denied",
-            description: "You do not have administrator privileges",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        toast({
-          title: "Success",
-          description: "Logged in as administrator",
-        });
-        navigate("/admin");
-      }
-    } catch (error: any) {
+      if (data.user) setSubmittedUserId(data.user.id);
+      else setErrorMessage(t("loginFailed"));
+    } catch (error: unknown) {
       console.error("Admin login error:", error);
-      toast({
-        title: "Login Failed",
-        description: error.message || "Invalid credentials",
-        variant: "destructive",
-      });
+      setErrorMessage(t("invalidCredentials"));
     } finally {
       setLoading(false);
     }
@@ -125,10 +85,11 @@ const AdminLogin = () => {
               <Input
                 id="email"
                 type="email"
+                autoComplete="email"
                 placeholder="admin@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                disabled={loading}
+                disabled={busy}
                 required
               />
             </div>
@@ -138,19 +99,22 @@ const AdminLogin = () => {
               <Input
                 id="password"
                 type="password"
+                autoComplete="current-password"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                disabled={loading}
+                disabled={busy}
                 required
               />
             </div>
 
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? (
+            {(errorMessage || accessDenied) && <p role="alert" className="text-sm text-destructive">{errorMessage || t("noAdminPrivileges")}</p>}
+            {accessDenied && <Button asChild variant="outline" className="w-full"><Link to={customerLink('/min-konto', location.search)}>{t("customerLogin")}</Link></Button>}
+            <Button type="submit" className="w-full" disabled={busy}>
+              {busy ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {t("signingIn")}
+                  {checkingAccess ? t("checkingAdminAccess") : t("signingIn")}
                 </>
               ) : (
                 <>
@@ -160,8 +124,9 @@ const AdminLogin = () => {
               )}
             </Button>
 
-            <div className="text-center text-sm text-muted-foreground">
-              <Link to="/" className="hover:text-primary">
+            <div className="text-center text-sm text-muted-foreground space-y-3">
+              <div><Link to={customerAuthHref('/min-konto', location.search)} className="hover:text-primary">{t("customerLogin")}</Link></div>
+              <Link to={customerLink('/', location.search)} className="hover:text-primary">
                 {t("backToHome")}
               </Link>
             </div>

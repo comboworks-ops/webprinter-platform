@@ -3,8 +3,10 @@ import { createContext, useContext, useRef, type ButtonHTMLAttributes } from 're
 import type { ProductAttributeGroup } from '@/hooks/useProductAttributes';
 import { WORKSPACE_EDITOR_ACTION } from '@/lib/products/productWorkspaceEditing';
 export type EditorState = { sourceGroups?: ProductAttributeGroup[]; dragTargetId?: string | null; setDragTargetId?: (id: string | null) => void; productId: string; selectedId: string | null; groups: { id: string; title: string; matrix: boolean; options: { sectionId: string; valueId: string }[] }[] };
-export const WorkspaceSourcesContext = createContext<Pick<EditorState, 'productId' | 'sourceGroups'> | null>(null);
+export const WorkspaceSourcesContext = createContext<(Pick<EditorState, 'productId' | 'sourceGroups'> & { configurationOnly?: boolean }) | null>(null);
 export function useWorkspacePreviewSources(productId: string) { const state = useContext(WorkspaceSourcesContext); return state?.productId === productId ? state.sourceGroups : undefined; }
+/** Local import review can inspect configurations before any retail prices exist. */
+export function useWorkspaceConfigurationOnly(productId: string) { const state = useContext(WorkspaceSourcesContext); return import.meta.env.DEV && state?.productId === productId && state.configurationOnly === true; }
 export const EditorContext = createContext<EditorState | null>(null);
 export function useWorkspacePreviewEditing() { return useContext(EditorContext) !== null; }
 

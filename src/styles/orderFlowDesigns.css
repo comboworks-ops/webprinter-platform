@@ -12,9 +12,9 @@ body [data-order-design]:not([data-print-journey], [data-print-journey] *) .stor
 body [data-order-design] > div { --surface-shadow:none; }
 body [data-order-design]:not([data-print-journey], [data-print-journey] *) .storefront-order-flow { background:#fff !important; }
 /* The shop header keeps its saved branding across all order steps. */
-body [data-order-design]:not([data-print-journey], [data-print-journey] *) .storefront-order-flow button:not(.order-primary-button):not(.storefront-primary-action):not([data-product-option-styled]) { box-shadow:none !important; border-radius:4px !important; }
+body [data-order-design]:not([data-print-journey], [data-print-journey] *) .storefront-order-flow button:not(.order-primary-button):not(.storefront-primary-action):not([data-product-option-styled]):not([data-tooltip-overlay]) { box-shadow:none !important; border-radius:4px !important; }
 body [data-order-design] .order-calculator-controls :is(input:not([type="checkbox"]):not([type="radio"]),select) { border-radius:4px !important; border:1px solid #dbe2e9 !important; background:#fff !important; min-height:44px; font-size:16px; }
-body [data-order-design] .order-calculator-controls button:not(.order-primary-button):not(.storefront-primary-action):not([data-product-option-styled]) { min-height:44px !important; padding:10px 14px !important; font-size:14px !important; line-height:1.4 !important; }
+body [data-order-design] .order-calculator-controls button:not(.order-primary-button):not(.storefront-primary-action):not([data-product-option-styled]):not([data-tooltip-overlay]) { min-height:44px !important; padding:10px 14px !important; font-size:14px !important; line-height:1.4 !important; }
 body [data-order-design] .order-calculator-matrix :is([role=grid], [role=gridcell]) { box-shadow:none !important; border-radius:0 !important; font-size:12px !important; }
 .order-compact-price-panel { display:flex; flex-direction:column; gap:16px; font-size:14px; color:var(--flow-ink); }
 .order-price-details { font-size:13px; color:var(--flow-muted); }
@@ -245,7 +245,7 @@ body [data-order-design] .order-calculator-matrix :is([role=grid], [role=gridcel
 [data-calculator-design="2"] .order-calculator-controls > .space-y-4 > div > .grid { grid-template-columns:1fr; }
 .order-calculator-controls [data-site-design-target^="product-selector-box"]:not([data-product-selector-styled="true"]) { border:0 !important; border-radius:0 !important; padding:0 !important; background:transparent !important; }
 .order-calculator-controls [data-site-design-target^="product-selector-box"] > div > span { font-size:14px; text-transform:none; letter-spacing:0; color:var(--flow-ink); }
-.order-calculator-controls [data-site-design-target^="product-selector-box"] button { min-height:44px; padding:10px 14px; font-size:14px; box-shadow:none; border-radius:4px; }
+.order-calculator-controls [data-site-design-target^="product-selector-box"] button:not([data-tooltip-overlay]) { min-height:44px; padding:10px 14px; font-size:14px; box-shadow:none; border-radius:4px; }
 [data-order-design] .order-calculator-matrix > div { padding-top:0; }
 [data-order-design] .order-calculator-matrix table { font-size:12px; }
 [data-order-design] .order-calculator-summary .storefront-order-price-panel { position:static; padding:18px 0 0; border:0; background:transparent; }
@@ -325,6 +325,20 @@ body [data-order-design] .order-calculator-matrix :is([role=grid], [role=gridcel
 
 /* Independent columns keep the order action beside the image instead of below it. */
 .order-calculator-left,.order-calculator-right { min-width:0; }
+/* Flat-surface adhesive: compact choices, sibling help controls and a little
+   more room for production/delivery. Preserve the selected order design. */
+.adhesive-option-buttons { display:flex; flex-wrap:wrap; gap:var(--ui-space-2,8px); }
+.adhesive-option-with-help { position:relative; display:inline-flex; min-width:0; }
+body [data-order-design] .adhesive-option-buttons .adhesive-option-button { min-height:44px; padding:10px 14px; border:1px solid var(--flow-line,#dbe2e9); border-radius:4px; font-size:14px; line-height:1.4; white-space:nowrap; }
+.adhesive-option-text { display:inline-block; padding-right:24px; }
+.adhesive-option-button[aria-pressed="true"] { font-weight:600; }
+.adhesive-option-help { position:absolute; top:3px; right:3px; }
+.adhesive-production-controls { margin-top:var(--ui-space-4,16px); }
+@media (min-width:1100px) {
+  .order-calculator-layout[data-adhesive-product="true"] { grid-template-columns:minmax(0,1fr) 440px; gap:0 var(--ui-space-8,32px); }
+}
+.order-calculator-details { min-width:0; margin-top:var(--ui-space-6, 24px); order:4; }
+.order-calculator-details > [data-branding-id="productPage.infoSection"] { margin-top:0; }
 .order-calculator-right { border-left:1px solid var(--flow-line); padding-left:28px; }
 .order-calculator-right > .order-calculator-controls,
 .order-calculator-right .order-calculator-extras,

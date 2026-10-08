@@ -1,0 +1,3 @@
+
+# Preserve immutable production-template bytes and avoid text whitespace treatment.
+*.pdf binary

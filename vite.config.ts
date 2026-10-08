@@ -44,8 +44,10 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [cleanDistBeforeBuild(), localColorProfileAssets(), react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: [
+      { find: /^lucide-react$/, replacement: path.resolve(__dirname, "./src/components/icons/index.ts") },
+      { find: "@webprinter/lucide-base", replacement: path.resolve(__dirname, "./node_modules/lucide-react/dist/esm/lucide-react.js") },
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+    ],
   },
 }));

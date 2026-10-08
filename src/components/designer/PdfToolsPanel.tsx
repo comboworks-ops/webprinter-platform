@@ -167,7 +167,7 @@ export function PdfToolsPanel({
                         Tilføj CutContour-spotfarve
                     </Button>
                     <p className="text-[11px] leading-4 text-fuchsia-900">
-                        Eksporteres som spotfarven CutContour med 100 % magenta og overprint.
+                        Brug én sammenhængende, lukket sti. Eksporteres som spotfarven CutContour med 100 % magenta og overprint.
                     </p>
                 </div>
             )}

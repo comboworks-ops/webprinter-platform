@@ -1,0 +1,72 @@
+{
+  "package": "@fontsource/inter",
+  "version": "5.3.0",
+  "license": "OFL-1.1",
+  "source": "https://www.npmjs.com/package/@fontsource/inter/v/5.3.0",
+  "files": [
+    {
+      "file": "inter-latin-600-normal.woff2",
+      "sha256": "f9a06e79cd3a2a20951c0f0e28f66dd0e6d3fda73911d640a2125c8fcb78f21a"
+    },
+    {
+      "file": "inter-latin-600-italic.woff2",
+      "sha256": "c45ec86655c4614e7db0b9d2ea00303c1b252dae5671227aae5955f696069de6"
+    },
+    {
+      "file": "inter-latin-700-italic.woff2",
+      "sha256": "facd8f930c88e4bf79be48afe46671c9dd72f82cf5f4311acc84a48e616ea169"
+    },
+    {
+      "file": "inter-latin-700-normal.woff2",
+      "sha256": "6f56409fd3d64bb85f7d070bce20749db2d66b6d63cec586cc22d1c761be2491"
+    },
+    {
+      "file": "inter-latin-500-italic.woff2",
+      "sha256": "ec7b5fad608d36d16f65939bd09e70b4bb81446fa7ee32b345d0c2e4fcd174b7"
+    },
+    {
+      "file": "inter-latin-500-normal.woff2",
+      "sha256": "f3779f1efccc4bdcdf9c0a02ab95bf6bd092ed09c48c08cedc725889edd1d19f"
+    },
+    {
+      "file": "inter-latin-400-normal.woff2",
+      "sha256": "8909904ab6c872eb994093482a88a28eca2cd95912d7b6fecd72103b0dc07edc"
+    },
+    {
+      "file": "inter-latin-400-italic.woff2",
+      "sha256": "7ea9d2f1274cebee837f0c6eebb426c18fbb2333a6b6da4d02ec5cf47db7fb8e"
+    },
+    {
+      "file": "inter-latin-ext-500-normal.woff2",
+      "sha256": "2c6fbc42d315528beb06c1096df45487bf4186c4b78b8111d12c9c951f8acca2"
+    },
+    {
+      "file": "inter-latin-ext-500-italic.woff2",
+      "sha256": "b1b7d9a28e0326ed62303240b585eb28f24684be5f64d5972fd124e707c8d168"
+    },
+    {
+      "file": "inter-latin-ext-400-italic.woff2",
+      "sha256": "1edee689a85979c6c2f2b5c4d8b2d99994e57b7ac8e7f50d01cf842950a2f554"
+    },
+    {
+      "file": "inter-latin-ext-400-normal.woff2",
+      "sha256": "6744a7f509ebc6ab220a6cd4ea77e898adf014f03d88dcda5d45d8a9feefb4e9"
+    },
+    {
+      "file": "inter-latin-ext-600-italic.woff2",
+      "sha256": "298e326a12b28c88bc14aac801d34be1f43077703254e180688ce3110985bf28"
+    },
+    {
+      "file": "inter-latin-ext-600-normal.woff2",
+      "sha256": "e4bdf67b0cd15ca9e184509275be95db942195d3cc2b17f6a0452f2adf75d0bf"
+    },
+    {
+      "file": "inter-latin-ext-700-normal.woff2",
+      "sha256": "143f9504f1377012aa3e39c90c4354ef429cb0494b9ac0e1437f1a81e5412236"
+    },
+    {
+      "file": "inter-latin-ext-700-italic.woff2",
+      "sha256": "d071e4fc8d35e023eb25adc8a3de43c6167cb718d118e413a7bce97d6ab38e26"
+    }
+  ]
+}

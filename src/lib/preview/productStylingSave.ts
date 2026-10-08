@@ -49,7 +49,7 @@ export function collectProductStylingPatches(before: unknown, after: unknown): P
         const sectionId = section.sectionId || section.id;
         const old = oldSections.find(candidate => (candidate.sectionId || candidate.id) === sectionId);
         if (typeof sectionId !== 'string' || !old) continue;
-        for (const key of ['title', 'ui_mode', 'selection_mode', 'valueIds', 'valueSettings', 'selectorStyling', 'thumbnail_size', 'thumbnail_custom_px']) {
+        for (const key of ['title', 'ui_mode', 'selection_mode', 'valueIds', 'valueSettings', 'valueGroups', 'selectorStyling', 'thumbnail_size', 'thumbnail_custom_px']) {
             patches.push(...diff(old[key], section[key], [key], sectionId));
         }
     }

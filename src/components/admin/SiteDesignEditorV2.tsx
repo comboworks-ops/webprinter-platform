@@ -1,3 +1,4 @@
+import { IconPackProvider } from "@/components/icons/IconFamily";
 import { applySiteColor, buildSiteColorPatch } from '@/lib/branding/siteColors';
 import { SiteColorResetControls } from './SiteColorResetControls';
 import { SharedButtonLocalControls } from './SharedButtonsControls';
@@ -11,6 +12,7 @@ import { standardSiteDesign, applyMainButtonSettings } from '@/lib/branding/site
 import { ProductPresentationPicker } from "@/components/admin/ProductPresentationPicker";
 import { applyProductPresentation, PRODUCT_PRESENTATIONS, resolveProductPresentation } from "@/lib/branding/productPresentations";
 import { resolveDropdownPreset } from "@/lib/branding/dropdownPresets";
+import { menuColorsChanged } from "@/lib/branding/headerMenuSettings";
 
 import { OrderFlowDesignInspector } from "@/components/admin/OrderFlowDesignInspector";
 import { SiteDesignWorkspace, SiteDesignNavigation } from "@/components/admin/SiteDesignWorkspace";
@@ -2351,7 +2353,7 @@ const SECTION_LABELS: Record<string, string> = {
     "product-description": "Produktbeskrivelse",
     content: "Indholdsblokke",
     footer: "Footer",
-    icons: "Produktbilleder (Ikoner)",
+    icons: "Billeder og ikoner",
 };
 
 type SectionGroupId = "global" | "home" | "product";
@@ -2541,7 +2543,7 @@ const SECTION_BUTTON_CONFIGS: SectionButtonConfig[] = [
     },
     {
         id: "icons",
-        label: "Produktbilleder (Ikoner)",
+        label: "Billeder og ikoner",
         group: "home",
         icon: Sparkles,
         buttonClassName: "menu-btn-item flex items-center gap-3 w-full px-3 py-3 rounded-xl border transition-all hover:shadow-md bg-white border-emerald-100 text-emerald-900 hover:bg-emerald-50/50 hover:border-emerald-200 group",
@@ -4206,7 +4208,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                             <summary>Menulayout, links og detaljer</summary>
                         <HeaderSection
                             header={editor.draft.header}
-                            onChange={(header) => editor.updateDraft({ header, themeSettings: { ...editor.draft.themeSettings, dropdownColorsCustomized: true } })}
+                            dropdownColorsCustomized={Boolean(editor.draft.themeSettings?.dropdownColorsCustomized)}
+                            primaryColor={editor.draft.colors.primary}
+                            onChange={(header) => editor.updateDraft({ header, themeSettings: { ...editor.draft.themeSettings, dropdownColorsCustomized: editor.draft.themeSettings?.dropdownColorsCustomized || menuColorsChanged(editor.draft.header, header) } })}
                             focusTargetId={focusedTargetId}
                             savedSwatches={editor.draft.savedSwatches}
                             onSaveSwatch={(color) => {
@@ -7934,7 +7938,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     };
 
     return (
-        <div ref={workspaceRef} className="workspace-site-design-v2 flex flex-col">
+        <IconPackProvider packId={editor.draft.selectedIconPackId}><div ref={workspaceRef} className="workspace-site-design-v2 flex flex-col">
             <SiteDesignWorkspace
                 title={editor.mode === 'master' ? 'Designskabeloner til shops' : 'Site Design'}
                 description={editor.mode === 'master' ? 'Genbrugelige udgangspunkter til shops. Den enkelte shop redigeres i Site Design.' : `Design for ${editor.entityName}. Tilpas siden, og se ændringerne med det samme.`}
@@ -8925,6 +8929,6 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     isPublishing={editor.isSaving}
                 />
             )}
-        </div>
+        </div></IconPackProvider>
     );
 }

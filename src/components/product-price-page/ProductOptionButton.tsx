@@ -2,6 +2,8 @@ import { localOptionButtonStyle, sharedButtonAttributes } from '@/lib/branding/s
 import { useSharedButtonStyles } from '@/components/storefront/SharedButtonContext';
 import { forwardRef, useState, type ButtonHTMLAttributes } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { MaterialInfoIcons } from './MaterialLabel';
+import { useMaterialOptionInfo } from './materialOptionInfoContext';
 import { cn } from '@/lib/utils';
 import { useWorkspaceOptionEditing } from './workspacePreviewContext';
 
@@ -24,8 +26,12 @@ export const ProductOptionButton = forwardRef<HTMLButtonElement, ButtonHTMLAttri
       if (availabilityHint) { event.preventDefault(); event.stopPropagation(); setOpen(value => !value); }
       else onClick?.(event);
     }}>{children}</button>;
-  if (!availabilityHint) return button;
-  return <Popover open={open} onOpenChange={setOpen}>
+  const materialInfo = useMaterialOptionInfo((props as Record<string, unknown>)['data-site-design-target'] as string | undefined);
+  const withInformation = (control: React.ReactNode) => materialInfo?.length
+    ? <span className="relative flex min-w-0 flex-col gap-1">{control}<span className="flex justify-end"><MaterialInfoIcons configs={materialInfo}/></span></span>
+    : control;
+  if (!availabilityHint) return withInformation(button);
+  return withInformation(<Popover open={open} onOpenChange={setOpen}>
     <PopoverTrigger asChild>{button}</PopoverTrigger>
     <PopoverContent side="top" className="max-w-[calc(100vw-2rem)] text-sm" aria-label="Sådan bliver valget tilgængeligt">
       <p>{availabilityHint.text}</p>
@@ -34,6 +40,6 @@ export const ProductOptionButton = forwardRef<HTMLButtonElement, ButtonHTMLAttri
         <ul className="mt-1 list-disc space-y-1 pl-4">{availabilityHint.alternatives.map(text => <li key={text}>{text}</li>)}</ul>
       </> : <p className="mt-2 text-muted-foreground">Der er ingen bekræftet kombination for dette valg i produktets aktuelle muligheder.</p>}
     </PopoverContent>
-  </Popover>;
+  </Popover>);
 });
 ProductOptionButton.displayName = 'ProductOptionButton';

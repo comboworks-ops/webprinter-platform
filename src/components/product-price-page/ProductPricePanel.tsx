@@ -1,7 +1,9 @@
+import { applyBrochureDocumentParams } from '@/lib/designer/brochureProduct';
+import { validBrochurePageCount } from '@/lib/designer/brochureDocument';
 import { resolveSharedButton, sharedButtonAttributes } from '@/lib/branding/sharedButtons';
 import '@/styles/sharedButtons.css';
 import { retainProductEditDraft } from '@/lib/checkout/retainProductEdit';
-import { useState, useEffect, useMemo, type CSSProperties } from "react";
+import { useState, useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -50,6 +52,7 @@ type ProductPricePanelProps = {
   productPrice: number;
   extraPrice?: number;
   deliveryBusinessDayOffset?: number;
+  productionControls?: ReactNode;
   orderValidationError?: string | null;
   onShippingChange?: (type: string | null, cost: number) => void;
   summary?: string;
@@ -66,7 +69,10 @@ type ProductPricePanelProps = {
   designHeightMm?: number;
   designBleedMm?: number;
   designSafeAreaMm?: number;
+  brochurePageCount?: number | null;
   designerTemplateLaunch?: DesignerTemplateLaunch | null;
+  /** Draft prices can be reviewed and designed without issuing a commercial offer. */
+  priceIsProposal?: boolean;
   productFlow?: StorefrontProductFlow | null;
   externalDeliveryEnabled?: boolean;
   externalDeliveryMethods?: DeliveryMethod[];
@@ -231,7 +237,8 @@ export function ProductPricePanel({
   productPrice,
   extraPrice = 0,
   deliveryBusinessDayOffset = 0,
-  orderValidationError,
+  productionControls,
+  orderValidationError: suppliedOrderValidationError,
   onShippingChange,
   summary,
   optionSelections,
@@ -247,7 +254,9 @@ export function ProductPricePanel({
   designHeightMm,
   designBleedMm,
   designSafeAreaMm,
+  brochurePageCount,
   designerTemplateLaunch,
+  priceIsProposal = false,
   productFlow,
   externalDeliveryEnabled,
   externalDeliveryMethods,
@@ -723,8 +732,10 @@ export function ProductPricePanel({
   const totalPrice = baseTotal + (baseTotal > 0 ? activeShippingCost : 0);
   const deliveryLabel = activeDeliveryMethod?.name || (externalMode ? "Levering beregnes" : "Levering");
   const hasStableSelection = quantity > 0 || !!selectedVariant || !!summary;
-  const canDownloadOffer = baseTotal > 0;
-  const canOrder = baseTotal > 0 && !orderValidationError;
+  const brochureSelectionIncomplete = activeProductFlow.designerMode === 'brochure' && !validBrochurePageCount(brochurePageCount ?? 0);
+  const orderValidationError = suppliedOrderValidationError || (brochureSelectionIncomplete ? 'Vælg brochurens sidetal, før du fortsætter.' : null);
+  const canDownloadOffer = baseTotal > 0 && !priceIsProposal;
+  const canOrder = baseTotal > 0 && !orderValidationError && !priceIsProposal;
   const sharedSelection = sharedButtonAttributes(resolveSharedButton(activeBranding, 'selection', 'order-selection'), 'selection');
   const sharedCta = sharedButtonAttributes(resolveSharedButton(activeBranding, 'cta', 'order'), 'cta');
   const primaryButtonCssVars = {
@@ -989,7 +1000,7 @@ export function ProductPricePanel({
         productId, width: designerTemplateLaunch?.widthMm ?? designWidthMm ?? null,
         height: designerTemplateLaunch?.heightMm ?? designHeightMm ?? null,
         bleed: designerTemplateLaunch?.bleedMm ?? designBleedMm ?? null,
-        templateUrl: designerTemplateLaunch?.pdfUrl, designerMode: activeProductFlow.designerMode,
+        templateUrl: designerTemplateLaunch?.pdfUrl, designerMode: activeProductFlow.designerMode, brochurePageCount,
       }, typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('editCheckout') === '1'),
       ...(productArtworkUpload ? { siteUpload: productArtworkUpload, designerExport: null, proofApprovalRequired: true } : {}),
       ...matchingCompanyContext,
@@ -1008,6 +1019,7 @@ export function ProductPricePanel({
         ? buildCurrentInternalPath(window.location.pathname, window.location.search)
         : null,
       designerMode: activeProductFlow.designerMode,
+      ...(activeProductFlow.designerMode === "brochure" ? { brochurePageCount: brochurePageCount ?? null } : {}),
       pricingModel: activeProductFlow.pricingModel,
       productFlowLabel: activeProductFlow.badgeLabel,
       productFlowHelpText: activeProductFlow.customerHelpText,
@@ -1150,6 +1162,7 @@ export function ProductPricePanel({
     designHeightMm,
     designBleedMm,
     designSafeAreaMm,
+    brochurePageCount,
     activeDeliveryMethod?.id,
     activeShippingCost,
     pricingQuote,
@@ -1165,7 +1178,7 @@ export function ProductPricePanel({
   const guardPreviewAction = (event: React.MouseEvent) => {
     if (!isPreviewMode) return;
     const action = (event.target as HTMLElement).closest('a,button');
-    if (!action || ['radio', 'checkbox', 'combobox'].includes(action.getAttribute('role') || '')) return;
+    if (!action || action.matches('[data-tooltip-overlay],.adhesive-option-button') || ['radio', 'checkbox', 'combobox'].includes(action.getAttribute('role') || '')) return;
     event.preventDefault(); event.stopPropagation();
     toast.info('Denne handling er slået fra i forhåndsvisningen.');
   };
@@ -1175,7 +1188,8 @@ export function ProductPricePanel({
       {optionSelections && Object.values(optionSelections).map((option, idx) => <p key={idx}>{option.name}</p>)}
       <p>{activeProductFlow.customerHelpText}</p>{formatGuide && <ProductFormatGuideDialog data={formatGuide} />}
     </details>
-    <div className="order-compact-subtotal"><span>Produkt, ex. moms</span><strong>{baseTotal > 0 ? `${baseTotal} kr` : 'Vælg antal'}</strong></div>
+    <div className="order-compact-subtotal"><span>{priceIsProposal ? 'Produkt · prisforslag' : 'Produkt, ex. moms'}</span><strong>{baseTotal > 0 ? `${baseTotal} kr` : priceIsProposal ? 'Pris afventer' : 'Vælg antal'}</strong></div>
+      {productionControls}
       {/* Delivery options - Always Visible */}
       {hasStableSelection && (
         <div className="space-y-3 pt-4">
@@ -1307,12 +1321,12 @@ export function ProductPricePanel({
           </RadioGroup>
 
           <div className="price-panel-divider flex flex-col gap-1 border-t pt-4 sm:flex-row sm:items-end sm:justify-between">
-            <span data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-sm">Samlet pris ex. moms:</span>
+            <span data-branding-id="productPage.pricePanel.mutedText" className="price-panel-muted text-sm">{priceIsProposal ? 'Prisforslag:' : 'Samlet pris ex. moms:'}</span>
             <span
               data-branding-id="productPage.pricePanel.price"
               className="price-panel-price min-w-0 text-left text-3xl font-heading font-bold tabular-nums sm:min-w-[170px] sm:text-right sm:text-4xl"
             >
-              {totalPrice} kr
+              {priceIsProposal && baseTotal <= 0 ? 'Pris afventer' : `${totalPrice} kr`}
             </span>
           </div>
         </div>
@@ -1335,6 +1349,7 @@ export function ProductPricePanel({
                       : "order-secondary-button border-dashed border-2"
                   )}
                   style={{ ...(designReady ? selectedButtonCssVars : secondaryButtonCssVars), ...sharedSelection.style }}
+                  disabled={brochureSelectionIncomplete}
                   onClick={() => {
                     const checkoutState = persistCheckoutState({ crossTab: true });
                     const currentSearchParams = new URLSearchParams(
@@ -1343,6 +1358,7 @@ export function ProductPricePanel({
                     const params = new URLSearchParams();
                     copyStorefrontContextParams(params, currentSearchParams);
                     params.set('productId', productId);
+                    applyBrochureDocumentParams(params, activeProductFlow.designerMode, brochurePageCount);
                     if (activeProductFlow.designerMode) params.set('designerMode', activeProductFlow.designerMode);
                     if (activeProductFlow.pricingModel) params.set('pricingModel', activeProductFlow.pricingModel);
                     if (activeProductFlow.requiresCutContour) params.set('requiresCutContour', '1');
@@ -1363,6 +1379,7 @@ export function ProductPricePanel({
                     if (designerTemplateLaunch?.pdfUrl) {
                       params.set('templatePdfUrl', designerTemplateLaunch.pdfUrl);
                       params.set('templatePdfName', designerTemplateLaunch.name);
+                      if (designerTemplateLaunch.tenantId) params.set('tenantId', designerTemplateLaunch.tenantId);
                       if (designerTemplateLaunch.templatePdfSha256) {
                         params.set('templatePdfSha256', designerTemplateLaunch.templatePdfSha256);
                       }
@@ -1450,7 +1467,7 @@ export function ProductPricePanel({
                   style={secondaryButtonCssVars}
                 >
                   <a
-                    href={designerTemplateLaunch.pdfUrl}
+                    href={designerTemplateLaunch.downloadUrl || designerTemplateLaunch.pdfUrl}
                     download={templateDownloadName}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -1790,6 +1807,7 @@ export function ProductPricePanel({
                       : "order-secondary-button border-dashed border-2"
                   )}
                   style={{ ...(designReady ? selectedButtonCssVars : secondaryButtonCssVars), ...sharedSelection.style }}
+                  disabled={brochureSelectionIncomplete}
                   onClick={() => {
                     const checkoutState = persistCheckoutState({ crossTab: true });
                     const currentSearchParams = new URLSearchParams(
@@ -1798,6 +1816,7 @@ export function ProductPricePanel({
                     const params = new URLSearchParams();
                     copyStorefrontContextParams(params, currentSearchParams);
                     params.set('productId', productId);
+                    applyBrochureDocumentParams(params, activeProductFlow.designerMode, brochurePageCount);
                     if (activeProductFlow.designerMode) params.set('designerMode', activeProductFlow.designerMode);
                     if (activeProductFlow.pricingModel) params.set('pricingModel', activeProductFlow.pricingModel);
                     if (activeProductFlow.requiresCutContour) params.set('requiresCutContour', '1');
@@ -1818,6 +1837,7 @@ export function ProductPricePanel({
                     if (designerTemplateLaunch?.pdfUrl) {
                       params.set('templatePdfUrl', designerTemplateLaunch.pdfUrl);
                       params.set('templatePdfName', designerTemplateLaunch.name);
+                      if (designerTemplateLaunch.tenantId) params.set('tenantId', designerTemplateLaunch.tenantId);
                       if (designerTemplateLaunch.templatePdfSha256) {
                         params.set('templatePdfSha256', designerTemplateLaunch.templatePdfSha256);
                       }
@@ -1905,7 +1925,7 @@ export function ProductPricePanel({
                   style={secondaryButtonCssVars}
                 >
                   <a
-                    href={designerTemplateLaunch.pdfUrl}
+                    href={designerTemplateLaunch.downloadUrl || designerTemplateLaunch.pdfUrl}
                     download={templateDownloadName}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -1972,6 +1992,7 @@ export function ProductPricePanel({
         </div>
       </div>
 
+      {productionControls}
       {/* Delivery options - Always Visible */}
       {hasStableSelection && (
         <div className="space-y-3 pt-4">

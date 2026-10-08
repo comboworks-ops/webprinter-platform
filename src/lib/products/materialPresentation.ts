@@ -52,7 +52,7 @@ export function materialTooltipDefaults(source: MaterialSource, sectionId: strin
   const presentation = materialPresentation(source);
   const anchor = materialTooltipAnchor(sectionId, valueId);
   const defaults: TooltipConfig[] = [];
-  if (presentation.text) defaults.push({anchor, title: `Om ${presentation.label}`, icon:'info', color:'#64748b', animation:'fade', text:presentation.text});
+  if (presentation.text) defaults.push({anchor, title: `Om ${presentation.label}`, icon:'question', color:'#64748b', animation:'fade', text:presentation.text});
   if (presentation.fsc) defaults.push({anchor:`${anchor}:fsc`, title:'FSC-certificeret', icon:'leaf', color:'#47755b', animation:'fade', text:'Materialet er angivet som FSC-certificeret i materialebeskrivelsen. FSC er en certificeringsordning for ansvarlig skovdrift og sporbarhed af skovbaserede materialer.', link:'https://fsc.org/en/what-the-fsc-labels-mean'});
   if (presentation.recycled) defaults.push({anchor:`${anchor}:recycled`, title:'Genbrugspapir',icon:'recycle',color:'#47755b',animation:'fade',text:'Materialebeskrivelsen angiver genbrugspapir. Den angivne genbrugsandel fremgår af materialets navn eller beskrivelse.'});
   return defaults;

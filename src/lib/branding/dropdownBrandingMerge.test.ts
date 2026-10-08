@@ -53,3 +53,15 @@ test('both branding readers preserve selected new and legacy menus through inher
     }
   }
 });
+
+test('both branding readers preserve independent menu motion, behaviour and palette choices', () => {
+  for (const merge of [mergeStorefront, mergeEditor]) {
+    const header = { dropdownPreset:'kinetic-type', dropdownEntrance:'cascade', dropdownSearchPresentation:'visual', dropdownLanguagePresentation:'cards', dropdownAccentColor:'#993344' };
+    const stored = { themeId:'print-nordic', header, themeSettings:{ dropdownColorsCustomized:false } };
+    const result = merge(stored as never);
+    for (const [key,value] of Object.entries(header)) assert.equal(result.header[key as keyof typeof result.header],value);
+    assert.equal(result.themeSettings?.dropdownColorsCustomized,false);
+    const reloaded = merge(JSON.parse(JSON.stringify(result)));
+    assert.deepEqual(reloaded.header,result.header);
+  }
+});

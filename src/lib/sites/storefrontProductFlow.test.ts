@@ -33,3 +33,7 @@ test("an explicit non-template mode is not overridden by a downloadable PDF", ()
   assert.equal(flow.designerMode, "flat_print");
   assert.equal(flow.pricingModel, "matrix");
 });
+test("explicit brochure metadata opens the page Designer with a reading-order PDF guide", () => {
+  const flow=resolveStorefrontProductFlow({pricing_type:'matrix',technical_specs:{site_modes:{designer_mode:'brochure',pricing_model:'matrix'}},template_files:[{url:'https://example.test/page.pdf'}]});
+  assert.equal(flow.designerMode,'brochure');assert.equal(flow.pricingModel,'matrix');assert.equal(flow.designerCtaLabel,'Åbn sidedesigner');assert.equal(flow.showDesignerButton,true);assert.match(flow.checkoutUploadHelpText,/forside først, bagside sidst/);
+});

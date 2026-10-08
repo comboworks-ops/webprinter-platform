@@ -1,3 +1,6 @@
+import { resolveBrochurePageCount } from '@/lib/designer/brochureProduct';
+import type { BrochureFreeMatrixMeta } from '@/lib/pricing/brochureFreePricing';
+import type { BrochureSavedPreview } from '@/dev/brochureSavedPreview';
 import { wideFormatTemplateLaunch, readWideFormatShapeBindings } from "@/lib/designer/wideFormatGeometry";
 import { productArtworkDimensions } from "@/lib/designer/productArtworkDefaults";
 import { approvedPrintTemplateLaunch } from '@/lib/mockup/approvedPrintModels';
@@ -21,6 +24,18 @@ import { useLocation, useParams, useSearchParams } from "react-router-dom";
 import { PriceMatrix } from "@/components/product-price-page/PriceMatrix";
 import { MatrixLayoutV1Renderer } from "@/components/product-price-page/MatrixLayoutV1Renderer";
 import { ProductPricePanel, type DeliveryMethod } from "@/components/product-price-page/ProductPricePanel";
+import { RollLabelConfiguration } from '@/components/product-price-page/RollLabelConfiguration';
+import { RollLabelPriceMatrix } from '@/components/product-price-page/RollLabelPriceMatrix';
+import { useRollLabelGenericPrices } from '@/components/product-price-page/useRollLabelGenericPrices';
+import { readRollLabelPriceMatrixContract } from '@/lib/products/rollLabelPriceMatrix';
+import { rollLabelPriceForSelection, rollLabelPriceInitialSelection, rollLabelPriceSelectionKey } from '@/lib/products/rollLabelPricePreview';
+import { useRollLabelSystemPreview } from '@/dev/rollLabelSystemPreview';
+import { WorkspaceSourcesContext } from '@/components/product-price-page/workspacePreviewContext';
+import { readRollLabelStockDisplay } from '@/lib/products/rollLabelStockDisplay';
+import { readRollLabelProductContract, resolveRollLabelProductProfile, type RollLabelSelection } from '@/lib/products/rollLabelConfiguration';
+import { rollLabelSelectionGuide } from '@/lib/products/rollLabelSizeGeometry';
+import type { DesignerTemplateLaunch } from '@/lib/designer/productTemplateLinks';
+import '@/styles/rollLabelReview.css';
 import { ProductFilters } from "@/components/product-price-page/ProductFilters";
 import { StaticProductInfo } from "@/components/product-price-page/StaticProductInfo";
 import {
@@ -124,13 +139,15 @@ const writeDetailCache = (tenantId: string, slug: string, payload: ProductDetail
   }
 };
 
-const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = false }: { workspacePreview?: boolean; previewSlug?: string; cardPreview?: boolean }) => {
+const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = false, localBrochurePreview }: { workspacePreview?: boolean; previewSlug?: string; cardPreview?: boolean; localBrochurePreview?: BrochureSavedPreview }) => {
+  const savedBrochurePreview = import.meta.env.DEV ? localBrochurePreview : undefined;
   const { slug: routeSlug } = useParams<{ slug: string }>();
   const slug = previewSlug || routeSlug;
   const preview = usePreviewBranding();
   const previewCatalog = useStorefrontCatalog({ enabled: workspacePreview && cardPreview });
   const location = useLocation();
   const [searchParams] = useSearchParams();
+  const localRollPreview = useRollLabelSystemPreview(searchParams);
   const shopSettings = useShopSettings();
   const MASTER_TENANT_ID = "00000000-0000-0000-0000-000000000000";
   const branding = preview.isPreviewMode && preview.branding ? preview.branding : shopSettings.data?.branding;
@@ -165,7 +182,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
   const [folderUploadDraft, setFolderUploadDraft] = useState<ProductFolderUpload | null>(null);
   const [selectedFormat, setSelectedFormat] = useState<string>("");
   const [matrixSelectedSectionValues, setMatrixSelectedSectionValues] = useState<Record<string, string | null>>({});
-  const [matrixPricingMeta, setMatrixPricingMeta] = useState<{
+  const [matrixPricingMeta, setMatrixPricingMeta] = useState<BrochureFreeMatrixMeta & {
     formatId?: string;
     materialId?: string;
     variantKey?: string;
@@ -186,7 +203,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
   const [sizeDistributionValues, setSizeDistributionValues] = useState<Record<string, number>>({});
   const [basePricingStructure, setPricingStructure] = useState<any>(null);
   const [valueNameById, setValueNameById] = useState<Record<string, string>>({});
-  const [valueMetaById, setValueMetaById] = useState<Record<string, { width_mm?: number; height_mm?: number; bleed_mm?: number; safe_area_mm?: number }>>({});
+  const [valueMetaById, setValueMetaById] = useState<Record<string, { width_mm?: number; height_mm?: number; bleed_mm?: number; safe_area_mm?: number; brochurePageCount?: number }>>({});
   const [matrixSelectionSummary, setMatrixSelectionSummary] = useState<string[]>([]);
   const [storformatSelection, setStorformatSelection] = useState<StorformatSelection | null>(null);
   const [podSelectionMeta, setPodSelectionMeta] = useState<{ variantKey?: string; verticalValueId?: string }>({});
@@ -201,6 +218,32 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
   }, [productPrice]);;
   const [dbProductId, setDbProductId] = useState<string | null>(null);
   const pricingStructure: any = (preview.isPreviewMode && dbProductId && preview.productPricingOverrides[dbProductId]) || basePricingStructure;
+  const [rollLabelSelection,setRollLabelSelection] = useState<RollLabelSelection|null>(null);
+  const [rollLabelSeed,setRollLabelSeed] = useState<RollLabelSelection|null>(null);
+  const hasRollLabelContract = Boolean(pricingStructure?.rollLabelConfiguration);
+  const rollLabelContract = useMemo(()=>readRollLabelProductContract(pricingStructure?.rollLabelConfiguration,dbProductId || ''),[pricingStructure,dbProductId]);
+  const rollLabelPrices = useMemo(()=>readRollLabelPriceMatrixContract(pricingStructure?.rollLabelPricing,rollLabelContract),[pricingStructure,rollLabelContract]);
+  // Stable exact combinations keep the existing matrix callbacks from feeding
+  // identical quantity tiers back into a perpetual render/route-transition loop.
+  const rollExactSelections = useMemo(() => rollLabelContract?.profiles.filter(p => !p.blockers.length).map(p => ({
+    [rollLabelContract.sections.format]: p.formatValueId, [rollLabelContract.sections.material]: p.materialValueId,
+  })) ?? null, [rollLabelContract]);
+  const rollLabelProfile = useMemo(()=>rollLabelContract && dbProductId
+    ? resolveRollLabelProductProfile(rollLabelContract,dbProductId,
+      galleryMatrixSelections(matrixSelectedSectionValues,pricingStructure?.vertical_axis,selectedCell?.row,valueNameById)) : null,
+    [rollLabelContract,dbProductId,matrixSelectedSectionValues,pricingStructure?.vertical_axis,selectedCell?.row,valueNameById]);
+  const matchingRollLabelSelection = rollLabelProfile && rollLabelSelection?.profileKey===rollLabelProfile.key
+    && rollLabelSelection.productId===dbProductId ? rollLabelSelection : null;
+  const initialRollLabelSelection = rollLabelProfile
+    ? rollLabelSeed?.profileKey===rollLabelProfile.key && rollLabelSeed.productId===dbProductId ? rollLabelSeed
+      : restoredCheckoutSelection?.pricingQuote?.rollLabels?.profileKey===rollLabelProfile.key ? restoredCheckoutSelection.pricingQuote.rollLabels
+        : rollLabelPriceInitialSelection(rollLabelPrices,rollLabelProfile.key,rollLabelProfile.optionStates?.initialStateId)
+    : null;
+  const chooseRollLabelPrice = useCallback((value:RollLabelSelection)=>{setRollLabelSeed(value);setRollLabelSelection(value);},[]);
+  const rollStockDisplay = rollLabelProfile && rollLabelContract && dbProductId
+    ? readRollLabelStockDisplay(rollLabelProfile,dbProductId,rollLabelContract.familyId) : null;
+  const rollMatrixColumnUnit = rollLabelProfile?.customerArtworkRequired===false
+    ? rollStockDisplay?.sourceQuantityUnit==='rolls' ? 'ruller' : 'kildeantal' : 'stk';
   const [genericVariantNames, setGenericVariantNames] = useState<string[]>([]);
   const [selectedVariantName, setSelectedVariantName] = useState<string>("");
   const [baseDbProduct, setDbProduct] = useState<{
@@ -221,6 +264,8 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     is_published?: boolean;
   } | null>(null);
   const dbProduct = useMemo(() => baseDbProduct ? { ...baseDbProduct, ...(pricingStructure as any)?.workspaceContent } : null, [baseDbProduct, pricingStructure]);
+  const displayedRollLabelPrices = useRollLabelGenericPrices(rollLabelPrices,matchingRollLabelSelection,localRollPreview.packet?.genericPriceRows,dbProduct?.tenant_id);
+  const rollLabelPrice = matchingRollLabelSelection && displayedRollLabelPrices ? rollLabelPriceForSelection(displayedRollLabelPrices,matchingRollLabelSelection) : null;
   const [mpaConfig, setMpaConfig] = useState<any>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [productUnavailable, setProductUnavailable] = useState(false);
@@ -262,6 +307,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     return "";
   }, [selectedFormat, selectedVariantName, valueMetaById, isUuid]);
   const optionPricingDimensions = useMemo(() => {
+    if (matrixPricingMeta.brochureFree) return { widthMm: matrixPricingMeta.brochureFree.widthMm, heightMm: matrixPricingMeta.brochureFree.heightMm };
     if (isStorformat && storformatSelection) {
       return {widthMm: storformatSelection.widthCm * 10, heightMm: storformatSelection.heightCm * 10};
     }
@@ -271,7 +317,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     const dimensions = valueMetaById[matrixPricingMeta.formatId || selectedFormatId];
     return dimensions?.width_mm && dimensions?.height_mm
       ? {widthMm: dimensions.width_mm, heightMm: dimensions.height_mm} : null;
-  }, [isStorformat, storformatSelection, product?.id, customWidth, customHeight, valueMetaById, matrixPricingMeta.formatId, selectedFormatId]);
+  }, [isStorformat, storformatSelection, product?.id, customWidth, customHeight, valueMetaById, matrixPricingMeta.formatId, matrixPricingMeta.brochureFree, selectedFormatId]);
   const optionAreaM2 = optionPricingDimensions && optionPricingDimensions.widthMm > 0 && optionPricingDimensions.heightMm > 0
     ? optionPricingDimensions.widthMm * optionPricingDimensions.heightMm / 1_000_000 : null;
   const isPodProduct = !!dbProduct?.technical_specs?.is_pod;
@@ -383,12 +429,16 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
   ]);
 
   const orderValidationError = useMemo(() => {
+    if(hasRollLabelContract) return rollLabelPrice
+      ? `Prisforslag fra ${new Date(rollLabelPrice.capturedAt).toLocaleDateString('da-DK')}. Moms og levering afventer klargøring før bestilling.`
+      : 'Der er endnu ikke en kontrolleret pris for præcis disse mål, antal og valg. Bestilling afventer klargøring.';
+    if(savedBrochurePreview) return 'Forhåndsvisning – bestilling er endnu ikke åbnet.';
     if (Object.values(optionSelections).some(option => option.priceMode === "per_area") && !optionAreaM2) {
       return "Vælg et format med kendte mål, før tillæg pr. m² kan beregnes.";
     }
     if (!sizeDistributionMismatch) return null;
     return `Fordel størrelser så summen er ${sizeDistributionSelectionQuantity} stk (nu ${sizeDistributionTotal}).`;
-  }, [sizeDistributionMismatch, sizeDistributionSelectionQuantity, sizeDistributionTotal, optionSelections, optionAreaM2]);
+  }, [sizeDistributionMismatch, sizeDistributionSelectionQuantity, sizeDistributionTotal, optionSelections, optionAreaM2, savedBrochurePreview,hasRollLabelContract,rollLabelPrice]);
 
   const sizeDistributionSummary = useMemo(() => {
     if (!sizeDistributionConfig || sizeDistributionEntries.length === 0) return "";
@@ -408,13 +458,13 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
   useEffect(() => {
     async function fetchDbProduct() {
       if (!slug) return;
-      if (shopSettings.isLoading) return;
+      if (shopSettings.isLoading && !localRollPreview.requested) return;
       setLoading(true);
       setFallbackNotice(null);
       setProductUnavailable(false);
       setMpaConfig(null);
       console.log('[ProductPrice] Fetching product with slug:', slug);
-      const productSelect = 'id, slug, name, description, image_url, about_title, about_description, about_image_url, category, technical_specs, pricing_structure, pricing_type, banner_config, template_files' as any;
+      const productSelect = 'id, tenant_id, slug, name, description, image_url, about_title, about_description, about_image_url, category, technical_specs, pricing_structure, pricing_type, banner_config, template_files' as any;
       const tenantId = shopSettings.data?.id || MASTER_TENANT_ID;
       const applyProductData = (data: any) => {
         setDbProductId(data.id);
@@ -440,6 +490,14 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
         }
       };
 
+      if(savedBrochurePreview?.product.slug===slug){
+        applyProductData(savedBrochurePreview.product);setLoading(false);return;
+      }
+      if(localRollPreview.requested){
+        if(localRollPreview.loading)return;
+        if(!localRollPreview.packet || localRollPreview.packet.product.slug!==slug){setProductUnavailable(true);setLoading(false);return;}
+        applyProductData(localRollPreview.packet.product);setLoading(false);return;
+      }
       if ((workspacePreview || preview.isPreviewMode) && searchParams.get('tenantId')) {
         const previewTenant = searchParams.get('tenantId');
         if (!previewTenant) { setLoading(false); setProductUnavailable(true); return; }
@@ -628,19 +686,19 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
       }
     }
     fetchDbProduct();
-  }, [slug, shopSettings.data?.id, shopSettings.isLoading, workspacePreview, preview.isPreviewMode, preview.productPricingRefreshVersion]);
+  }, [slug, shopSettings.data?.id, shopSettings.isLoading, workspacePreview, preview.isPreviewMode, preview.productPricingRefreshVersion, savedBrochurePreview,localRollPreview.requested,localRollPreview.loading,localRollPreview.packet]);
 
   useEffect(() => {
     if (!dbProductId || !isGenericPricing) return;
 
     const fetchAttributeValues = async () => {
-      const { data } = await supabase
+      const { data } = localRollPreview.packet ? {data:localRollPreview.packet.sourceGroups} : savedBrochurePreview ? {data:savedBrochurePreview.sourceGroups} : await supabase
         .from('product_attribute_groups')
         .select('id, values:product_attribute_values(id, name, width_mm, height_mm, meta)')
         .eq('product_id', dbProductId);
 
       const map: Record<string, string> = {};
-      const metaMap: Record<string, { width_mm?: number; height_mm?: number; bleed_mm?: number; safe_area_mm?: number }> = {};
+      const metaMap: Record<string, { width_mm?: number; height_mm?: number; bleed_mm?: number; safe_area_mm?: number; brochurePageCount?: number }> = {};
       (data || []).forEach((group: any) => {
         (group.values || []).forEach((value: any) => {
           map[value.id] = value.name;
@@ -656,6 +714,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
             width_mm: value.width_mm ?? undefined,
             height_mm: value.height_mm ?? undefined,
             bleed_mm: typeof parsedMeta?.bleed_mm === "number" ? parsedMeta.bleed_mm : undefined,
+            brochurePageCount: typeof parsedMeta?.brochurePageCount === "number" ? parsedMeta.brochurePageCount : undefined,
             safe_area_mm: typeof parsedMeta?.safe_area_mm === "number" ? parsedMeta.safe_area_mm : undefined
           };
         });
@@ -665,7 +724,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     };
 
     fetchAttributeValues();
-  }, [dbProductId, isGenericPricing]);
+  }, [dbProductId, isGenericPricing, savedBrochurePreview,localRollPreview.packet]);
 
   useEffect(() => {
     if (!isGenericPricing) return;
@@ -693,7 +752,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
       if (!data || data.length === 0) return;
 
       const map: Record<string, string> = {};
-      const metaMap: Record<string, { width_mm?: number; height_mm?: number; bleed_mm?: number; safe_area_mm?: number }> = {};
+      const metaMap: Record<string, { width_mm?: number; height_mm?: number; bleed_mm?: number; safe_area_mm?: number; brochurePageCount?: number }> = {};
       (data || []).forEach((value: any) => {
         map[value.id] = value.name;
         let parsedMeta: any = value.meta || null;
@@ -708,7 +767,8 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
           width_mm: value.width_mm ?? undefined,
           height_mm: value.height_mm ?? undefined,
           bleed_mm: typeof parsedMeta?.bleed_mm === "number" ? parsedMeta.bleed_mm : undefined,
-          safe_area_mm: typeof parsedMeta?.safe_area_mm === "number" ? parsedMeta.safe_area_mm : undefined
+          brochurePageCount: typeof parsedMeta?.brochurePageCount === "number" ? parsedMeta.brochurePageCount : undefined,
+            safe_area_mm: typeof parsedMeta?.safe_area_mm === "number" ? parsedMeta.safe_area_mm : undefined
         };
       });
       setValueNameById(prev => ({ ...prev, ...map }));
@@ -934,7 +994,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     selections: Record<string, string | null>,
     formatId?: string,
     materialId?: string,
-    meta?: { variantKey?: string; verticalValueId?: string },
+    meta?: BrochureFreeMatrixMeta,
   ) => {
     setMatrixSelectedSectionValues((prev) => {
       const prevEntries = Object.entries(prev);
@@ -956,12 +1016,16 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
         materialId,
         variantKey: meta?.variantKey,
         verticalValueId: meta?.verticalValueId,
+        brochureFree: meta?.brochureFree,
+        brochureTemplate: meta?.brochureTemplate,
       };
       return (
         prev.formatId === next.formatId
         && prev.materialId === next.materialId
         && prev.variantKey === next.variantKey
         && prev.verticalValueId === next.verticalValueId
+        && JSON.stringify(prev.brochureFree) === JSON.stringify(next.brochureFree)
+        && JSON.stringify(prev.brochureTemplate) === JSON.stringify(next.brochureTemplate)
       ) ? prev : next;
     });
     if (meta?.variantKey || meta?.verticalValueId) {
@@ -977,7 +1041,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
 
   const pricingQuote = useMemo<SiteCheckoutState["pricingQuote"]>(() => {
     if (!dbProductId) return null;
-    const quantity = isStorformat ? (storformatSelection?.quantity || 0) : (selectedCell?.column || 0);
+    const quantity = hasRollLabelContract ? (matchingRollLabelSelection?.quantity || 0) : isStorformat ? (storformatSelection?.quantity || 0) : (selectedCell?.column || 0);
     if (!quantity || quantity <= 0) return null;
     const selectedValues = Object.values(matrixSelectedSectionValues || {})
       .map((value) => String(value || ""))
@@ -987,7 +1051,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
       productId: dbProductId,
       productSlug: slug || null,
       quantity,
-      quantityTiers: pricingStructure?.mode === 'matrix_layout_v1' ? matrixQuantityTiers.map(tier => ({
+      quantityTiers: !hasRollLabelContract && pricingStructure?.mode === 'matrix_layout_v1' ? matrixQuantityTiers.map(tier => ({
         quantity: tier.quantity, price: Math.round(tier.price + computeOptionExtras(optionSelections, tier.quantity, optionAreaM2 || 0)),
       })) : undefined,
       formatId: matrixPricingMeta.formatId || selectedFormat || null,
@@ -997,6 +1061,8 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
       variantValueIds: selectedValues,
       variantDisplayLabels: matrixSelectionSummary,
       selectedSectionValues: matrixSelectedSectionValues,
+      ...(matrixPricingMeta.brochureFree ? { brochureFree: matrixPricingMeta.brochureFree } : {}),
+      ...(matchingRollLabelSelection ? {rollLabels:matchingRollLabelSelection} : {}),
       optionIds: Object.values(optionSelections)
         .map((option) => option.optionId)
         .filter((optionId) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(optionId || ""))),
@@ -1014,7 +1080,9 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
       } : null,
     };
   }, [
+    hasRollLabelContract,
     matrixQuantityTiers, computeOptionExtras, pricingStructure,
+    matchingRollLabelSelection,
     optionAreaM2,
     optionPricingDimensions,
     dbProductId,
@@ -1116,13 +1184,36 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     if (selectedFormatId && valueNameById[selectedFormatId]) return valueNameById[selectedFormatId];
     return selectedFormat || selectedVariantName || "";
   }, [isStorformat, storformatSelection, selectedFormat, selectedFormatId, selectedVariantName, valueNameById]);
+  const brochurePageCount = resolveBrochurePageCount(resolveStorefrontProductFlow(dbProduct || {}).designerMode, matrixSelectedSectionValues, valueMetaById);
   const availableProductTemplates = useMemo(() => {
     return Array.isArray(dbProduct?.template_files) ? dbProduct.template_files : [];
   }, [dbProduct?.template_files]);
   const exactTemplateCombinationSelections = useMemo(() => (
     collectExactTemplateSelectionConstraints(availableProductTemplates)
   ), [availableProductTemplates]);
+  const rollDocumentKey = matchingRollLabelSelection ? JSON.stringify(matchingRollLabelSelection) : '';
+  const [rollDocument, setRollDocument] = useState<{ key: string; contract: unknown; launch: DesignerTemplateLaunch } | null>(null);
+  useEffect(() => {
+    let active = true, downloadUrl: string | null = null;
+    setRollDocument(null);
+    if (matchingRollLabelSelection && dbProductId && rollLabelContract && dbProduct?.tenant_id) {
+      void import('@/lib/designer/rollLabelGeneratedTemplate').then(async ({ prepareRollLabelGeneratedTemplate }) => {
+        const generated = await prepareRollLabelGeneratedTemplate(matchingRollLabelSelection, dbProductId, rollLabelContract);
+        if (!active || !generated) return;
+        downloadUrl = URL.createObjectURL(new Blob([generated.bytes.slice().buffer], { type: 'application/pdf' }));
+        setRollDocument({ key: rollDocumentKey, contract: rollLabelContract, launch: { pdfUrl: generated.descriptor,
+          downloadUrl, tenantId: dbProduct.tenant_id, templatePdfSha256: generated.sha256,
+          name: `Etiket ${generated.guide.formatLabel}`, widthMm: generated.guide.finishedWidthMm,
+          heightMm: generated.guide.finishedHeightMm, bleedMm: generated.guide.bleedMm, safeMm: generated.guide.safeAreaMm,
+          artworkMode: generated.designerAllowed ? 'online_designer' : 'professional_pdf_upload_only' } });
+      }).catch(() => { if (active) setRollDocument(null); });
+    }
+    return () => { active = false; if (downloadUrl) URL.revokeObjectURL(downloadUrl); };
+  }, [matchingRollLabelSelection, dbProductId, rollLabelContract, dbProduct?.tenant_id, rollDocumentKey]);
+  const currentRollDocument = rollDocument?.key === rollDocumentKey && rollDocument.contract === rollLabelContract ? rollDocument.launch : null;
   const designerTemplateLaunch = useMemo(() => {
+    if (hasRollLabelContract) return currentRollDocument;
+    if (matrixPricingMeta.brochureFree) return matrixPricingMeta.brochureTemplate || null;
     if (isStorformat && storformatSelection?.templateShape) {
       return wideFormatTemplateLaunch(storformatSelection.templateShape, storformatSelection.widthCm * 10, storformatSelection.heightCm * 10);
     }
@@ -1138,7 +1229,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
         ? { width: storformatSelection.widthCm * 10, height: storformatSelection.heightCm * 10 }
         : null } : {}),
     });
-  }, [availableProductTemplates, isStorformat, storformatSelection, matrixSelectedSectionValues, matrixSelectionSummary, selectedFormat, selectedFormatLabel]);
+  }, [availableProductTemplates, isStorformat, storformatSelection, matrixSelectedSectionValues, matrixSelectionSummary, selectedFormat, selectedFormatLabel, matrixPricingMeta.brochureFree, matrixPricingMeta.brochureTemplate, hasRollLabelContract, currentRollDocument]);
   const approvedPrintModel = useApprovedPrintModel(designerTemplateLaunch, pricingStructure?.workspaceContent, matrixSelectedSectionValues);
   const approvedDesignerLaunch = useMemo(() => approvedPrintTemplateLaunch(designerTemplateLaunch, approvedPrintModel), [designerTemplateLaunch, approvedPrintModel]);
   const legacyLinkedTemplateId = useMemo(() => {
@@ -1159,6 +1250,13 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     template_files: dbProduct?.template_files || null,
   }), [dbProduct?.category, dbProduct?.name, dbProduct?.pricing_type, dbProduct?.technical_specs, dbProduct?.template_files, product]);
   const productFlow = useMemo(() => {
+    if(hasRollLabelContract) return {...baseProductFlow,showDesignerButton:designerTemplateLaunch?.artworkMode === 'online_designer',
+      showTemplateDownload:Boolean(designerTemplateLaunch), designerMode:'pdf_template' as const,
+      designerCtaLabel:'Lav design', prefersTemplateOverlay:true,
+      customerHelpText:'Du kan forberede designet. Pris og bestilling afventer godkendelse.'};
+    if (baseProductFlow.designerMode === 'brochure' && selectedFormat === pricingStructure?.brochureFreeSize?.formatValueId && !matrixPricingMeta.brochureTemplate) {
+      return { ...baseProductFlow, showDesignerButton: false, showTemplateDownload: false, customerHelpText: 'Vælg gyldige mål for at åbne brochurens sideskabelon.' };
+    }
     if (isStorformat && storformatSelection?.templateShape?.kind === "freeform") return { ...baseProductFlow, designerMode: "storformat" as const, showDesignerButton: true, showTemplateDownload: false, prefersTemplateOverlay: false, requiresCutContour: true };
     if (isStorformat && designerTemplateLaunch) {
       return { ...baseProductFlow, showTemplateDownload: true, prefersTemplateOverlay: true, requiresCutContour: storformatSelection?.templateShape?.kind === "preset" || baseProductFlow.requiresCutContour };
@@ -1182,9 +1280,12 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
       showDesignerButton: false,
       showTemplateDownload: false,
     };
-  }, [baseProductFlow, designerTemplateLaunch, hasConfigurationSpecificTemplates, isStorformat, legacyLinkedTemplateId, storformatSelection?.templateShape]);
+  }, [baseProductFlow, designerTemplateLaunch, hasConfigurationSpecificTemplates, isStorformat, legacyLinkedTemplateId, storformatSelection?.templateShape, selectedFormat, pricingStructure?.brochureFreeSize?.formatValueId, matrixPricingMeta.brochureTemplate,hasRollLabelContract]);
   const currentDimensions = useMemo(() => {
     const techSpecs = dbProduct?.technical_specs;
+    if(matchingRollLabelSelection?.widthMm && matchingRollLabelSelection.heightMm) return {
+      width:matchingRollLabelSelection.widthMm,height:matchingRollLabelSelection.heightMm,
+      bleed:rollLabelProfile?.sizeGeometry?.bleedMm ?? rollLabelProfile?.nativeGuide?.bleedMm ?? techSpecs?.bleed_mm ?? 3};
     const orient = <T extends { width: number; height: number }>(dimensions: T) => productArtworkDimensions(product, dimensions, matrixSelectionSummary);
     if (selectedFormatId) {
       const meta = valueMetaById[selectedFormatId];
@@ -1215,8 +1316,11 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
 
     // 3. Ultimate default
     return orient({ width: 210, height: 297, bleed: 3 });
-  }, [selectedFormatId, selectedFormat, selectedVariantName, dbProduct?.technical_specs, valueMetaById, valueNameById, product, matrixSelectionSummary]);
+  }, [selectedFormatId, selectedFormat, selectedVariantName, dbProduct?.technical_specs, valueMetaById, valueNameById, product, matrixSelectionSummary,matchingRollLabelSelection,rollLabelProfile]);
   const designDimensions = useMemo(() => {
+    if (baseProductFlow.designerMode === 'brochure' && selectedFormat === pricingStructure?.brochureFreeSize?.formatValueId) {
+      return { width: matrixPricingMeta.brochureFree?.widthMm || 0, height: matrixPricingMeta.brochureFree?.heightMm || 0, bleed: 3 };
+    }
     const isAreaBased = product?.id === "bannere" || product?.id === "skilte" || product?.id === "folie";
     if (isStorformat && storformatSelection) {
       return {
@@ -1233,8 +1337,9 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
       };
     }
     return currentDimensions;
-  }, [product?.id, isStorformat, storformatSelection, customWidth, customHeight, currentDimensions]);
+  }, [product?.id, isStorformat, storformatSelection, customWidth, customHeight, currentDimensions, baseProductFlow.designerMode, selectedFormat, pricingStructure?.brochureFreeSize?.formatValueId, matrixPricingMeta.brochureFree]);
   const designSafeAreaMm = useMemo(() => {
+    if (hasRollLabelContract) return rollLabelProfile?.sizeGeometry?.safeMm ?? rollLabelProfile?.nativeGuide?.safeAreaMm;
     if (selectedFormatId) {
       const meta = valueMetaById[selectedFormatId];
       if (typeof meta?.safe_area_mm === "number") return meta.safe_area_mm;
@@ -1243,13 +1348,14 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
       return dbProduct.technical_specs.safe_area_mm;
     }
     return undefined;
-  }, [selectedFormatId, valueMetaById, dbProduct?.technical_specs]);
+  }, [selectedFormatId, valueMetaById, dbProduct?.technical_specs,hasRollLabelContract,rollLabelProfile]);
   const formatGuideData = useMemo<ProductFormatGuideData | null>(() => {
+    if (hasRollLabelContract) return rollLabelSelectionGuide(rollLabelProfile,matchingRollLabelSelection) || rollLabelProfile?.nativeGuide || null;
     if (!product || !selectedFormatLabel || designDimensions.width <= 0 || designDimensions.height <= 0) {
       return null;
     }
 
-    const layoutKind = selectionUsesFoldedLayout(product.name, selectedFormatLabel, ...matrixSelectionSummary)
+    const layoutKind = productFlow.designerMode === "brochure" ? "brochure" : selectionUsesFoldedLayout(product.name, selectedFormatLabel, ...matrixSelectionSummary)
       ? "folded"
       : "flat";
     const printSideLabel = matrixSelectionSummary.find((label) => (
@@ -1280,6 +1386,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
       safeAreaMm: designerTemplateLaunch?.safeMm ?? designSafeAreaMm ?? 3,
       minDpi: Number(dbProduct?.technical_specs?.min_dpi || 300),
       layoutKind,
+      brochurePageCount: brochurePageCount || undefined,
       printSideLabel,
       foldTypeLabel,
       pageCountLabel,
@@ -1292,6 +1399,9 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
         : null,
     };
   }, [
+    hasRollLabelContract,
+    rollLabelProfile,
+    matchingRollLabelSelection,
     dbProduct?.image_url,
     dbProduct?.technical_specs?.min_dpi,
     designDimensions.bleed,
@@ -1302,6 +1412,8 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     matrixSelectionSummary,
     product,
     selectedFormatLabel,
+    productFlow.designerMode,
+    brochurePageCount,
   ]);
   const linkedTemplateId = useMemo(() => {
     return resolveLinkedDesignerTemplateId(
@@ -1512,6 +1624,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
   const productIntro = (
         <div className="storefront-order-hero flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between sm:gap-8 mb-8" data-branding-id="productPage.heading">
           <div className="flex-1">
+            {localRollPreview.requested && <p className="roll-label-status" role="status">Lokal produktprøve · bestilling er endnu ikke åbnet.</p>}
             {(() => {
               const ph = (branding as any)?.productPage?.heading;
               const headingText = ph?.customText?.trim() || product.name;
@@ -1588,11 +1701,11 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
 
   const renderPricingInterface = () => {
     if (isStorformat && dbProductId) {
-      const storformatDeliveryBusinessDayOffset = /fast production/i.test(
+      const storformatDeliveryBusinessDayOffset = storformatSelection?.deliveryBusinessDayOffset ?? (/fast production/i.test(
         storformatSelection?.productName || ""
       )
         ? 2
-        : 0;
+        : 0);
       const summaryParts = [
         product?.name,
         storformatSelection ? `${storformatSelection.widthCm} x ${storformatSelection.heightCm} cm` : null,
@@ -1605,14 +1718,16 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
 
       return <StorformatConfigurator
         productId={dbProductId}
+        fastProductionDayOffset={dbProduct?.banner_config?.production_timing?.fast_business_days_saved}
         initialState={restoredCheckoutSelection}
         sourceShapeBindings={readWideFormatShapeBindings(dbProduct?.technical_specs)}
         onSelectionChange={handleStorformatSelection}
         layout={{ design: orderDesign, intro: productIntro, media: productMedia,
           details: infoBelowCalculator ? staticProductInfo : undefined,
           extras: <><DynamicProductOptions productId={dbProductId} onSelectionChange={handleOptionSelectionChange} />{sizeDistributionBlock}</>,
-          summary: (
+          summary: (productionControls) => (
             <ProductPricePanel
+              productionControls={productionControls}
               productArtworkUpload={matchingFolderUpload}
               presentation="order-flow"
               productId={dbProductId}
@@ -1637,6 +1752,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
               designSafeAreaMm={designSafeAreaMm}
               designerTemplateLaunch={approvedDesignerLaunch}
               productFlow={productFlow}
+              brochurePageCount={brochurePageCount}
               externalDeliveryEnabled={podShippingEnabled}
               externalDeliveryMethods={podShippingMethods}
               externalDeliveryLoading={podShippingLoading}
@@ -1653,40 +1769,49 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     }
 
     if (pricingStructure?.mode === 'matrix_layout_v1' && dbProductId) {
-      return (
+      const calculator = (
         <MatrixLayoutV1Renderer
+          rollLabelMatrix={hasRollLabelContract ? <RollLabelPriceMatrix packet={displayedRollLabelPrices} profile={rollLabelProfile}
+            selection={matchingRollLabelSelection} materialLabel={rollLabelProfile ? valueNameById[rollLabelProfile.materialValueId] || 'Valgt materiale' : 'Materiale'} onChoose={chooseRollLabelPrice} /> : undefined}
           productId={dbProductId}
+          columnUnit={rollMatrixColumnUnit}
           pricingStructure={pricingStructure}
-          exactCombinationSelections={exactTemplateCombinationSelections}
+          exactCombinationSelections={rollExactSelections ?? (productFlow?.designerMode === "brochure" && pricingStructure?.brochureCompatibility?.version === 1 ? pricingStructure.brochureCompatibility.selections : exactTemplateCombinationSelections)}
           initialSelection={restoredCheckoutSelection?.pricingQuote?.selectedSectionValues || undefined}
           initialSelectedRow={restoredCheckoutSelection?.selectedVariant || undefined}
           initialSelectedQuantity={restoredCheckoutSelection?.quantity || undefined}
+          initialBrochureFree={restoredCheckoutSelection?.pricingQuote?.brochureFree}
           onCellClick={handleMatrixCellClick}
           onSelectionSummary={setMatrixSelectionSummary}
           onQuantityTiers={setMatrixQuantityTiers}
           onSelectionChange={handleMatrixSelectionChange}
           layout={{ design: orderDesign, intro: productIntro, media: productMedia,
             extras: <>
-              <DynamicProductOptions
+              {!hasRollLabelContract && <DynamicProductOptions
                 productId={dbProductId}
                 onSelectionChange={handleOptionSelectionChange}
-              />
+              />}
               {sizeDistributionBlock}
+              {hasRollLabelContract && (rollLabelContract && rollLabelProfile ? <RollLabelConfiguration key={dbProductId}
+                profile={rollLabelProfile} productId={dbProductId} familyId={rollLabelContract.familyId}
+                initialSelection={initialRollLabelSelection}
+                onChange={setRollLabelSelection} pricePreview /> : <p role="status">Vælg en dokumenteret form og et materiale.</p>)}
             </>,
             summary: (
               <ProductPricePanel
                 productArtworkUpload={matchingFolderUpload}
                 presentation="order-flow"
                 productId={dbProductId}
-                quantity={selectedCell?.column || 0}
-                productPrice={productPrice}
-                extraPrice={optionExtraPrice}
+                quantity={hasRollLabelContract ? matchingRollLabelSelection?.quantity || 0 : selectedCell?.column || 0}
+                productPrice={hasRollLabelContract ? rollLabelPrice?.priceDkk || 0 : productPrice}
+                priceIsProposal={hasRollLabelContract}
+                extraPrice={hasRollLabelContract ? 0 : optionExtraPrice}
                 branding={shopSettings.data?.branding}
                 orderValidationError={orderValidationError}
                 onShippingChange={handleShippingChange}
                 optionSelections={combinedOptionSelections}
                 pricingQuote={pricingQuote}
-                selectedVariant={selectedCell?.row}
+                selectedVariant={hasRollLabelContract ? rollLabelProfile ? valueNameById[rollLabelProfile.materialValueId] : undefined : selectedCell?.row}
                 productName={product?.name || ''}
                 productSlug={slug || ''}
                 selectedFormat={selectedFormat}
@@ -1698,8 +1823,9 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
                 designSafeAreaMm={designSafeAreaMm}
                 designerTemplateLaunch={approvedDesignerLaunch}
                 productFlow={productFlow}
-                externalDeliveryEnabled={podShippingEnabled}
-                externalDeliveryMethods={podShippingMethods}
+              brochurePageCount={brochurePageCount}
+                externalDeliveryEnabled={hasRollLabelContract || podShippingEnabled}
+                externalDeliveryMethods={hasRollLabelContract ? [] : podShippingMethods}
                 externalDeliveryLoading={podShippingLoading}
                 externalDeliveryError={podShippingError}
                 externalDeliveryConfig={orderDeliveryConfig?.delivery?.pod_settings}
@@ -1718,6 +1844,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
           }}
         />
       );
+      return localRollPreview.packet ? <WorkspaceSourcesContext.Provider value={{productId:dbProductId,sourceGroups:localRollPreview.packet.sourceGroups}}>{calculator}</WorkspaceSourcesContext.Provider> : calculator;
     }
 
     const isAreaBased = product.id === "bannere" || product.id === "skilte" || product.id === "folie";
@@ -1836,6 +1963,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
             designSafeAreaMm={designSafeAreaMm}
             designerTemplateLaunch={approvedDesignerLaunch}
             productFlow={productFlow}
+              brochurePageCount={brochurePageCount}
             externalDeliveryEnabled={podShippingEnabled}
             externalDeliveryMethods={podShippingMethods}
             externalDeliveryLoading={podShippingLoading}

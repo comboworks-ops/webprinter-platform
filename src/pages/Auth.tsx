@@ -9,7 +9,9 @@ import { Label } from '@/components/ui/label';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { useShopSettings } from '@/hooks/useShopSettings';
-import { customerAuthHref, customerLink, safeCustomerReturnTarget } from '@/lib/account/navigation';
+import { useUserRole } from '@/hooks/useUserRole';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { customerAuthHref, customerLink, postLoginDestination, safeCustomerReturnTarget } from '@/lib/account/navigation';
 import '@/styles/customerAccountForms.css';
 
 const authSchema = z.object({
@@ -27,6 +29,9 @@ export default function Auth() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { data: tenant, isLoading } = useShopSettings();
+  const { isAdmin, loading: roleLoading, userId: checkedUserId } = useUserRole();
+  const { t } = useLanguage();
+  const [signedInUserId, setSignedInUserId] = useState<string | null>(null);
   const [view, setView] = useState<AuthView>(() => {
     const search = new URLSearchParams(window.location.search);
     if (search.get('mode') === 'reset' || window.location.hash.includes('type=recovery')) return 'recovery';
@@ -52,19 +57,26 @@ export default function Auth() {
 
   useEffect(() => {
     let active = true;
+    let authEventSeen = false;
     if (!isLoading && !isRecoveryMode && !recoverySession.current) {
       supabase.auth.getUser().then(({ data }) => {
-        if (active && data.user && !recoverySession.current) navigate(redirectTarget, { replace: true });
+        if (active && !authEventSeen && !recoverySession.current) setSignedInUserId(data.user?.id ?? null);
       }).catch(() => {
         if (active) setErrorMessage('Din session kunne ikke kontrolleres. Prøv at logge ind igen.');
       });
     }
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      authEventSeen = true;
       if (event === 'PASSWORD_RECOVERY') { recoverySession.current = true; setView('recovery'); return; }
-      if (session?.user && !isRecoveryMode && !recoverySession.current) navigate(redirectTarget, { replace: true });
+      setSignedInUserId(session?.user.id ?? null);
     });
     return () => { active = false; subscription.unsubscribe(); };
-  }, [navigate, isLoading, isRecoveryMode, redirectTarget]);
+  }, [isLoading, isRecoveryMode]);
+
+  useEffect(() => {
+    if (isLoading || roleLoading || !signedInUserId || checkedUserId !== signedInUserId || isRecoveryMode || recoverySession.current) return;
+    navigate(postLoginDestination(isAdmin, searchParams.get('redirect'), location.search), { replace: true });
+  }, [navigate, isLoading, roleLoading, signedInUserId, checkedUserId, isAdmin, isRecoveryMode, searchParams, location.search]);
 
   const changeView = (nextView: AuthView) => {
     setView(nextView);
@@ -144,7 +156,7 @@ export default function Auth() {
     }
   };
 
-  const title = isRecoveryMode ? 'Vælg ny adgangskode' : isForgotPassword ? 'Glemt adgangskode?' : isLogin ? 'Velkommen tilbage' : 'Opret din kundekonto';
+  const title = isRecoveryMode ? 'Vælg ny adgangskode' : isForgotPassword ? 'Glemt adgangskode?' : isLogin ? 'Log ind på din kundekonto' : 'Opret din kundekonto';
   const description = isRecoveryMode ? 'Vælg en ny adgangskode til din konto.' : isForgotPassword ? 'Indtast din email, så hjælper vi dig videre.' : isLogin ? 'Log ind for at følge dine ordrer og fortsætte dine designs.' : 'Saml dine bestillinger, filer og oplysninger ét sted.';
   const fieldError = (field: string) => fieldErrors[field] && <p id={`auth-error-${field}`} className="account-field-error">{fieldErrors[field]}</p>;
 
@@ -175,6 +187,7 @@ export default function Auth() {
               )}
               {!notice && <div className="customer-auth-switch">{isLogin && <span>Har du ikke en konto? </span>}<button type="button" className="customer-auth-text-button" disabled={loading} onClick={() => changeView(isRecoveryMode ? 'forgot' : isLogin ? 'signup' : 'login')}>{isRecoveryMode ? 'Bed om et nyt nulstillingslink' : isLogin ? 'Opret konto' : 'Tilbage til log ind'}</button></div>}
             </>}
+            {!isRecoveryMode && <div className="customer-auth-switch"><span>{t('shopOwnerOrAdmin')} </span><Link className="customer-auth-text-button" to={customerLink('/admin/login', location.search)}>{t('adminLogin')}</Link></div>}
           </section>
         </div>
       </main>

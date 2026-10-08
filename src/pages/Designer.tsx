@@ -1,5 +1,8 @@
 import { validateProductionCutContour } from "@/lib/designer/validateProductionCutContour";
 import { productArtworkDimensions } from "@/lib/designer/productArtworkDefaults";
+import { buildVerifiedRollLabelContext, readVerifiedRollLabelContext, type RollLabelSavedContext } from "@/lib/designer/rollLabelSavedContext";
+import { useRollLabelSystemPreview, localRollLabelProduct } from '@/dev/rollLabelSystemPreview';
+import { isGeneratedRollLabelTemplate, verifyRollLabelGeneratedTemplate } from "@/lib/designer/rollLabelGeneratedTemplate";
 import { readWideFormatTemplate, wideFormatCutSvg, readSavedWideFormatRules, type SavedWideFormatRules } from "@/lib/designer/wideFormatGeometry";
 import { SINGLE_CUT_CONTOUR_MESSAGE, contourObjects } from "@/lib/designer/cutContourValidation";
 import { PrintMockupButton } from '@/components/mockup/PrintMockupButton';
@@ -13,7 +16,8 @@ import { useOrderFlowDesign } from "@/hooks/useOrderFlowDesign";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { OrderDesignPreviewSwitch } from "@/components/checkout/OrderDesignPreviewSwitch";
 import "@/styles/orderFlowDesigns.css";
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from "react";
+import { readBrochureDocument, validBrochurePageCount } from '@/lib/designer/brochureDocument';
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -664,8 +668,16 @@ function ApparelDesignerPanel({
     );
 }
 
+const BrochureDesigner = lazy(() => import('@/components/designer/BrochureDesigner'));
+
 export function Designer({ embedded = false }: { embedded?: boolean }) {
     const isPhoneViewport = useIsPhoneDesignerViewport();
+    const [params] = useSearchParams();
+    const brochurePages = Number(params.get('brochurePages'));
+    if (params.has('brochurePages')) {
+        if (!validBrochurePageCount(brochurePages)) return <div role="alert" className="p-8">Vælg et brochuresidetal fra 8 til 152 i trin på fire.</div>;
+        return <Suspense fallback={<div role="status" className="p-8">Åbner brochurens sider…</div>}><BrochureDesigner pageCount={brochurePages} embedded={embedded} /></Suspense>;
+    }
     if (isPhoneViewport) {
         return <DesignerPhoneUnsupported />;
     }
@@ -680,6 +692,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
     const queryClient = useQueryClient();
     const { variantId } = useParams<{ variantId?: string }>();
     const [searchParams, setSearchParams] = useSearchParams();
+    const localRollPreview = useRollLabelSystemPreview(searchParams);
     const navigate = useNavigate();
     const editorRef = useRef<EditorCanvasRef>(null);
     const proofingOverlayRef = useRef<HTMLCanvasElement>(null);
@@ -706,13 +719,15 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
     const variant = searchParams.get("variant");
     const orderMode = searchParams.get("order") === "1" || searchParams.get("mode") === "order";
     const [savedWideFormatRules, setSavedWideFormatRules] = useState<SavedWideFormatRules | null>(null);
-    const directTemplatePdfUrl = searchParams.get("templatePdfUrl")
+    const [savedRollLabel, setSavedRollLabel] = useState<{ designId: string; context: RollLabelSavedContext | null } | null>(null);
+    const savedRollLabelContext = savedRollLabel?.designId === designId ? savedRollLabel.context : null;
+    const directTemplatePdfUrl = savedRollLabelContext?.template.url || searchParams.get("templatePdfUrl")
         || searchParams.get("templatePdf")
         || savedWideFormatRules?.templateUrl
         || (orderMode ? checkoutSession?.templatePdfUrl || null : null);
-    const directTemplatePdfName = searchParams.get("templatePdfName") || (orderMode ? checkoutSession?.templatePdfName || null : null);
+    const directTemplatePdfName = savedRollLabelContext?.template.name || searchParams.get("templatePdfName") || (orderMode ? checkoutSession?.templatePdfName || null : null);
     const expectedTemplatePdfSha256 = normalizeSha256(
-        searchParams.get("templatePdfSha256")
+        savedRollLabelContext?.template.sha256 || searchParams.get("templatePdfSha256")
         || (orderMode ? checkoutSession?.templatePdfSha256 || null : null),
     );
     const designerMode = searchParams.get("designerMode") || checkoutSession?.designerMode || null;
@@ -964,7 +979,9 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
     const preferredProfileDesignIdRef = useRef<string | null>(null);
     const [productionColorChoice, setProductionColorChoice] = useState<{ context: string; mode: 'convert_cmyk' | 'preserve_rgb' } | null>(null);
     const colorProductId = productDbId || (isUuid(documentSpec.product_id) ? documentSpec.product_id : null);
-    const { profile: productProfile } = useProductColorProfile({ productId: colorProductId });
+    // The loopback draft has no hosted product or assigned ICC profile. Use the
+    // normal standard-profile resolver; real products still load their settings.
+    const { profile: productProfile } = useProductColorProfile({ productId: colorProductId, enabled: !localRollPreview.requested });
     const colorTenantId = productProfile.tenantId || documentSpec.tenant_id || queryTenantId || designShopSettings.data?.id || undefined;
     const colorContextKey = designId || colorProductId || 'standalone';
     const currentSavedColorProfile = preferredProfileDesignIdRef.current === designId ? preferredColorProfile : null;
@@ -1350,6 +1367,10 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
         const loadSpec = async () => {
             try {
                 setLoading(true);
+                if (localRollPreview.requested && localRollPreview.loading) return;
+                if (localRollPreview.requested && (!localRollPreview.packet || designId)) {
+                    throw new Error('Den lokale produktprøve kan ikke indlæse gemte designs.');
+                }
 
                 if (designId) {
                     // Skip reloading if this is the design we just saved
@@ -1366,7 +1387,34 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
 
                     if (design && !error) {
                         const savedSnapshot = decodeDesignerSnapshot((design as any).editor_json);
-                        const savedRules = readSavedWideFormatRules(savedSnapshot);
+                        const savedBrochure = readBrochureDocument(savedSnapshot);
+                        if (savedBrochure) {
+                            const brochureParams = new URLSearchParams(searchParams);
+                            brochureParams.set('brochurePages', String(savedBrochure.pageCount));
+                            brochureParams.set('widthMm', String(savedBrochure.widthMm));
+                            brochureParams.set('heightMm', String(savedBrochure.heightMm));
+                            brochureParams.set('bleedMm', String(savedBrochure.bleedMm));
+                            brochureParams.set('tenantId', String(design.tenant_id));
+                            const context = (savedSnapshot as { brochureContext?: Record<string, string> }).brochureContext;
+                            for (const key of ['templatePdfUrl', 'templatePdfSha256', 'returnTo']) if (context?.[key]) brochureParams.set(key, context[key]);
+                            setSearchParams(brochureParams, { replace: true });
+                            return;
+                        }
+                        let savedRollContext: RollLabelSavedContext | null = null;
+                        if ('rollLabelContext' in savedSnapshot) {
+                            const { data: rollProduct } = await supabase.from('products').select('id, tenant_id, pricing_structure')
+                                .eq('id', design.product_id).eq('tenant_id', design.tenant_id).maybeSingle();
+                            savedRollContext = rollProduct ? await readVerifiedRollLabelContext(savedSnapshot, {
+                                productId: design.product_id, tenantId: design.tenant_id, widthMm: design.width_mm,
+                                heightMm: design.height_mm, bleedMm: design.bleed_mm, safeMm: design.safe_area_mm,
+                            }, (rollProduct.pricing_structure as Record<string, unknown> | null)?.rollLabelConfiguration) : null;
+                            if (!savedRollContext) {
+                                setPendingTemplatePdf(null);
+                                toast.error('Rulleetikettens valg eller skabelon er ændret. Kontrollér den aktuelle konfiguration, før designet bruges.');
+                            }
+                        }
+                        setSavedRollLabel('rollLabelContext' in savedSnapshot ? { designId, context: savedRollContext } : null);
+                        const savedRules = 'rollLabelContext' in savedSnapshot ? null : readSavedWideFormatRules(savedSnapshot);
                         setSavedWideFormatRules(savedRules);
                         preferredProfileDesignIdRef.current = designId;
                         setPreferredColorProfile(readSavedColorProfile((design as any).editor_json));
@@ -1387,7 +1435,8 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                         setTimeout(async () => {
                             if ((design as any).editor_json && editorRef.current) {
                                 await editorRef.current.loadArtworkJSON(savedSnapshot);
-                                if (savedRules?.templateUrl) setPendingTemplatePdf(savedRules.templateUrl);
+                                if (savedRollContext) setPendingTemplatePdf(savedRollContext.template.url);
+                                else if (savedRules?.templateUrl) setPendingTemplatePdf(savedRules.templateUrl);
                             }
                         }, 100);
                         setLoading(false);
@@ -1422,7 +1471,9 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                     let specs: any = null;
 
                     if (resolvedProductId) {
-                        const { data: product, error } = await supabase
+                        const { data: product, error } = localRollPreview.requested
+                            ? { data: localRollLabelProduct(localRollPreview.packet, resolvedProductId), error: null }
+                            : await supabase
                             .from('products')
                             .select('id, name, technical_specs')
                             .eq('id', resolvedProductId)
@@ -1446,6 +1497,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                     setDocumentSpec(prev => ({
                         ...prev,
                         name: productName,
+                        ...(localRollPreview.packet ? {tenant_id:localRollPreview.packet.product.tenant_id} : {}),
                         width_mm: widthMm,
                         height_mm: heightMm,
                         bleed_mm: typeof customBleedMm === "number"
@@ -1643,7 +1695,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
         };
 
         loadSpec();
-    }, [variantId, productId, productDbId, variantDbId, templateId, designId, format, savedDesignId, customWidthMm, customHeightMm, customBleedMm, customSafeMm, directTemplatePdfName, apparelConfig]);
+    }, [variantId, productId, productDbId, variantDbId, templateId, designId, format, savedDesignId, customWidthMm, customHeightMm, customBleedMm, customSafeMm, directTemplatePdfName, apparelConfig,localRollPreview.requested,localRollPreview.loading,localRollPreview.packet]);
 
     useEffect(() => {
         const hasBaseSpecContext = Boolean(
@@ -1760,6 +1812,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             || loading
         ) return;
 
+        let active = true;
         const loadTemplatePdf = async () => {
             try {
                 // Dynamically import PDF.js
@@ -1767,12 +1820,33 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
 
                 // Fetch once so the exact downloadable PDF can be hash-bound to
                 // the locked Designer overlay and later runtime evidence.
-                const templatePdfResponse = await fetch(pendingTemplatePdf);
-                if (templatePdfResponse.ok === false) {
-                    throw new Error(`Kunne ikke hente PDF-skabelonen (${templatePdfResponse.status})`);
+                let templatePdfBytes: ArrayBuffer;
+                if (isGeneratedRollLabelTemplate(pendingTemplatePdf)) {
+                    const selection = savedRollLabelContext?.selection || checkoutSession?.pricingQuote?.rollLabels;
+                    const tenantId = savedRollLabelContext?.tenantId || documentSpec.tenant_id;
+                    if (!tenantId || !documentSpec.product_id) throw new Error('Rulleetikettens produkt og butik kunne ikke bekræftes.');
+                    const { data: rollProduct, error } = localRollPreview.requested
+                        ? { data: localRollLabelProduct(localRollPreview.packet, documentSpec.product_id, tenantId), error: null }
+                        : await supabase.from('products').select('id, tenant_id, pricing_structure')
+                        .eq('id', documentSpec.product_id).eq('tenant_id', tenantId).maybeSingle();
+                    if (error) throw error;
+                    const generated = rollProduct && await verifyRollLabelGeneratedTemplate(pendingTemplatePdf, expectedTemplatePdfSha256,
+                        selection, documentSpec.product_id!, (rollProduct.pricing_structure as Record<string, unknown> | null)?.rollLabelConfiguration);
+                    if (!generated?.designerAllowed || generated.guide.finishedWidthMm !== documentSpec.width_mm
+                        || generated.guide.finishedHeightMm !== documentSpec.height_mm || generated.guide.bleedMm !== documentSpec.bleed_mm
+                        || generated.guide.safeAreaMm !== documentSpec.safe_area_mm) {
+                        throw new Error('Rulleetikettens valg eller skabelon er ændret. Kontrollér den aktuelle konfiguration, før designet bruges.');
+                    }
+                    templatePdfBytes = generated.bytes.slice().buffer;
+                } else {
+                    const templatePdfResponse = await fetch(pendingTemplatePdf);
+                    if (templatePdfResponse.ok === false) {
+                        throw new Error(`Kunne ikke hente PDF-skabelonen (${templatePdfResponse.status})`);
+                    }
+                    templatePdfBytes = await templatePdfResponse.arrayBuffer();
                 }
-                const templatePdfBytes = await templatePdfResponse.arrayBuffer();
                 const templatePdfSha256 = await sha256Hex(templatePdfBytes);
+                if (!active) return;
                 if (expectedTemplatePdfSha256 && templatePdfSha256 !== expectedTemplatePdfSha256) {
                     throw new Error(
                         "PDF-skabelonen matcher ikke den godkendte importfil. Skabelonen skal synkroniseres igen, før den kan bruges.",
@@ -1847,6 +1921,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                 const widthMm = documentSpec.width_mm + (documentSpec.bleed_mm * 2);
                 const heightMm = documentSpec.height_mm + (documentSpec.bleed_mm * 2);
 
+                if (!active) return;
                 templatePageChangeRef.current = true;
                 await editorRef.current?.addPdfTemplate(
                     renderedPages[0].imageDataUrl,
@@ -1879,6 +1954,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                 toast.info('Format-skabelon indlæst - placer dit design inden for linjerne');
                 console.log('[Designer] Auto-loaded template PDF overlay');
             } catch (err) {
+                if (!active) return;
                 console.error('[Designer] Failed to load template PDF:', err);
                 toast.error(
                     err instanceof Error
@@ -1893,13 +1969,20 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
 
         // Small delay to ensure canvas is ready
         const timer = setTimeout(loadTemplatePdf, 500);
-        return () => clearTimeout(timer);
+        return () => { active = false; clearTimeout(timer); };
     }, [
+        localRollPreview.requested,
+        localRollPreview.packet,
         designerMode,
         directTemplatePdfName,
         documentSpec.bleed_mm,
         documentSpec.height_mm,
         documentSpec.width_mm,
+        documentSpec.safe_area_mm,
+        documentSpec.product_id,
+        documentSpec.tenant_id,
+        savedRollLabelContext,
+        checkoutSession,
         fabricCanvas,
         hasExplicitTemplateDimensions,
         loading,
@@ -3131,11 +3214,18 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
 
     // Actually perform the save operation
     const performSave = async (customName?: string, destination: SaveDestination = 'stay'): Promise<boolean> => {
+        if (localRollPreview.requested) {
+            toast.error('Dette er en lokal produktprøve. Download PDF lokalt; gemning i butikken afventer import.');
+            return false;
+        }
         if (saveInFlightRef.current) return false;
         saveInFlightRef.current = true;
         try {
             setSaving(true);
 
+            if (designId && savedRollLabel?.designId === designId && !savedRollLabel.context) {
+                throw new Error('Rulleetikettens gemte konfiguration er ændret. Det oprindelige design bevares; kontrollér det aktuelle produkt før en ny gemning.');
+            }
             if (requiresCutContour) {
                 const canvas = editorRef.current?.getCanvas();
                 if (!canvas) throw new Error("Designfladen er ikke klar.");
@@ -3153,18 +3243,6 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             if (!canvas || loading) throw new Error('Designet er ikke klar endnu. Behold fanen åben, og prøv igen.');
             assertDesignerDocumentSaveSupported(linkedTemplatePages.length, apparelConfig?.sides.length || 0);
             const outputProfile = await colorProofing.resolveOutputProfile();
-            const snapshotForSave = () => ({
-                ...(editorRef.current?.getJSON() || {}),
-                ...((requiresCutContour || readWideFormatTemplate(directTemplatePdfUrl)) ? {
-                    wideFormatRules: { version: 1, requiresCutContour, templateUrl: readWideFormatTemplate(directTemplatePdfUrl) ? directTemplatePdfUrl : null },
-                } : {}),
-            });
-            const artworkJson = encodeDesignerSnapshot(snapshotForSave());
-            const savedColor: SavedColorProfile = { version: 1, id: outputProfile.id, name: outputProfile.name, sha256: outputProfile.metadata.sha256, productionColorMode };
-            const editorJson = withSavedColorProfile(artworkJson, savedColor);
-            const saveName = customName || documentSpec.name;
-            let confirmedDesignId = designId;
-
             const tenantId = await resolveDesignerSaveTenant(supabase, {
                 embedded,
                 queryTenantId,
@@ -3174,6 +3252,40 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                 search: searchParams.toString(),
                 rootDomain: import.meta.env.VITE_ROOT_DOMAIN || 'webprinter.dk',
             });
+            let rollLabelContext = savedRollLabelContext;
+            const rollSelection = savedRollLabelContext?.selection
+                || (checkoutSession?.productId === documentSpec.product_id ? checkoutSession.pricingQuote?.rollLabels : null);
+            if (isGeneratedRollLabelTemplate(directTemplatePdfUrl) && !rollSelection) {
+                throw new Error('Rulleetikettens præcise valg mangler. Behold designet åbent, og kontrollér den aktuelle konfiguration.');
+            }
+            if (rollSelection) {
+                const overlays = canvas.getObjects().filter(object => (object as { __isPdfTemplate?: boolean }).__isPdfTemplate === true);
+                const overlay = overlays[0] as { data?: { templatePdfUrl?: string; templatePdfSha256?: string; templatePdfName?: string } } | undefined;
+                const { data: rollProduct, error: rollProductError } = await supabase.from('products').select('id, tenant_id, pricing_structure')
+                    .eq('id', documentSpec.product_id).eq('tenant_id', tenantId).maybeSingle();
+                if (rollProductError) throw rollProductError;
+                rollLabelContext = overlays.length === 1 && linkedTemplatePages.length === 1 && overlay?.data?.templatePdfUrl && overlay.data.templatePdfSha256
+                    ? await buildVerifiedRollLabelContext(rollSelection, {
+                        url: overlay.data.templatePdfUrl, sha256: overlay.data.templatePdfSha256,
+                        name: directTemplatePdfName, widthMm: documentSpec.width_mm, heightMm: documentSpec.height_mm,
+                        bleedMm: documentSpec.bleed_mm, safeMm: documentSpec.safe_area_mm, pageCount: 1,
+                    }, { productId: documentSpec.product_id!, tenantId, widthMm: documentSpec.width_mm,
+                        heightMm: documentSpec.height_mm, bleedMm: documentSpec.bleed_mm, safeMm: documentSpec.safe_area_mm },
+                    (rollProduct?.pricing_structure as Record<string, unknown> | null)?.rollLabelConfiguration) : null;
+                if (!rollLabelContext) throw new Error('Rulleetikettens præcise valg og skabelon kunne ikke bekræftes. Behold fanen åben og kontrollér konfigurationen.');
+            }
+            const snapshotForSave = () => ({
+                ...(editorRef.current?.getJSON() || {}),
+                ...(rollLabelContext ? { rollLabelContext } : {}),
+                ...((requiresCutContour || readWideFormatTemplate(directTemplatePdfUrl)) ? {
+                    wideFormatRules: { version: 1, requiresCutContour, templateUrl: readWideFormatTemplate(directTemplatePdfUrl) ? directTemplatePdfUrl : null },
+                } : {}),
+            });
+            const artworkJson = encodeDesignerSnapshot(snapshotForSave());
+            const savedColor: SavedColorProfile = { version: 1, id: outputProfile.id, name: outputProfile.name, sha256: outputProfile.metadata.sha256, productionColorMode };
+            const editorJson = withSavedColorProfile(artworkJson, savedColor);
+            const saveName = customName || documentSpec.name;
+            let confirmedDesignId = designId;
 
             // Generate thumbnail if possible
             let preview_thumbnail_url = (documentSpec as any).preview_thumbnail_url;

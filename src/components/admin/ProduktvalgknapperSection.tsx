@@ -24,6 +24,8 @@ import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FontSelector } from "@/components/admin/FontSelector";
 import { OptionSelectorStyleEditor } from "@/components/admin/OptionSelectorStyleEditor";
+import { SelectorValueGroupsEditor } from '@/components/admin/SelectorValueGroupsEditor';
+import type { SelectorValueGroupConfig } from '@/lib/pricing/selectorValueGroups';
 import { useProductAttributes } from "@/hooks/useProductAttributes";
 import { getHiResThumbnailUrl } from "@/lib/pricing/thumbnailImageUrl";
 import {
@@ -72,6 +74,7 @@ interface SectionConfig {
     selectionMode: "required" | "optional" | "free";
     selectorStyling: SelectorStyling;
     valueSettings: Record<string, LayoutValueSetting>;
+    valueGroups: SelectorValueGroupConfig[];
     thumbnailSize: ThumbnailSizeMode;
     thumbnailCustomPx?: number;
     isVerticalAxis?: boolean;
@@ -325,6 +328,7 @@ export function ProduktvalgknapperSection({
                     selection_mode: section.selectionMode,
                     valueIds: [...section.valueIds],
                     valueSettings: section.valueSettings,
+                    valueGroups: section.valueGroups,
                     selectorStyling: section.selectorStyling,
                     thumbnail_size: section.thumbnailSize,
                     thumbnail_custom_px: section.thumbnailCustomPx,
@@ -352,6 +356,7 @@ export function ProduktvalgknapperSection({
                         selection_mode: section.selectionMode,
                         valueIds: [...section.valueIds],
                         valueSettings: section.valueSettings,
+                        valueGroups: section.valueGroups,
                         selectorStyling: section.selectorStyling,
                         thumbnail_size: section.thumbnailSize,
                         thumbnail_custom_px: section.thumbnailCustomPx,
@@ -424,6 +429,7 @@ export function ProduktvalgknapperSection({
                 selectionMode: va.selection_mode || "required",
                 selectorStyling: va.selectorStyling || {},
                 valueSettings: va.valueSettings || {},
+                valueGroups: va.valueGroups || va.value_groups || [],
                 thumbnailSize: normalizeThumbnailSize(va.thumbnail_size || getThumbnailSizeFromUiMode(uiMode)),
                 thumbnailCustomPx: normalizeThumbnailCustomPx(va.thumbnail_custom_px),
                 isVerticalAxis: true,
@@ -443,6 +449,7 @@ export function ProduktvalgknapperSection({
                     selectionMode: col.selection_mode || "required",
                     selectorStyling: col.selectorStyling || {},
                     valueSettings: col.valueSettings || {},
+                    valueGroups: col.valueGroups || col.value_groups || [],
                     thumbnailSize: normalizeThumbnailSize(col.thumbnail_size || getThumbnailSizeFromUiMode(uiMode)),
                     thumbnailCustomPx: normalizeThumbnailCustomPx(col.thumbnail_custom_px),
                     isVerticalAxis: false,
@@ -1623,6 +1630,12 @@ export function ProduktvalgknapperSection({
                                                         </p>
                                                     </div>
                                                 </div>
+
+                                                {!section.isVerticalAxis && <SelectorValueGroupsEditor
+                                                    groups={section.valueGroups}
+                                                    values={previewValues}
+                                                    onChange={valueGroups => updateSectionConfig(section.id, { valueGroups })}
+                                                />}
 
                                                 <div className="grid gap-3">
                                                     <div className="space-y-2">

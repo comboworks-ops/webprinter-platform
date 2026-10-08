@@ -4,6 +4,7 @@ type JsonObject = { [key: string]: Json | undefined };
 export type ProductDesignerMode =
   | "flat_print"
   | "pdf_template"
+  | "brochure"
   | "storformat"
   | "signage"
   | "apparel"
@@ -49,6 +50,11 @@ export const PRODUCT_DESIGNER_MODE_OPTIONS: Array<{
     value: "pdf_template",
     label: "PDF-template",
     description: "Produkter med foldelinjer, stans, ryg eller faste skabeloner.",
+  },
+  {
+    value: "brochure",
+    label: "Brochure med sider",
+    description: "Brochurer og magasiner med enkeltsider, PDF-upload og modstående opslag.",
   },
   {
     value: "storformat",

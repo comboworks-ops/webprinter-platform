@@ -63,6 +63,9 @@ export type ProductTemplateFile = {
 export type DesignerTemplateLaunch = {
   name: string;
   pdfUrl: string;
+  /** Ephemeral download bytes; never saved or passed as the template identity. */
+  downloadUrl?: string;
+  tenantId?: string;
   templatePdfSha256?: string;
   templateId?: string;
   widthMm?: number;
@@ -140,6 +143,8 @@ const SALES_FOLDER_SELECTION_AXES = [
   "finish",
 ] as const;
 
+const BROCHURE_SELECTION_AXES = ["paperCover", "orientation", "format", "pageCount", "cover", "varnish"] as const;
+
 const hasExactKeys = (value: Record<string, unknown>, expectedKeys: readonly string[]) => {
   const actualKeys = Object.keys(value).sort();
   const requiredKeys = [...expectedKeys].sort();
@@ -169,6 +174,21 @@ const readTemplateSelectionConstraints = (
   }
 
   if (profile) {
+    // Brochure sheets share one exact PDF per finished format. Paper, cover,
+    // varnish and page count are checked by the product compatibility matrix;
+    // they do not change the individual page's template geometry.
+    if (profile === "brochure_v1") {
+      if (typeof rawSections !== "object" || rawSections == null || Array.isArray(rawSections)
+        || !hasExactKeys(rawSections, BROCHURE_SELECTION_AXES)) return { isStructured: true, constraints: null };
+      const sections = BROCHURE_SELECTION_AXES.map(axis => rawSections[axis]);
+      if (sections.some(section => typeof section !== "string" || !section.trim())
+        || new Set(sections).size !== BROCHURE_SELECTION_AXES.length
+        || !hasExactKeys(raw, [rawSections.format])
+        || !readTemplatePdfSha256(template.templatePdfSha256)
+        || !readPositiveTemplateNumber(template.widthMm, template.width_mm)
+        || !readPositiveTemplateNumber(template.heightMm, template.height_mm)) return { isStructured: true, constraints: null };
+      return { isStructured: true, constraints: Object.fromEntries(entries) };
+    }
     // A sales-folder dieline is selected by five independent axes. Requiring an
     // explicit semantic-axis-to-section map prevents a malformed one-axis
     // binding from matching every paper, finish, print mode, or spine depth.
@@ -520,6 +540,7 @@ export const resolveSelectedDesignerTemplateLaunch = ({
     ).trim();
     if (
       constraintProfile !== "sales_folder_v1"
+      && constraintProfile !== "brochure_v1"
       && !templateMatchesSelectedConfiguration(
         template,
         selectedFormat,

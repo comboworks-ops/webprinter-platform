@@ -7,13 +7,14 @@ import { ProductTooltipIcon, type TooltipConfig } from '@/components/ProductTool
 import { safePresentationUrl } from '@/lib/products/productPresentation';
 import type { TooltipTarget } from '@/lib/products/tooltipPlacement';
 
-export function TooltipEditor({selectedAnchor, existingTooltip, target, tenantId, productId, onSave, onDelete, onCancel, onPreview}: {
+export function TooltipEditor({selectedAnchor, existingTooltip, target, tenantId, productId, onSave, onDelete, onCancel, onPreview, canDelete = true}: {
+  canDelete?: boolean;
   selectedAnchor: string | null; existingTooltip?: TooltipConfig | null; target?: TooltipTarget;
   tenantId?: string; productId?: string;
   onSave: (tooltip: TooltipConfig) => void | Promise<void>; onDelete: (id: string) => void | Promise<void>;
   onCancel: () => void; onPreview?: (tooltip: TooltipConfig) => void;
 }) {
-  const [draft, setDraft] = useState<TooltipConfig>(() => ({anchor:selectedAnchor || '',icon:'info',color:'#0EA5E9',animation:'fade',text:'',...existingTooltip,target:target || existingTooltip?.target}));
+  const [draft, setDraft] = useState<TooltipConfig>(() => ({anchor:selectedAnchor || '',icon:'question',color:'#0EA5E9',animation:'fade',text:'',...existingTooltip,target:target || existingTooltip?.target}));
   const [saving,setSaving] = useState(false);
   const [error,setError] = useState('');
   const update = (patch: Partial<TooltipConfig>) => setDraft(current => ({...current,...patch}));
@@ -25,10 +26,14 @@ export function TooltipEditor({selectedAnchor, existingTooltip, target, tenantId
     try {await onSave({...draft,text:draft.text.trim()});} catch (e) {setError(e instanceof Error ? e.message : 'Kunne ikke gemme.');} finally {setSaving(false);}
   };
   return <div className="space-y-4 p-4">
-    <div><h3 className="font-semibold">{draft.target?.label || selectedAnchor}</h3><p className="text-xs text-muted-foreground break-all">{draft.target?.page || 'Produktets eksisterende hjælpepunkt'}</p></div>
+    <div><h3 className="font-semibold">{draft.title || draft.target?.label || selectedAnchor}</h3><p className="text-xs text-muted-foreground break-all">{draft.target?.page || 'Produktets eksisterende hjælpepunkt'}</p></div>
     <label className="block text-sm">Tekst<Textarea aria-label="Tooltiptekst" value={draft.text} maxLength={2000} onChange={e=>update({text:e.target.value})}/></label>
+    <details className="rounded border p-3 text-sm"><summary>Engelsk oversættelse</summary><div className="mt-3 space-y-3">
+      <label className="block">Engelsk titel<Input aria-label="Engelsk tooltiptitel" value={draft.translations?.en?.title || ''} onChange={e=>update({translations:{...draft.translations,en:{...draft.translations?.en,title:e.target.value}}})}/></label>
+      <label className="block">Engelsk tekst<Textarea aria-label="Engelsk tooltiptekst" maxLength={2000} value={draft.translations?.en?.text || ''} onChange={e=>update({translations:{...draft.translations,en:{...draft.translations?.en,text:e.target.value}}})}/></label>
+    </div></details>
     <div className="grid grid-cols-2 gap-3">
-      <label className="text-sm">Ikon<select aria-label="Tooltipikon" className="block w-full rounded border p-2" value={draft.icon} onChange={e=>update({icon:e.target.value as TooltipConfig['icon']})}>{[['info','Information'],['question','Spørgsmål'],['lightbulb','Tip'],['star','Stjerne'],['heart','Hjerte'],['alert','Bemærk'],['check','Flueben'],['image','Billede']].map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
+      <label className="text-sm">Ikon<select aria-label="Tooltipikon" className="block w-full rounded border p-2" value={draft.icon} onChange={e=>update({icon:e.target.value as TooltipConfig['icon']})}>{[['info','Information'],['question','Spørgsmål'],['lightbulb','Tip'],['star','Stjerne'],['heart','Hjerte'],['alert','Bemærk'],['check','Flueben'],['image','Billede'],['leaf','Blad'],['recycle','Genbrug']].map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
       <label className="text-sm">Farve<Input type="color" aria-label="Tooltipfarve" value={draft.color} onChange={e=>update({color:e.target.value})}/></label>
       <label className="text-sm">Effekt<select aria-label="Tooltipeffekt" className="block w-full rounded border p-2" value={draft.animation} onChange={e=>update({animation:e.target.value as TooltipConfig['animation']})}>{[['none','Ingen'],['fade','Fade ind'],['slide','Glid ind'],['bounce','Spring'],['zoom','Zoom ind']].map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
       <label className="text-sm">Åbn mod<select aria-label="Tooltipretning" className="block w-full rounded border p-2" value={draft.side || 'top'} onChange={e=>update({side:e.target.value as TooltipConfig['side']})}>{[['top','Top'],['bottom','Bund'],['left','Venstre'],['right','Højre']].map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
@@ -38,6 +43,6 @@ export function TooltipEditor({selectedAnchor, existingTooltip, target, tenantId
     <label className="block text-sm">Link (valgfrit)<Input aria-label="Tooltiplink" value={draft.link || ''} onChange={e=>update({link:e.target.value})} placeholder="https://…"/></label>
     <div className="flex items-center gap-3 rounded border p-3 text-sm"><ProductTooltipIcon config={draft}/>Prøv tooltip</div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    <div className="flex flex-wrap gap-2"><Button type="button" disabled={saving || !draft.text.trim()} onClick={save}>{saving?'Gemmer…':'Gem tooltip'}</Button><Button type="button" variant="outline" onClick={onCancel}>Annuller</Button>{existingTooltip && <Button type="button" variant="destructive" disabled={saving} onClick={async()=>{setSaving(true);try{await onDelete(selectedAnchor);}catch(e){setError(e instanceof Error?e.message:'Kunne ikke slette.');}finally{setSaving(false)}}}>Slet tooltip</Button>}</div>
+    <div className="flex flex-wrap gap-2"><Button type="button" disabled={saving || !draft.text.trim()} onClick={save}>{saving?'Gemmer…':'Gem tooltip'}</Button><Button type="button" variant="outline" onClick={onCancel}>Annuller</Button>{existingTooltip && canDelete && <Button type="button" variant="destructive" disabled={saving} onClick={async()=>{setSaving(true);try{await onDelete(selectedAnchor);}catch(e){setError(e instanceof Error?e.message:'Kunne ikke slette.');}finally{setSaving(false)}}}>Slet tooltip</Button>}</div>
   </div>;
 }

@@ -177,3 +177,9 @@ Salgsmapper_A4_4plus4_pricinghub_import_ready.csv
 # Frontend release checks and reviewed lint baseline
 !scripts/check-frontend-health.mjs
 !scripts/quality/frontend-eslint-baseline.json
+
+# Runtime icon drawings and their licence/source metadata are release source.
+!src/lib/icons/**/*.json
+!src/assets/product-options/**/provenance.json
+!src/assets/product-options/sales-folders/models/v1/*manifest.json
+!public/fonts/inter/SOURCE.json

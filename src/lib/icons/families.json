@@ -1,0 +1,72 @@
+[
+  {
+    "id": "bootstrap",
+    "name": "Bootstrap",
+    "description": "Klassiske, kompakte konturer",
+    "author": "The Bootstrap Authors",
+    "license": "MIT"
+  },
+  {
+    "id": "carbon",
+    "name": "Carbon",
+    "description": "Præcise former og rette linjer",
+    "author": "IBM",
+    "license": "Apache-2.0"
+  },
+  {
+    "id": "fluent",
+    "name": "Fluent",
+    "description": "Bløde, afrundede konturer",
+    "author": "Microsoft Corporation",
+    "license": "MIT"
+  },
+  {
+    "id": "heroicons",
+    "name": "Heroicons",
+    "description": "Tydelige, fyldte symboler",
+    "author": "Refactoring UI Inc",
+    "license": "MIT"
+  },
+  {
+    "id": "iconoir",
+    "name": "Iconoir",
+    "description": "Lette, luftige streger",
+    "author": "Luca Burgio",
+    "license": "MIT"
+  },
+  {
+    "id": "material",
+    "name": "Material Rounded",
+    "description": "Fyldte former med runde hjørner",
+    "author": "Google",
+    "license": "Apache-2.0"
+  },
+  {
+    "id": "phosphor",
+    "name": "Phosphor Duotone",
+    "description": "To toner og markerede detaljer",
+    "author": "Phosphor Icons",
+    "license": "MIT"
+  },
+  {
+    "id": "tabler",
+    "name": "Tabler",
+    "description": "Rolige, ensartede konturer",
+    "author": "Paweł Kuna",
+    "license": "MIT"
+  },
+  {
+    "id": "remix",
+    "name": "Remix",
+    "description": "Enkle, fyldte symboler",
+    "author": "Remix Design",
+    "license": "Apache-2.0"
+  },
+  {
+    "id": "mingcute",
+    "name": "MingCute",
+    "description": "Venlige, kompakte former",
+    "author": "MingCute Design",
+    "license": "Apache-2.0"
+  }
+]

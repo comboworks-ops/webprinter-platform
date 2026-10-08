@@ -1,0 +1,1101 @@
+{
+  "schemaVersion": 1,
+  "assetVersion": "v1-png1",
+  "sourceSvgAssetVersion": "v1",
+  "optionAxis": "folder_model",
+  "displayType": "icon_grid",
+  "styleKey": "flat_clean",
+  "approvedModelCount": 20,
+  "modelOrder": [
+    "a4--2-part-standard",
+    "a4--2-part-2-flaps",
+    "a4--2-part-3-flaps",
+    "a4--3-part-1-flap",
+    "a4--2-part-standard-window",
+    "a4--2-part-2-flaps-window",
+    "a4--2-part-3-flaps-window",
+    "a5--2-part-standard",
+    "a5--2-part-2-flaps",
+    "a5--2-part-3-flaps",
+    "a5--3-part-1-flap",
+    "a6--2-part-2-flaps",
+    "a6--2-part-3-flaps",
+    "a6--2-part-closure",
+    "a6--3-part-1-flap",
+    "din-lang--2-part-2-flaps",
+    "din-lang--2-part-3-flaps",
+    "din-lang--2-part-closure",
+    "square-21x21--2-part-2-flaps",
+    "square-21x21--2-part-3-flaps"
+  ],
+  "excludedModels": [
+    {
+      "modelKey": "cd-135x135--2-part-closure",
+      "reason": "Explicitly excluded from the approved 20-model sales-folder scope (CD folder)."
+    }
+  ],
+  "sourceSvgManifest": {
+    "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/manifest.json",
+    "sha256": "6b7cf22af41f9d0632cb24a6a20af3049e83d91d3b59f314d64941d7b67bacf5",
+    "mutatedByRasterGeneration": false
+  },
+  "rasterization": {
+    "renderer": "playwright-chromium",
+    "chromiumVersion": "149.0.7827.55",
+    "deviceScaleFactor": 1,
+    "colorScheme": "light",
+    "background": "transparent",
+    "masterSizePx": 1024,
+    "uiSizePx": 512,
+    "sourceInterpolation": "browser-svg-rasterization"
+  },
+  "provenance": {
+    "generator": "scripts/product-import/generate-wmd-sales-folder-model-icons.js",
+    "supplierAssetsCopied": false,
+    "supplierBrandingIncluded": false,
+    "aiGenerated": false,
+    "sourceType": "deterministic-svg-derivative"
+  },
+  "models": {
+    "a4--2-part-standard": {
+      "modelKey": "a4--2-part-standard",
+      "folderModelKey": "a4--2-part-standard",
+      "labelDa": "A4 · 2-delt standardmappe",
+      "accessibleNameDa": "Illustration af A4, 2-delt standardmappe",
+      "sourceOrder": 0,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a4--2-part-standard.svg",
+        "sha256": "a816645ea595cc2c18ffee3433d9200d62d6d4aaaf4dd22461af33e8e62ee7b7"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a4--2-part-standard.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 12665,
+        "sha256": "9b6231f8f6f26539c9994e5e93c2cefbd57c7d3f1d5079d712b01eee95313c71",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 478290,
+          "visiblePixelCount": 570286
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a4--2-part-standard.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 4835,
+        "sha256": "ff477622552330a4862f6e81b4b360dbc70f324ed4ce18d1c07ebb0519ee9fc0",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 119536,
+          "visiblePixelCount": 142608
+        }
+      }
+    },
+    "a4--2-part-2-flaps": {
+      "modelKey": "a4--2-part-2-flaps",
+      "folderModelKey": "a4--2-part-2-flaps",
+      "labelDa": "A4 · 2-delt med 2 flapper",
+      "accessibleNameDa": "Illustration af A4, 2-delt med 2 flapper",
+      "sourceOrder": 1,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a4--2-part-2-flaps.svg",
+        "sha256": "0b9fe395409096858d17119a83eb066ba1fdc4df9956d24658d7c563ce378dde"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a4--2-part-2-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 14385,
+        "sha256": "36878eb0f9ab068b78831c3b629c389c81c2be449ce43d536b9de1441c35d001",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 439139,
+          "visiblePixelCount": 609437
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a4--2-part-2-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 5587,
+        "sha256": "4982601d19d37c3ff98ab07f9c741f1ed2bd6c7b144e89372f1682ec4ace8b39",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 109711,
+          "visiblePixelCount": 152433
+        }
+      }
+    },
+    "a4--2-part-3-flaps": {
+      "modelKey": "a4--2-part-3-flaps",
+      "folderModelKey": "a4--2-part-3-flaps",
+      "labelDa": "A4 · 2-delt med 3 flapper",
+      "accessibleNameDa": "Illustration af A4, 2-delt med 3 flapper",
+      "sourceOrder": 2,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a4--2-part-3-flaps.svg",
+        "sha256": "289e56a18fee45b034dbfe6909e5034b3ccd258da773bbe8eece23f6fe565d41"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a4--2-part-3-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 16320,
+        "sha256": "34baeaffb9a248fbf92ecf51363863786f510432ba12330c820a64c0b4b8c988",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 536896,
+          "visiblePixelCount": 511680
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a4--2-part-3-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 6985,
+        "sha256": "82637811095ddedb95de0980d27d2c8d97ad923d30c68e7dcf598406ed2bded2",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 133772,
+          "visiblePixelCount": 128372
+        }
+      }
+    },
+    "a4--3-part-1-flap": {
+      "modelKey": "a4--3-part-1-flap",
+      "folderModelKey": "a4--3-part-1-flap",
+      "labelDa": "A4 · 3-delt med 1 flap",
+      "accessibleNameDa": "Illustration af A4, 3-delt med 1 flap",
+      "sourceOrder": 3,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a4--3-part-1-flap.svg",
+        "sha256": "75cf00504f58d40ec151e443b415034645056e4c2ea25e1c81ccb2aed020b8ea"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a4--3-part-1-flap.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 14175,
+        "sha256": "d9eaec65d837d272fdb4fe018b3b73ee2170ce2d578f96a791fae37199228e09",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 663759,
+          "visiblePixelCount": 384817
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a4--3-part-1-flap.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 6348,
+        "sha256": "e423f69fcc38b136b0d0ea398c31f9c43321c4fef19e5021339507ec02d832f1",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 165492,
+          "visiblePixelCount": 96652
+        }
+      }
+    },
+    "a4--2-part-standard-window": {
+      "modelKey": "a4--2-part-standard-window",
+      "folderModelKey": "a4--2-part-standard-window",
+      "labelDa": "A4 · 2-delt standardmappe med vinduesudstansning",
+      "accessibleNameDa": "Illustration af A4, 2-delt standardmappe med vinduesudstansning",
+      "sourceOrder": 4,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a4--2-part-standard-window.svg",
+        "sha256": "5203d54642569f3900575dd273a2eca51081d6cbd426c4a005190ac39e94e6d8"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a4--2-part-standard-window.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 14460,
+        "sha256": "a140d3ed35ed24485478dcda8b88445a934a82aea508515847af0a5a74361163",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 493702,
+          "visiblePixelCount": 554874
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a4--2-part-standard-window.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 5775,
+        "sha256": "7c16dd572653011154ab3dc4d4e5128a04ced88c7de2c9ba5684aa673ea1b408",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 123345,
+          "visiblePixelCount": 138799
+        }
+      }
+    },
+    "a4--2-part-2-flaps-window": {
+      "modelKey": "a4--2-part-2-flaps-window",
+      "folderModelKey": "a4--2-part-2-flaps-window",
+      "labelDa": "A4 · 2-delt med 2 flapper og vinduesudstansning",
+      "accessibleNameDa": "Illustration af A4, 2-delt med 2 flapper og vinduesudstansning",
+      "sourceOrder": 5,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a4--2-part-2-flaps-window.svg",
+        "sha256": "8d2fce24cd7ae3dcdc0c6415a3c0dea54931ef53fc394240b64ce1e46becb41b"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a4--2-part-2-flaps-window.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 16158,
+        "sha256": "e1492854dcca99c9fc437ef2740b9d029992079933533394b059acb401049bc0",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 454551,
+          "visiblePixelCount": 594025
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a4--2-part-2-flaps-window.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 6505,
+        "sha256": "13f1c78781abb1b125b6a998c0df0c0b3ba9687f4ffd63d22df3cc11a21cb782",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 113520,
+          "visiblePixelCount": 148624
+        }
+      }
+    },
+    "a4--2-part-3-flaps-window": {
+      "modelKey": "a4--2-part-3-flaps-window",
+      "folderModelKey": "a4--2-part-3-flaps-window",
+      "labelDa": "A4 · 2-delt med 3 flapper og vinduesudstansning",
+      "accessibleNameDa": "Illustration af A4, 2-delt med 3 flapper og vinduesudstansning",
+      "sourceOrder": 6,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a4--2-part-3-flaps-window.svg",
+        "sha256": "49b7207b71bef984772efece53ca2f2c5d7cb91368cd04f7322204e2b8869f8b"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a4--2-part-3-flaps-window.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 18290,
+        "sha256": "bd36579610ea0c5967149313a2da15546e4279e5856b4350726085305793b6e7",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 548285,
+          "visiblePixelCount": 500291
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a4--2-part-3-flaps-window.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 7975,
+        "sha256": "fec78d09c68b84cce25a118a95924fca9fa075a4f622c0945f6431376d0f2005",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 136561,
+          "visiblePixelCount": 125583
+        }
+      }
+    },
+    "a5--2-part-standard": {
+      "modelKey": "a5--2-part-standard",
+      "folderModelKey": "a5--2-part-standard",
+      "labelDa": "A5 · 2-delt standardmappe",
+      "accessibleNameDa": "Illustration af A5, 2-delt standardmappe",
+      "sourceOrder": 7,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a5--2-part-standard.svg",
+        "sha256": "9a74216300bf99d83aa7d1415ed12f6b5f82e88fd7cb2f6bb3204256fe2adfca"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a5--2-part-standard.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 12213,
+        "sha256": "55f8cdf4689858c7900ed5d3da1bee2520378c17204b7c0ccda6302dd2141220",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 532191,
+          "visiblePixelCount": 516385
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a5--2-part-standard.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 4686,
+        "sha256": "0afc4658002f5e8339f33f492cea83c9339c62ea9e2cb4df382df4cec9c2b983",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 132616,
+          "visiblePixelCount": 129528
+        }
+      }
+    },
+    "a5--2-part-2-flaps": {
+      "modelKey": "a5--2-part-2-flaps",
+      "folderModelKey": "a5--2-part-2-flaps",
+      "labelDa": "A5 · 2-delt med 2 flapper",
+      "accessibleNameDa": "Illustration af A5, 2-delt med 2 flapper",
+      "sourceOrder": 8,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a5--2-part-2-flaps.svg",
+        "sha256": "a7af3e14691c08c132b31373917a932feba815785fbe2c0eb3026927b870e568"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a5--2-part-2-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 13449,
+        "sha256": "841f97bc744523febaa90e710827c1c28d8bc49d863e13ac790bc4d561b25523",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 495296,
+          "visiblePixelCount": 553280
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a5--2-part-2-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 5437,
+        "sha256": "9e2d31cbe8bda8a4d8872ae32ce719be25441bbe66c65ef575675014d24cc1b8",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 123376,
+          "visiblePixelCount": 138768
+        }
+      }
+    },
+    "a5--2-part-3-flaps": {
+      "modelKey": "a5--2-part-3-flaps",
+      "folderModelKey": "a5--2-part-3-flaps",
+      "labelDa": "A5 · 2-delt med 3 flapper",
+      "accessibleNameDa": "Illustration af A5, 2-delt med 3 flapper",
+      "sourceOrder": 9,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a5--2-part-3-flaps.svg",
+        "sha256": "0a159b84bf0f7592022b5940d02d9d571627917709ff541ffe9c8bcc50ed7155"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a5--2-part-3-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 17211,
+        "sha256": "bb6f3535775748edd8a01736fd1dd572b2e97abc569319a846edd737198c7860",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 535468,
+          "visiblePixelCount": 513108
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a5--2-part-3-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 7200,
+        "sha256": "65240daed3738dd76f7914ba1c2c4466c20d15488408f6ce0b022d736c014e6c",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 133784,
+          "visiblePixelCount": 128360
+        }
+      }
+    },
+    "a5--3-part-1-flap": {
+      "modelKey": "a5--3-part-1-flap",
+      "folderModelKey": "a5--3-part-1-flap",
+      "labelDa": "A5 · 3-delt med 1 flap",
+      "accessibleNameDa": "Illustration af A5, 3-delt med 1 flap",
+      "sourceOrder": 10,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a5--3-part-1-flap.svg",
+        "sha256": "0a0ef2bd4999d3a48d77f7931128088e6a571502eae92494fff4ae27731d6a5b"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a5--3-part-1-flap.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 14353,
+        "sha256": "7a034d4de0a1f5d51ee99ef49772ce8d4ec7e6701cb52a62f96d7c5718b1aa14",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 663798,
+          "visiblePixelCount": 384778
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a5--3-part-1-flap.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 6262,
+        "sha256": "4edd331fd93b5d23f52b210767b1fa43b90aecf14c97235f2ac151831c16538e",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 165503,
+          "visiblePixelCount": 96641
+        }
+      }
+    },
+    "a6--2-part-2-flaps": {
+      "modelKey": "a6--2-part-2-flaps",
+      "folderModelKey": "a6--2-part-2-flaps",
+      "labelDa": "A6 · 2-delt med 2 flapper",
+      "accessibleNameDa": "Illustration af A6, 2-delt med 2 flapper",
+      "sourceOrder": 11,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a6--2-part-2-flaps.svg",
+        "sha256": "ff7ca1ac3079f0e190603dd98f3b8f526ba6ef34064796d04f3285ed2209ccfa"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a6--2-part-2-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 13990,
+        "sha256": "0a7fa711e914cd742960c4440226a753345b88c8c13d79b63b41d659e73f5cf6",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 597387,
+          "visiblePixelCount": 451189
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a6--2-part-2-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 5465,
+        "sha256": "4ab68558461e12fa2f87f5c3a8da1ebb68d7d3dcc8ab7ab95d5f3c150556cceb",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 149048,
+          "visiblePixelCount": 113096
+        }
+      }
+    },
+    "a6--2-part-3-flaps": {
+      "modelKey": "a6--2-part-3-flaps",
+      "folderModelKey": "a6--2-part-3-flaps",
+      "labelDa": "A6 · 2-delt med 3 flapper",
+      "accessibleNameDa": "Illustration af A6, 2-delt med 3 flapper",
+      "sourceOrder": 12,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a6--2-part-3-flaps.svg",
+        "sha256": "b6bed2267bba25642c00afac315c3d2e6b2fe80e5a42a74a72a91a4219d5b0ab"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a6--2-part-3-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 17199,
+        "sha256": "51cdc2d4cde949bb4e8c252763a84ecdf562034af2d95f3e3fb5f723f3e75821",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 571618,
+          "visiblePixelCount": 476958
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a6--2-part-3-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 6990,
+        "sha256": "908edd5a0ad38b6e71ad47e8f3fb370cd05f5365d615db856500ef10cca7b42a",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 142603,
+          "visiblePixelCount": 119541
+        }
+      }
+    },
+    "a6--2-part-closure": {
+      "modelKey": "a6--2-part-closure",
+      "folderModelKey": "a6--2-part-closure",
+      "labelDa": "A6 · 2-delt med lukning",
+      "accessibleNameDa": "Illustration af A6, 2-delt med lukning",
+      "sourceOrder": 13,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a6--2-part-closure.svg",
+        "sha256": "fad9a2576dc51efed04d9841117ad6b2d2f353bb99459248278a0a77eb00a8a0"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a6--2-part-closure.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 13778,
+        "sha256": "c2720dc341135d7eeefa87043cf0f8d1056e171b5244d3fe5bcddf91caa42ac4",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 624080,
+          "visiblePixelCount": 424496
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a6--2-part-closure.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 5623,
+        "sha256": "538a7b1d3700d84706c404bed1da8d14d51a7aedd0178c15355bd1eb21e93ac6",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 155749,
+          "visiblePixelCount": 106395
+        }
+      }
+    },
+    "a6--3-part-1-flap": {
+      "modelKey": "a6--3-part-1-flap",
+      "folderModelKey": "a6--3-part-1-flap",
+      "labelDa": "A6 · 3-delt med 1 flap",
+      "accessibleNameDa": "Illustration af A6, 3-delt med 1 flap",
+      "sourceOrder": 14,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/a6--3-part-1-flap.svg",
+        "sha256": "3af735e1fa3e255340d064d9e15862f4e6809a0ff10ac3333f3599283ad26afd"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/a6--3-part-1-flap.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 14512,
+        "sha256": "b0386d70f5c3e5f90b38c67462a791a15279f9d20234bc2c194274d4ba3fbf2d",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 667303,
+          "visiblePixelCount": 381273
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/a6--3-part-1-flap.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 6105,
+        "sha256": "54fe678cfed844f516b32ef12e4ab28f2bc18d3ad0c8531e456f4961d105afeb",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 166372,
+          "visiblePixelCount": 95772
+        }
+      }
+    },
+    "din-lang--2-part-2-flaps": {
+      "modelKey": "din-lang--2-part-2-flaps",
+      "folderModelKey": "din-lang--2-part-2-flaps",
+      "labelDa": "DIN lang · 2-delt med 2 flapper",
+      "accessibleNameDa": "Illustration af DIN lang, 2-delt med 2 flapper",
+      "sourceOrder": 15,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/din-lang--2-part-2-flaps.svg",
+        "sha256": "110712f6259e4fa7790bb57500a8dd152845cda22d612007727196839d49cf04"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/din-lang--2-part-2-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 14836,
+        "sha256": "905a532c4c88202bca147dd56c239c03bd260d917d5fc120733729c8b2e9d15d",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 609898,
+          "visiblePixelCount": 438678
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/din-lang--2-part-2-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 6327,
+        "sha256": "ad44e1e56d23b5ccbcf94e1df4f5506f4dd917222f837e22e40914aebdba4938",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 151843,
+          "visiblePixelCount": 110301
+        }
+      }
+    },
+    "din-lang--2-part-3-flaps": {
+      "modelKey": "din-lang--2-part-3-flaps",
+      "folderModelKey": "din-lang--2-part-3-flaps",
+      "labelDa": "DIN lang · 2-delt med 3 flapper",
+      "accessibleNameDa": "Illustration af DIN lang, 2-delt med 3 flapper",
+      "sourceOrder": 16,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/din-lang--2-part-3-flaps.svg",
+        "sha256": "386626ec86835cd24a2414b453062538731d4d6f4a03e496cf5cb2db10749c15"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/din-lang--2-part-3-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 18236,
+        "sha256": "2668c49b3f17ad5bc05b53b91d517100bf34b09e432ec99ef804b0c6f5ab06b3",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 578958,
+          "visiblePixelCount": 469618
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/din-lang--2-part-3-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 8100,
+        "sha256": "cc52867144d617682d7f8cedac0dfe9c9a48bc5b2c46ddb0258e56304548a69a",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 144105,
+          "visiblePixelCount": 118039
+        }
+      }
+    },
+    "din-lang--2-part-closure": {
+      "modelKey": "din-lang--2-part-closure",
+      "folderModelKey": "din-lang--2-part-closure",
+      "labelDa": "DIN lang · 2-delt med lukning",
+      "accessibleNameDa": "Illustration af DIN lang, 2-delt med lukning",
+      "sourceOrder": 17,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/din-lang--2-part-closure.svg",
+        "sha256": "343cfb0378f394be33003fd767cc27651e7c23c42f25b983f3cce15bc69a6954"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/din-lang--2-part-closure.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 14569,
+        "sha256": "46a3d108d83fa51324c967df72bb804aab81d140e4bb2672ebf58c90353d20f4",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 630210,
+          "visiblePixelCount": 418366
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/din-lang--2-part-closure.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 6309,
+        "sha256": "81615f36c7e91579c07d0d7b6d6952aa4c7a90db2863a4bcb059d12cabf02617",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 156943,
+          "visiblePixelCount": 105201
+        }
+      }
+    },
+    "square-21x21--2-part-2-flaps": {
+      "modelKey": "square-21x21--2-part-2-flaps",
+      "folderModelKey": "square-21x21--2-part-2-flaps",
+      "labelDa": "21 × 21 cm · 2-delt med 2 flapper",
+      "accessibleNameDa": "Illustration af 21 × 21 cm, 2-delt med 2 flapper",
+      "sourceOrder": 18,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/square-21x21--2-part-2-flaps.svg",
+        "sha256": "e29ae41ecefad982c228abdc0e4ddf4943df5cab57eae56edf49d517f837ce53"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/square-21x21--2-part-2-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 13048,
+        "sha256": "b8cbd343332184b532c6997f2d04f7c2c38b885a29f0ac4113550cffbf6a6352",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 588155,
+          "visiblePixelCount": 460421
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/square-21x21--2-part-2-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 5160,
+        "sha256": "069b501ae5904ab72914f0fbc0685e66058aa570e5554565e431e8f0f876a85f",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 146975,
+          "visiblePixelCount": 115169
+        }
+      }
+    },
+    "square-21x21--2-part-3-flaps": {
+      "modelKey": "square-21x21--2-part-3-flaps",
+      "folderModelKey": "square-21x21--2-part-3-flaps",
+      "labelDa": "21 × 21 cm · 2-delt med 3 flapper",
+      "accessibleNameDa": "Illustration af 21 × 21 cm, 2-delt med 3 flapper",
+      "sourceOrder": 19,
+      "styleKey": "flat_clean",
+      "transparent": true,
+      "supplierBrandingRemoved": true,
+      "sourceSvg": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/square-21x21--2-part-3-flaps.svg",
+        "sha256": "653410ba66c4486d6231cd2ab3303acccbc99d81f66ae847c6e71024bbc9006d"
+      },
+      "master": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/master/square-21x21--2-part-3-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 1024,
+        "heightPx": 1024,
+        "byteSize": 14890,
+        "sha256": "9f8616dd69c5b1003898f1b25b470fd443cf0db66b2ec82c9377bbf1ff7afa61",
+        "alpha": {
+          "widthPx": 1024,
+          "heightPx": 1024,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 661733,
+          "visiblePixelCount": 386843
+        }
+      },
+      "ui": {
+        "repoAssetPath": "src/assets/product-options/sales-folders/models/v1/png/ui/square-21x21--2-part-3-flaps.png",
+        "mimeType": "image/png",
+        "widthPx": 512,
+        "heightPx": 512,
+        "byteSize": 6582,
+        "sha256": "57b2fa612a06e9ee191491f466c070696b17dc05c29a6e9ac1db70d20cef59e2",
+        "alpha": {
+          "widthPx": 512,
+          "heightPx": 512,
+          "bitDepth": 8,
+          "colorType": "rgba",
+          "hasAlpha": true,
+          "minimumAlpha": 0,
+          "maximumAlpha": 255,
+          "transparentPixelCount": 164989,
+          "visiblePixelCount": 97155
+        }
+      }
+    }
+  }
+}

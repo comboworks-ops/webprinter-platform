@@ -1,3 +1,5 @@
+import type { BrochureFreeSelection } from '../pricing/brochureFreePricing';
+import type { RollLabelSelection } from '../products/rollLabelConfiguration';
 const SITE_CHECKOUT_SESSION_KEY = "wp_site_checkout_session";
 const SITE_CHECKOUT_TRANSFER_KEY = "wp_site_checkout_transfer";
 const SITE_CHECKOUT_DESIGN_READY_PREFIX = "order-design";
@@ -108,6 +110,7 @@ export interface SiteCheckoutState {
   productReturnPath?: string | null;
   productName?: string | null;
   designerMode?: string | null;
+  brochurePageCount?: number | null;
   pricingModel?: string | null;
   productFlowLabel?: string | null;
   productFlowHelpText?: string | null;
@@ -162,6 +165,8 @@ export interface SiteCheckoutState {
       productIds: string[];
       selectedSectionValues: Record<string, string | null>;
     } | null;
+    brochureFree?: BrochureFreeSelection | null;
+    rollLabels?: RollLabelSelection | null;
   } | null;
   sourceSiteId?: string | null;
   apparelConfig?: SiteCheckoutApparelConfig | null;
@@ -216,6 +221,7 @@ export function getSiteCheckoutDesignSignature(input: SiteCheckoutState | null |
     productId: input.productId || null,
     productSlug: input.productSlug || null,
     designerMode: input.designerMode || null,
+    ...(input.designerMode === "brochure" ? { brochurePageCount: input.brochurePageCount ?? null } : {}),
     pricingModel: input.pricingModel || null,
     productFlowLabel: input.productFlowLabel || null,
     requiresCutContour: input.requiresCutContour === true,

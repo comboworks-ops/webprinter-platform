@@ -1,0 +1,13 @@
+# WebPrinter application release — 8 October 2026
+
+The owner authorized pushing the current WebPrinter application to GitHub and deploying it to the existing Vercel production project. The release starts at main commit 5d65b9cf and brings in current local application work while retaining main's exact-template, matrix-selection and site-colour repairs.
+
+The frontend includes the shared header/menu controls, selectable icon families, responsive image delivery, account/login improvements, product presentation and designer/PDF validation updates. Brochure/roll-label preparation code is retained, with loopback DEV reviews excluded from production routes. This release does not publish those unfinished catalogue products, enable their orders, apply Supabase migrations, deploy Supabase functions, change stored prices or import the separate Banner Builder shop-creation branch. The deployed API and Supabase runtime source are retained from main.
+
+The original ui-cleanup folder, its three staged changes, drafts and recovery copies remain untouched. An isolated release checkout combines the local frontend with prior main fixes; secrets, local output, virtual disks, supplier source evidence and local quote middleware are outside the release packet. The normal frontend runs natively on macOS and does not need Colima; it continues to use hosted Supabase.
+
+Rollback: restore Vercel deployment dpl_4o8edFVR5MYbSTkgTCPfiarf4d7Y (main 5d65b9cf), which served the existing production domains before this release. No database rollback is required. Keep published tenant branding, catalogue data, files and payment records intact.
+
+Verification receipts and final Git/deployment identities are saved in the original project's ignored output/release-2026-10-08 directory. Local TypeScript validation passes. The broader unit checks use existing local, read-only source receipts; those receipts are not deployed. Vercel performs a clean production installation and build, followed by public tenant/product browser checks. These checks do not place real orders or test payments.
+
+Release validation: 915 selected application unit/regression tests pass. Four offline review/immutable extraction-packet suites are outside this release gate; they depend on evolving local source receipts, and their proposal resolvers are absent from ordinary template/Designer/order entry points. Initial aggregate attempts and exclusions remain recorded in output. All seven active PDF.js entry points enforce disabled font-code evaluation. TypeScript validation and the frontend lint-debt comparison run on the final source.

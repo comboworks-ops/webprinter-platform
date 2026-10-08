@@ -1,3 +1,5 @@
+import { applyBrochureDocumentParams } from '@/lib/designer/brochureProduct';
+import { validBrochurePageCount, validateBrochurePdfPageCount } from '@/lib/designer/brochureDocument';
 import { normalizeCheckoutFormatKey, checkoutTemplateFormatLabel } from '@/lib/checkout/formatLabels';
 import { PrintMockupButton } from '@/components/mockup/PrintMockupButton';
 import { useApprovedPrintModel } from '@/components/mockup/useApprovedPrintModel';
@@ -200,6 +202,15 @@ const getCheckoutFlowNotice = (
             tone: "amber",
             designerActionLabel: "Online-designer ikke tilgængelig",
             showDesignerAction: false,
+        };
+    }
+
+    if (mode === "brochure") {
+        return {
+            title: "Brochurens sider",
+            body: "Upload brochuren som enkeltsider i læserækkefølge, eller åbn sidedesigneren.",
+            checklist: ["Forside er side 1, bagside er sidste side.", "Sidetallet omfatter omslaget og går op i fire.", "Alle sider skal have det valgte format og 3 mm udfald."],
+            tone: "blue", designerActionLabel: "Åbn sidedesigner", showDesignerAction: true,
         };
     }
 
@@ -1696,7 +1707,7 @@ const FileUploadConfiguration = () => {
             .filter(Boolean)
             .join(" ")
             .toLocaleLowerCase("da-DK");
-        const layoutKind = /(folder|foldetype|falset|rullefals|zigzag)/.test(selectionText)
+        const layoutKind = state?.designerMode === 'brochure' ? 'brochure' : /(folder|foldetype|falset|rullefals|zigzag)/.test(selectionText)
             ? "folded"
             : "flat";
         const printSideLabel = checkoutTemplateSelectionLabels.find((label) => (
@@ -1732,6 +1743,7 @@ const FileUploadConfiguration = () => {
             safeAreaMm,
             minDpi: specs.min_dpi,
             layoutKind,
+            brochurePageCount: state?.brochurePageCount,
             printSideLabel,
             foldTypeLabel,
             pageCountLabel,
@@ -1752,6 +1764,8 @@ const FileUploadConfiguration = () => {
         safeAreaMm,
         specs,
         state?.summary,
+        state?.designerMode,
+        state?.brochurePageCount,
     ]);
 
     const bleedXPercent = specs ? (specs.bleed_mm / targetWidth) * 100 : 0;
@@ -2372,6 +2386,18 @@ const FileUploadConfiguration = () => {
     const preparePdfProofingPreview = async (file: File, specs: TechnicalSpecs): Promise<ProofingPreviewData> => {
         const pdf = await openLocalPdf(file);
         try {
+        if (state?.designerMode === 'brochure') {
+            if (!validBrochurePageCount(state.brochurePageCount || 0)) throw new Error('Trykfilen kræver et gyldigt valgt brochuresidetal.');
+            validateBrochurePdfPageCount(pdf.numPages, state.brochurePageCount!);
+            for (let index = 1; index <= pdf.numPages; index++) {
+                const candidate = await pdf.getPage(index);
+                const viewport = candidate.getViewport({ scale: 1 });
+                if (Math.abs(ptToMm(viewport.width) - specs.width_mm - specs.bleed_mm * 2) > .15
+                    || Math.abs(ptToMm(viewport.height) - specs.height_mm - specs.bleed_mm * 2) > .15) {
+                    throw new Error(`Trykfilens side ${index} skal være ${specs.width_mm + specs.bleed_mm * 2} × ${specs.height_mm + specs.bleed_mm * 2} mm inklusive udfald.`);
+                }
+            }
+        }
         const page = await pdf.getPage(1);
         const baseViewport = page.getViewport({ scale: 1 });
         const widthMm = ptToMm(baseViewport.width);
@@ -2419,6 +2445,11 @@ const FileUploadConfiguration = () => {
     const processUploadFile = async (file: File | null | undefined) => {
         if (!file || uploadBusyRef.current || proofExportBusyRef.current) return;
 
+        if (state?.designerMode === 'brochure' && file.type !== 'application/pdf') {
+            toast.error('Upload brochuren som en samlet PDF, eller brug sidedesigneren til billeder.');
+            return;
+        }
+
         const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'];
         if (!allowedTypes.includes(file.type)) {
             toast.error("Venligst upload en PDF eller et billede (JPG, PNG, TIFF)");
@@ -2455,10 +2486,11 @@ const FileUploadConfiguration = () => {
             const fileName = `${productRef}-order-${Date.now()}.${fileExt}`;
             const filePath = `order-files/${fileName}`;
 
+            const brochurePreview = state?.designerMode === 'brochure' ? await preparePdfProofingPreview(file, specs) : null;
             const upload = await uploadCheckoutFile(supabase, shopSettings.data?.id || '', file, file.name, filePath, setUploadProgress);
             const publicUrl = upload.url;
 
-            const preparedPreview = await prepareProofingPreview(file, specs);
+            const preparedPreview = brochurePreview || await prepareProofingPreview(file, specs);
             const contourScan = await scanPdfContourSignals(file);
             setUploadedFile(upload);
             setPreviewUrl(preparedPreview.previewUrl);
@@ -2795,6 +2827,8 @@ const FileUploadConfiguration = () => {
         if (shopSettings.data?.id) params.set("tenantId", shopSettings.data.id);
         if (state?.productId) params.set("productId", String(state.productId));
         if (state?.designerMode) params.set("designerMode", String(state.designerMode));
+        try { applyBrochureDocumentParams(params, state?.designerMode, state?.brochurePageCount); }
+        catch (error) { toast.error((error as Error).message); return; }
         if (state?.pricingModel) params.set("pricingModel", String(state.pricingModel));
         if (state?.linkedTemplateId) params.set("templateId", String(state.linkedTemplateId));
         if (checkoutTemplatePdfUrl) {

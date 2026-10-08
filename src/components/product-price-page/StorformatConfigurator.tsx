@@ -10,6 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { MaterialLabel, MaterialOptionHelp } from './MaterialLabel';
 import { materialPresentation } from '@/lib/products/materialPresentation';
+import { adhesiveOptionLabel, adhesiveTooltipDefault, adhesiveProductionOffset, isPixartAdhesiveMaterials, productionKind } from '@/lib/products/pixartAdhesivePresentation';
+import { ProductTooltipIcon } from '@/components/ProductTooltipIcon';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useProductTooltipConfigs } from '@/hooks/useProductAvailabilityTooltips';
 import { PriceMatrix } from "@/components/product-price-page/PriceMatrix";
 import {
@@ -58,6 +61,7 @@ export type StorformatSelection = {
   materialName: string;
   finishName?: string | null;
   productName?: string | null;
+  deliveryBusinessDayOffset?: number;
   splitInfo: {
     isSplit: boolean;
     piecesWide: number;
@@ -74,7 +78,8 @@ type StorformatConfiguratorProps = {
   productId: string;
   initialState?: SiteCheckoutState | null;
   sourceShapeBindings?: WideFormatShapeBinding[];
-  layout?: { design: number; intro: ReactNode; media?: ReactNode; summary: ReactNode; extras: ReactNode; details?: ReactNode };
+  layout?: { design: number; intro: ReactNode; media?: ReactNode; summary: ReactNode | ((productionControls: ReactNode) => ReactNode); extras: ReactNode; details?: ReactNode };
+  fastProductionDayOffset?: number;
   onSelectionChange: (selection: StorformatSelection | null) => void;
 };
 
@@ -155,9 +160,11 @@ export function StorformatConfigurator({
   productId,
   initialState,
   sourceShapeBindings,
+  fastProductionDayOffset = 2,
   onSelectionChange
 }: StorformatConfiguratorProps) {
   const materialTooltips = useProductTooltipConfigs(productId);
+  const { language } = useLanguage();
   const noneFinishValue = "__none__";
   const [searchParams] = useSearchParams();
   const requested = readFeaturedStorformatSelection(searchParams);
@@ -174,6 +181,7 @@ export function StorformatConfigurator({
   const [materials, setMaterials] = useState<StorformatMaterial[]>([]);
   const [finishes, setFinishes] = useState<StorformatFinish[]>([]);
   const [products, setProducts] = useState<StorformatProduct[]>([]);
+  const isAdhesive = isPixartAdhesiveMaterials(materials);
   const [loading, setLoading] = useState(true);
   const [layoutRows, setLayoutRows] = useState<LayoutRow[]>([]);
   const [verticalAxis, setVerticalAxis] = useState<VerticalAxisConfig | null>(null);
@@ -823,6 +831,7 @@ export function StorformatConfigurator({
       productName: selectedProducts.length
         ? selectedProducts.map((item) => getConfiguredValueDisplayName("products", item.id, item.name)).join(", ")
         : null,
+      deliveryBusinessDayOffset: isAdhesive ? adhesiveProductionOffset(selectedProducts.map(item => item.name), fastProductionDayOffset) : undefined,
       splitInfo: result.splitInfo,
       exceedsMax,
       allowSplit: material.allow_split ?? true,
@@ -834,7 +843,7 @@ export function StorformatConfigurator({
         selectedSectionValues,
       ),
     };
-  }, [materials, finishes, products, materialId, finishId, productIdSelection, effectiveWidthCm, effectiveHeightCm, widthCm, heightCm, templateShape, quantity, config, hasUsableLayout, resolveSelectionsForType, getConfiguredValueDisplayName, verticalAxis, layoutRows, selectedSectionValues]);
+  }, [materials, finishes, products, materialId, finishId, productIdSelection, effectiveWidthCm, effectiveHeightCm, widthCm, heightCm, templateShape, quantity, config, hasUsableLayout, resolveSelectionsForType, getConfiguredValueDisplayName, verticalAxis, layoutRows, selectedSectionValues, isAdhesive, fastProductionDayOffset]);
 
   useEffect(() => {
     onSelectionChange(selection);
@@ -878,7 +887,7 @@ export function StorformatConfigurator({
       fallbackSelectedColor: activeBranding?.colors?.primary || "#0EA5E9",
     });
     const sourceFor = (value: StorformatMaterial | StorformatFinish | StorformatProduct) => ({name:getDisplayName(value.name,valueSettings[value.id || ""]),sourceName:value.name || ""});
-    const presentedName = (value: StorformatMaterial | StorformatFinish | StorformatProduct) => section.sectionType === "materials" ? materialPresentation(sourceFor(value)).label : sourceFor(value).name;
+    const presentedName = (value: StorformatMaterial | StorformatFinish | StorformatProduct) => isAdhesive ? adhesiveOptionLabel(section.sectionType, value.name, language) : section.sectionType === "materials" ? materialPresentation(sourceFor(value)).label : sourceFor(value).name;
     const selectedMaterial = values.find(value=>value.id===selectedValue);
     const isOptionalEnabled = !isOptional || Boolean(selectedSectionValues[section.id]);
 
@@ -893,6 +902,20 @@ export function StorformatConfigurator({
         return next;
       });
     };
+
+    if (isAdhesive && (section.sectionType === 'finishes' || (section.sectionType === 'products' && values.every(value => productionKind(value.name))))) {
+      return <div className="adhesive-option-buttons" role="group" aria-label={section.sectionType === 'finishes' ? (language === 'en' ? 'Finishing' : 'Efterbehandling') : (language === 'en' ? 'Production time' : 'Produktionstid')}>
+        {isOptional && section.sectionType === 'finishes' && <button type="button" aria-pressed={!selectedValue} className="adhesive-option-button" onClick={() => handleSelect(null)}>{language === 'en' ? 'None' : 'Ingen'}</button>}
+        {values.map(value => {
+          const help = adhesiveTooltipDefault(section.sectionType, sourceFor(value), section.id, value.id || '');
+          const savedHelp = help && (materialTooltips.find(item => item.anchor === help.anchor) || help);
+          return <span key={value.id} className="adhesive-option-with-help" data-tooltip-anchor={help?.anchor}>
+            <button type="button" className="adhesive-option-button" aria-pressed={selectedValue === value.id} data-site-design-target={`product-option.${productId}.${section.id}.${value.id}.${encodeURIComponent(value.name)}`} onClick={() => handleSelect(value.id || null)} style={{backgroundColor:selectedValue === value.id ? sectionTextButtonsConfig.selectedBackgroundColor : sectionTextButtonsConfig.backgroundColor,color:selectedValue === value.id ? sectionTextButtonsConfig.selectedTextColor : sectionTextButtonsConfig.textColor,borderColor:selectedValue === value.id ? sectionTextButtonsConfig.selectedBackgroundColor : sectionTextButtonsConfig.borderColor}}><span className="adhesive-option-text">{presentedName(value)}</span></button>
+            {savedHelp && <ProductTooltipIcon config={savedHelp} className="adhesive-option-help"/>}
+          </span>;
+        })}
+      </div>;
+    }
 
     if (displayMode === "dropdown") {
       return (
@@ -1294,11 +1317,12 @@ export function StorformatConfigurator({
         })}
       </div>
     );
-  }, [materialTooltips, getDisplayName, productId, activeBranding?.colors?.hover, activeBranding?.colors?.primary, hoveredPictureKey, pictureButtonsConfig, textButtonsConfig, selectionModeById, selectedSectionValues, valueSettingsById]);
+  }, [materialTooltips, getDisplayName, productId, activeBranding?.colors?.hover, activeBranding?.colors?.primary, hoveredPictureKey, pictureButtonsConfig, textButtonsConfig, selectionModeById, selectedSectionValues, valueSettingsById, isAdhesive, language]);
 
   const verticalAxisValues = useMemo(() => getVerticalAxisValues(), [getVerticalAxisValues]);
 
   const renderValueSelector = (section: LayoutSection, values: Array<StorformatMaterial | StorformatFinish | StorformatProduct>) => {
+    if (isAdhesive && section.sectionType !== 'materials') return renderUngroupedValueSelector(section, values);
     const groups = resolveSelectorValueGroups(
       values.filter((value): value is typeof value & { id: string } => typeof value.id === "string"),
       section.valueGroups,
@@ -1412,6 +1436,12 @@ export function StorformatConfigurator({
     setSelectedSectionValues((prev) => ({ ...prev, [verticalAxisId]: rowId }));
   }, [config, matrixData.cells, matrixData.rowIdByLabel, verticalAxis, verticalAxisId]);
 
+  const isProductionSection = (section: LayoutSection) => isAdhesive && section.sectionType === 'products' && getSectionValues(section).length > 0 && getSectionValues(section).every(value => productionKind(value.name));
+  const productionSections = layoutRows.flatMap(row => row.sections).filter(isProductionSection);
+  const productionControls = productionSections.length > 0 ? <div className="adhesive-production-controls space-y-2">
+    <span className="text-sm font-semibold">{language === 'en' ? 'Production time' : 'Produktionstid'}</span>
+    {productionSections.map(section => <div key={section.id}>{renderValueSelector(section, getSectionValues(section))}</div>)}
+  </div> : null;
   const controls = <div className="order-calculator-controls space-y-4">
       <div className="order-calculator-controls-heading flex items-center justify-between">
         <h3 className="font-semibold">{layout ? "Beregn din pris" : "Storformat"}</h3>
@@ -1521,6 +1551,7 @@ export function StorformatConfigurator({
         <div className="space-y-4">
           {layoutRows.map((row) => {
             const filteredSections = row.sections.filter((section) => {
+              if (layout && isProductionSection(section)) return false;
               if (verticalAxis && section.sectionType === verticalAxis.sectionType) return false;
               return getSectionValues(section).length > 0;
             });
@@ -1543,8 +1574,9 @@ export function StorformatConfigurator({
                     const values = getSectionValues(section);
                     if (values.length === 0) return null;
                     const isOptional = isOptionalSelectionMode(selectionModeById[section.id]);
+                    const compactFinish = isAdhesive && section.sectionType === 'finishes';
                     const isOptionalEnabled = !isOptional || Boolean(selectedSectionValues[section.id]);
-                    const sectionLabel = getSectionLabel(section.sectionType, section.title);
+                    const sectionLabel = compactFinish ? (language === 'en' ? 'Finishing' : 'Efterbehandling') : getSectionLabel(section.sectionType, section.title);
                     const selectorBoxConfig = resolveSelectorBoxConfig(section.selectorStyling?.selectorBox);
                     const selectorBoxTarget = `product-selector-box.${productId}.${section.id}.${encodeURIComponent(sectionLabel)}`;
 
@@ -1583,7 +1615,7 @@ export function StorformatConfigurator({
                         }}
                       >
                         <div className="flex items-center gap-2">
-                          {isOptional && (
+                          {isOptional && !compactFinish && (
                             <Checkbox
                               checked={isOptionalEnabled}
                               onCheckedChange={(checked) => handleOptionalToggle(Boolean(checked))}
@@ -1649,7 +1681,7 @@ export function StorformatConfigurator({
             onCellClick={(row, column) => handleMatrixCellClick(row, column)}
             selectedCell={matrixSelectedCell}
             columnUnit="stk"
-            rowHeaderLabel={verticalAxis.title || getSectionLabel(verticalAxis.sectionType)}
+            rowHeaderLabel={isAdhesive && language === 'en' && verticalAxis.sectionType === 'materials' ? 'Materials' : verticalAxis.title || getSectionLabel(verticalAxis.sectionType)}
           />
         </div>
       )}  </div>;
@@ -1657,9 +1689,9 @@ export function StorformatConfigurator({
     const intro = <div className="order-calculator-product">{layout.intro}{layout.media}</div>;
     const extras = <div className="order-calculator-extras">{notices}{layout.extras}</div>;
     const summary = <aside className="order-calculator-summary" aria-label="Din bestilling" aria-busy={loading}>
-      {loading ? <div className="py-6 text-sm text-muted-foreground" role="status">Indlæser priser…</div> : layout.summary}
+      {loading ? <div className="py-6 text-sm text-muted-foreground" role="status">Indlæser priser…</div> : typeof layout.summary === 'function' ? layout.summary(productionControls) : <>{productionControls}{layout.summary}</>}
     </aside>;
-    return <div className="order-calculator-layout" data-calculator-design={layout.design}>
+    return <div className="order-calculator-layout" data-calculator-design={layout.design} data-adhesive-product={isAdhesive ? 'true' : undefined}>
       <div className="order-calculator-left">{intro}{layout.design === 1 && controls}{matrix}{layout.details && <div className="order-calculator-details">{layout.details}</div>}{layout.design === 1 && extras}</div>
       <div className="order-calculator-right">{layout.design === 2 && controls}{layout.design === 2 && extras}{summary}</div>
     </div>;

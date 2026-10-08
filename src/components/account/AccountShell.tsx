@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ArrowRight, ExternalLink, House, Image, Loader2, LogOut, MapPin, Menu, Package, Search, Settings, UserRound, X, AlertCircle } from 'lucide-react';
+import { ArrowRight, ExternalLink, House, Image, Loader2, LogOut, MapPin, Menu, Package, Search, Settings, ShieldCheck, UserRound, X, AlertCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useCustomerAccount, type CustomerProfile } from './CustomerAccountContext';
 import '@/styles/customerAccount.css';
 import { useHeaderFit } from '@/hooks/useHeaderFit';
+import { useUserRole } from '@/hooks/useUserRole';
+import { useLanguage } from '@/contexts/LanguageContext';
 import '@/styles/responsiveHeader.css';
 
 export const ACCOUNT_NAVIGATION = [
@@ -75,9 +77,11 @@ export interface AccountWorkspaceProps {
   title: string; description?: string; actions?: ReactNode; children: ReactNode;
   header: ReactNode; currentPath: string; link: (href: string) => string;
   onLogout?: () => void; signingOut?: boolean; logoutError?: string | null; style?: CSSProperties;
+  adminHref?: string;
 }
-export function AccountWorkspace({ title, description, actions, children, header, currentPath, link, onLogout, signingOut, logoutError, style }: AccountWorkspaceProps) {
+export function AccountWorkspace({ title, description, actions, children, header, currentPath, link, onLogout, signingOut, logoutError, style, adminHref }: AccountWorkspaceProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { t } = useLanguage();
   return <div id="customer-account" className="customer-account" style={style} data-account-design="companion">
     <a className="customer-skip" href="#customer-main">Gå til indhold</a>{header}
     <div className="customer-account-layout">
@@ -86,7 +90,7 @@ export function AccountWorkspace({ title, description, actions, children, header
         <nav id="customer-account-navigation" className={menuOpen ? 'is-open' : ''} aria-label="Min konto">{ACCOUNT_NAVIGATION.map(item => {
           const active = item.href === '/min-konto' ? currentPath === item.href : currentPath.startsWith(item.href) || (item.href.endsWith('/ordrer') && currentPath === '/mine-ordrer');
           return <Link key={item.href} to={link(item.href)} aria-current={active ? 'page' : undefined} onClick={() => setMenuOpen(false)}><item.icon size={21} aria-hidden="true" />{item.label}</Link>;
-        })}</nav>
+        })}{adminHref && <Link to={adminHref} onClick={() => setMenuOpen(false)}><ShieldCheck size={21} aria-hidden="true" />{t('adminPanel')}</Link>}</nav>
         {onLogout && <div className="customer-logout"><button onClick={onLogout} disabled={signingOut}>{signingOut ? <Loader2 size={20} className="animate-spin" /> : <LogOut size={20} />}Log ud</button>{logoutError && <p role="alert">{logoutError}</p>}</div>}
       </aside>
       <main id="customer-main" className="customer-account-main" tabIndex={-1}><div className="customer-page-heading"><div><h1>{title}</h1>{description && <p>{description}</p>}</div>{actions && <div className="customer-page-actions">{actions}</div>}</div>{children}</main>
@@ -98,6 +102,7 @@ export function AccountShell({ title, description, actions, children }: {title: 
   const account = useCustomerAccount();
   const location = useLocation();
   const navigate = useNavigate();
+  const { isAdmin, loading: roleLoading } = useUserRole();
   const [signingOut, setSigningOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const signOut = async () => {
@@ -108,6 +113,7 @@ export function AccountShell({ title, description, actions, children }: {title: 
   };
   const primary = account.shop?.branding?.colors?.primary || '#087fc5';
   return <AccountWorkspace title={title} description={description} actions={actions} currentPath={location.pathname} link={account.link} onLogout={account.user ? signOut : undefined} signingOut={signingOut} logoutError={logoutError}
+    adminHref={!roleLoading && isAdmin ? account.link('/admin') : undefined}
     style={{ '--customer-blue': primary, '--customer-font': account.shop?.branding?.fonts?.body || 'Inter' } as CSSProperties}
     header={<CustomerShopHeader shop={account.shop} profile={account.profile} email={account.user?.email} link={account.link} />}>{children}</AccountWorkspace>;
 }

@@ -34,7 +34,7 @@ import DesignerTemplateManager from '@/components/admin/DesignerTemplateManager'
 import ColorProfilesManager from '@/components/admin/ColorProfilesManager';
 import { GraphicGuideEditor } from '@/components/admin/GraphicGuideEditor';
 import AdminCompanyHub from '@/pages/admin/AdminCompanyHub';
-import { supabase } from '@/integrations/supabase/client';
+import { customerLink } from '@/lib/account/navigation';
 import { PlatformSeoAdmin } from '@/components/admin/platform-seo';
 import { SearchConsoleCallback } from '@/components/admin/platform-seo/SearchConsoleCallback';
 // POD (Print on Demand) imports
@@ -63,25 +63,13 @@ export default function Admin() {
   const navigate = useNavigate();
   const { search } = useLocation();
   const tenantContextKey = new URLSearchParams(search).get("force_domain") || "";
-  const { isAdmin, loading: roleLoading } = useUserRole();
+  const { isAdmin, loading: roleLoading, userId } = useUserRole();
 
   useEffect(() => {
-    const checkAccess = async () => {
-      if (!roleLoading && !isAdmin) {
-        // If user is logged out (no session), just redirect quietly
-        const { data: { session } } = await supabase.auth.getSession();
-
-        if (session) {
-          // Logged in but no admin role -> Real access denied
-          toast.error('Adgang nægtet. Administrator rettigheder påkrævet.');
-        }
-
-        navigate('/');
-      }
-    };
-
-    checkAccess();
-  }, [isAdmin, roleLoading, navigate]);
+    if (roleLoading || isAdmin) return;
+    if (userId) toast.error('Adgang nægtet. Administratorrettigheder påkrævet.');
+    navigate(customerLink(userId ? '/min-konto' : '/admin/login', search), { replace: true });
+  }, [isAdmin, roleLoading, userId, navigate, search]);
 
   if (roleLoading) {
     return (
@@ -98,7 +86,7 @@ export default function Admin() {
         <p className="text-sm text-muted-foreground max-w-md">
           Du mangler administratorrettigheder, eller adgangskontrollen kunne ikke verificeres.
         </p>
-        <Button onClick={() => navigate('/')}>Tilbage til forsiden</Button>
+        <Button onClick={() => navigate(customerLink('/admin/login', search))}>Til administratorlogin</Button>
       </div>
     );
   }

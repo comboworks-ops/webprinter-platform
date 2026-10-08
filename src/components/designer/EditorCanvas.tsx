@@ -83,6 +83,7 @@ export interface EditorCanvasProps {
     pasteboardColor?: string;
     showPasteboardMasks?: boolean;
     showDocumentGuideOverlay?: boolean;
+    showPasteboardLegend?: boolean;
     documentBackgroundFill?: string;
     documentBackgroundStroke?: string;
     selectedTool: string;
@@ -219,6 +220,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
     pasteboardColor = '#525252',
     showPasteboardMasks = true,
     showDocumentGuideOverlay = false,
+    showPasteboardLegend = true,
     documentBackgroundFill = '#ffffff',
     documentBackgroundStroke = '#4B5563',
     selectedTool,
@@ -1969,10 +1971,11 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
                 )}
             </div>
 
-            {!showDocumentGuideOverlay && (
+            {!showDocumentGuideOverlay && showPasteboardLegend && (
                 <>
                     {/* Legend - positioned outside artwork in pasteboard area */}
                     <div
+                        data-designer-guide-legend="true"
                         className="absolute text-xs bg-white/90 rounded px-2 py-1 flex gap-3 pointer-events-none shadow-sm"
                         style={{
                             bottom: 8,
@@ -1996,6 +1999,7 @@ const EditorCanvas = forwardRef<EditorCanvasRef, EditorCanvasProps>(({
 
                     {/* Overflow indicator label */}
                     <div
+                        data-designer-pasteboard-label="true"
                         className="absolute text-xs text-white/70 pointer-events-none"
                         style={{
                             top: 6,

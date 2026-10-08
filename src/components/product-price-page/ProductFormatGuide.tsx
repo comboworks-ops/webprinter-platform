@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { TemplateGuideGeometry, TemplateGuidePage } from "@/lib/designer/productTemplateLinks";
+import type { ExactGuideGeometry } from '@/lib/products/exactGuideGeometry';
 
 export type ProductFormatGuideData = {
   productName: string;
@@ -34,11 +35,15 @@ export type ProductFormatGuideData = {
   bleedMm: number;
   safeAreaMm: number;
   minDpi?: number;
-  layoutKind?: "flat" | "folded";
+  layoutKind?: "flat" | "folded" | "brochure";
+  brochurePageCount?: number;
   printSideLabel?: string | null;
   foldTypeLabel?: string | null;
   pageCountLabel?: string | null;
   foldGeometry?: TemplateGuideGeometry | null;
+  vectorGuide?: ExactGuideGeometry | null;
+  instructionsDa?: string[];
+  finishedFormatLabel?: string;
   template?: {
     name: string;
     url: string;
@@ -54,7 +59,7 @@ export function ProductFormatGuideGraphic({
 }) {
   return (
     <div className={cn("flex min-w-0 items-start justify-center", className)}>
-      {data.layoutKind === "folded" && data.foldGeometry?.pages.length ? (
+      {data.vectorGuide?.pages.length ? <ExactVectorGuideGraphic geometry={data.vectorGuide} /> : data.layoutKind === "folded" && data.foldGeometry?.pages.length ? (
         <ExactFoldGeometryGraphic
           geometry={data.foldGeometry}
           bleedMm={data.bleedMm}
@@ -80,6 +85,23 @@ export function ProductFormatGuideGraphic({
       )}
     </div>
   );
+}
+
+function ExactVectorGuideGraphic({geometry}:{geometry:ExactGuideGeometry}) {
+  const colors:Record<string,string> = {data:'#374151',cut:'#EC008C',safe:'#2F80ED',fold:'#00A7C4'};
+  return <div className="grid w-full min-w-0 gap-3" data-exact-guide-article={geometry.articleId}>
+    {geometry.pages.map((page,index)=><figure key={index} className="min-w-0">
+      <figcaption className="mb-2 text-center text-xs font-semibold">{page.label}</figcaption>
+      <svg viewBox={`-2 -2 ${page.widthPt+4} ${page.heightPt+4}`} role="img" aria-label={`${page.label}. Præcis stans, sikkerhed og eventuelle foldelinjer.`}
+        className="mx-auto h-auto max-h-64 w-full" data-exact-guide-page={index+1}>
+        {page.paths.map((path,i)=><path key={i} d={path.d} fill="none" stroke={colors[path.role] || '#374151'}
+          strokeWidth={1.3} vectorEffect="non-scaling-stroke" strokeDasharray={path.role==='cut'||path.role==='fold' ? '4 2' : undefined} />)}
+        {page.labels.map((label,i)=><text key={i} x={label.x} y={label.y} textAnchor="middle" dominantBaseline="middle"
+          fontSize={12} fill="currentColor">{label.text}</text>)}
+      </svg>
+    </figure>)}
+    <p className="text-xs leading-5 text-muted-foreground">Mørkegrå: dataformat · magenta: stans · blå: sikkerhed · turkis: fold.</p>
+  </div>;
 }
 
 function ExactFoldPageGraphic({
@@ -754,13 +776,14 @@ export function ProductFormatGuideContent({ data, compact = false }: ProductForm
   }
 
   const isFolded = data.layoutKind === "folded";
+  const isBrochure = data.layoutKind === "brochure";
   const dataWidthMm = data.dataWidthMm
     ?? (isFolded ? data.finishedWidthMm * 2 + data.bleedMm * 2 : data.finishedWidthMm + data.bleedMm * 2);
   const dataHeightMm = data.dataHeightMm ?? data.finishedHeightMm + data.bleedMm * 2;
   const safetyDistanceFromDataMm = data.bleedMm + data.safeAreaMm;
   const minDpi = data.minDpi || 300;
 
-  const checks = isFolded
+  const checks = data.instructionsDa?.length ? data.instructionsDa : isFolded
     ? [
         `Lad baggrund og billeder gå ${formatMm(data.bleedMm)} mm ud over den magenta skærelinje.`,
         `Hold tekst og logoer ${formatMm(data.safeAreaMm)} mm inden for skærelinjen.`,
@@ -769,7 +792,9 @@ export function ProductFormatGuideContent({ data, compact = false }: ProductForm
     : [
         `Lad baggrund og grafik gå helt ud til den cyan datakant på ${formatMm(dataWidthMm)} × ${formatMm(dataHeightMm)} mm.`,
         `Hold tekst og logoer inden for den blå sikkerhedszone. CMYK · mindst ${minDpi} ppi.`,
-        data.printSideLabel?.includes("4+4")
+        isBrochure
+          ? `Aflever ${data.brochurePageCount ? `${data.brochurePageCount} ` : ''}enkeltsider i én PDF med indlejrede skrifter, i læserækkefølge inklusive omslag.`
+          : data.printSideLabel?.includes("4+4")
           ? "Aflever forside og bagside i én PDF i korrekt rækkefølge."
           : "Aflever som én PDF-side med indlejrede skrifter.",
       ];
@@ -791,6 +816,7 @@ export function ProductFormatGuideContent({ data, compact = false }: ProductForm
               ? "PDF'en bruger det udfoldede dataformat. Det lukkede mål vises separat, så fold og beskæring ikke forveksles."
               : "Yderste linje er dataformatet; den magenta linje er det færdige snit."}
           </p>
+          {isBrochure && <p className="mt-1 text-xs leading-5 text-muted-foreground">Side 1 er forsiden, og sidste side er bagsiden. Opslag er 2–3, 4–5 osv. Trykfilen afleveres som enkeltsider med udfald på alle fire sider.</p>}
         </div>
 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-y py-2 lg:grid-cols-4">
@@ -804,7 +830,7 @@ export function ProductFormatGuideContent({ data, compact = false }: ProductForm
           </div>
           <div>
             <dt className="text-[10px] font-semibold uppercase text-muted-foreground">
-              {isFolded ? "Lukket format" : "Færdigt format"}
+              {data.finishedFormatLabel || (isFolded ? "Lukket format" : "Færdigt format")}
             </dt>
             <dd className="mt-0.5 text-sm font-bold text-foreground">
               {formatMm(data.finishedWidthMm)} × {formatMm(data.finishedHeightMm)} mm
@@ -817,7 +843,7 @@ export function ProductFormatGuideContent({ data, compact = false }: ProductForm
           <div>
             <dt className="text-[10px] font-semibold uppercase text-muted-foreground">Sikkerhed</dt>
             <dd className="mt-0.5 text-sm font-bold text-foreground">
-              {isFolded ? `${formatMm(data.safeAreaMm)} mm` : `${formatMm(safetyDistanceFromDataMm)} mm`}
+              {isFolded || data.vectorGuide ? `${formatMm(data.safeAreaMm)} mm` : `${formatMm(safetyDistanceFromDataMm)} mm`}
             </dd>
           </div>
         </dl>
