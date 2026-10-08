@@ -20,7 +20,7 @@ const translations = {
     login: "Log ind",
     logout: "Log ud",
     myProfile: "Min profil",
-    adminPanel: "Admin panel",
+    adminPanel: "Administration",
     
     // Auth
     email: "Email",
@@ -48,8 +48,11 @@ const translations = {
     personalInfo: "Administrer dine personlige oplysninger",
     
     // Admin
-    adminLogin: "Administrator Login",
-    accessRestricted: "Adgang kun for administratorer",
+    adminLogin: "Administratorlogin",
+    accessRestricted: "For ejere og administratorer. Log ind direkte til butikkens backend.",
+    shopOwnerOrAdmin: "Er du butiksejer eller administrator?",
+    customerLogin: "Kundelogin",
+    checkingAdminAccess: "Kontrollerer adgang…",
     signInAsAdmin: "Log ind som administrator",
     backToHome: "Tilbage til forsiden",
     accessDenied: "Adgang nægtet",
@@ -83,7 +86,7 @@ const translations = {
     login: "Login",
     logout: "Logout",
     myProfile: "My Profile",
-    adminPanel: "Admin Panel",
+    adminPanel: "Administration",
     
     // Auth
     email: "Email",
@@ -112,7 +115,10 @@ const translations = {
     
     // Admin
     adminLogin: "Administrator Login",
-    accessRestricted: "Access restricted to administrators only",
+    accessRestricted: "For owners and administrators. Sign in directly to the shop backend.",
+    shopOwnerOrAdmin: "Are you the shop owner or an administrator?",
+    customerLogin: "Customer login",
+    checkingAdminAccess: "Checking access…",
     signInAsAdmin: "Sign in as Admin",
     backToHome: "Back to home",
     accessDenied: "Access Denied",

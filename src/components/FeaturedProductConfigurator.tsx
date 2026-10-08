@@ -1,3 +1,5 @@
+import { EditableNumberInput } from "@/components/ui/editable-number-input";
+import { StorefrontImage } from '@/components/storefront/StorefrontImage';
 import { getPrintDesignPreset } from '@/lib/branding/printDesignPresets';
 import { useSharedButtonStyles } from '@/components/storefront/SharedButtonContext';
 import { FeaturedProductDeck } from '@/components/storefront/FeaturedProductDeck';
@@ -1335,7 +1337,9 @@ function FeaturedProductCard({
                             : "relative flex items-end justify-center overflow-hidden lg:w-2/5"
                     )}
                 >
-                    <img
+                    <StorefrontImage
+                        variant="feature"
+                        loading="eager"
                         src={featuredImageSrc}
                         alt={featuredTitle}
                         className={cn(
@@ -1390,7 +1394,7 @@ function FeaturedProductCard({
                         <div className="print-dimensions grid grid-cols-2 gap-3 rounded-xl border bg-muted/30 p-3">
                             <div className="space-y-1.5">
                                 <label className="text-xs font-medium text-muted-foreground">Bredde (cm)</label>
-                                <input
+                                <EditableNumberInput
                                     type="number"
                                     aria-label="Bredde (cm)"
                                     min={1}
@@ -1401,7 +1405,7 @@ function FeaturedProductCard({
                             </div>
                             <div className="space-y-1.5">
                                 <label className="text-xs font-medium text-muted-foreground">Højde (cm)</label>
-                                <input
+                                <EditableNumberInput
                                     type="number"
                                     aria-label="Højde (cm)"
                                     min={1}
@@ -1611,7 +1615,7 @@ function FeaturedProductCard({
                             : undefined,
                     }}
                 >
-                    <img
+                    <StorefrontImage
                         data-branding-id={sidePanelImageId}
                         data-click-to-edit={sidePanelImageId}
                         src={getProductImage(activeSideProduct.slug, activeSideProduct.image_url)}
@@ -1639,7 +1643,7 @@ function FeaturedProductCard({
                             <div className="grid grid-cols-2 gap-3 rounded-xl border bg-muted/30 p-3">
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-medium text-muted-foreground">Bredde (cm)</label>
-                                    <input
+                                    <EditableNumberInput
                                         type="number"
                                         min={1}
                                         value={sideStorformatWidthCm}
@@ -1649,7 +1653,7 @@ function FeaturedProductCard({
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-medium text-muted-foreground">Højde (cm)</label>
-                                    <input
+                                    <EditableNumberInput
                                         type="number"
                                         min={1}
                                         value={sideStorformatHeightCm}
@@ -1843,7 +1847,7 @@ function FeaturedProductCard({
                             : undefined,
                     }}
                 >
-                    <img
+                    <StorefrontImage
                         data-branding-id={sidePanelImageId}
                         data-click-to-edit={sidePanelImageId}
                         src={getProductImage(activeSideProduct.slug, activeSideProduct.image_url)}
@@ -1871,7 +1875,7 @@ function FeaturedProductCard({
                             <div className="grid grid-cols-2 gap-3 rounded-xl border bg-muted/30 p-3">
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-medium text-muted-foreground">Bredde (cm)</label>
-                                    <input
+                                    <EditableNumberInput
                                         type="number"
                                         min={1}
                                         value={sideStorformatWidthCm}
@@ -1881,7 +1885,7 @@ function FeaturedProductCard({
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-medium text-muted-foreground">Højde (cm)</label>
-                                    <input
+                                    <EditableNumberInput
                                         type="number"
                                         min={1}
                                         value={sideStorformatHeightCm}

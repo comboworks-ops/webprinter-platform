@@ -1,0 +1,471 @@
+{
+  "schemaVersion": 1,
+  "assetVersion": "v1",
+  "optionAxis": "folder_model",
+  "modelKeyConvention": "<formatKey>--<constructionKey>",
+  "modelCount": 21,
+  "palette": {
+    "primary": "#0EA5E9",
+    "neutral": "#64748B",
+    "background": "transparent"
+  },
+  "backendProjection": {
+    "displayType": "icon_grid",
+    "imageField": "valueSettings[valueId].customImage",
+    "orderField": "section.valueIds",
+    "recommendedSizePx": 128,
+    "savedBackendImageTakesPrecedence": true
+  },
+  "reviewArtifacts": {
+    "contactSheet": {
+      "purpose": "review_only",
+      "storefrontAsset": false,
+      "backendOptionAsset": false,
+      "path": "src/assets/product-options/sales-folders/models/v1/review-contact-sheet.svg",
+      "widthPx": 1216,
+      "heightPx": 1544,
+      "sha256": "84b1c5dc149b5cbc72549c6ea04ce188dcddd0b5031a4733d7b2e5aa695f78d5",
+      "background": "white",
+      "labels": "Danish labels outside each embedded icon"
+    },
+    "rasterDerivative": {
+      "status": "not_generated",
+      "reason": "No deterministic repo-local SVG rasterizer is installed; the SVG contact sheet is the canonical review artifact."
+    }
+  },
+  "provenance": {
+    "type": "deterministic-svg",
+    "generator": "scripts/product-import/generate-wmd-sales-folder-model-icons.js",
+    "catalogEvidence": [
+      "scripts/product-import/shared/wmd-sales-folders.js",
+      "scripts/product-import/__tests__/wmd-sales-folders.test.js#LIVE_NO_FINISH_MODELS"
+    ],
+    "supplierAssetsCopied": false,
+    "supplierBrandingIncluded": false,
+    "aiGenerated": false,
+    "prompt": null,
+    "notes": "Transparent structural pictograms. Visible Danish labels remain outside the SVG in the backend-owned option UI."
+  },
+  "models": {
+    "a4--2-part-standard": {
+      "modelKey": "a4--2-part-standard",
+      "folderModelKey": "a4--2-part-standard",
+      "formatKey": "a4",
+      "constructionKey": "2-part-standard",
+      "labelDa": "A4 · 2-delt standardmappe",
+      "accessibleNameDa": "Illustration af A4, 2-delt standardmappe",
+      "sourceOrder": 0,
+      "formatDimensionsMm": {
+        "width": 210,
+        "height": 297
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a4--2-part-standard.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "a816645ea595cc2c18ffee3433d9200d62d6d4aaaf4dd22461af33e8e62ee7b7"
+      }
+    },
+    "a4--2-part-2-flaps": {
+      "modelKey": "a4--2-part-2-flaps",
+      "folderModelKey": "a4--2-part-2-flaps",
+      "formatKey": "a4",
+      "constructionKey": "2-part-2-flaps",
+      "labelDa": "A4 · 2-delt med 2 flapper",
+      "accessibleNameDa": "Illustration af A4, 2-delt med 2 flapper",
+      "sourceOrder": 1,
+      "formatDimensionsMm": {
+        "width": 210,
+        "height": 297
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a4--2-part-2-flaps.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "0b9fe395409096858d17119a83eb066ba1fdc4df9956d24658d7c563ce378dde"
+      }
+    },
+    "a4--2-part-3-flaps": {
+      "modelKey": "a4--2-part-3-flaps",
+      "folderModelKey": "a4--2-part-3-flaps",
+      "formatKey": "a4",
+      "constructionKey": "2-part-3-flaps",
+      "labelDa": "A4 · 2-delt med 3 flapper",
+      "accessibleNameDa": "Illustration af A4, 2-delt med 3 flapper",
+      "sourceOrder": 2,
+      "formatDimensionsMm": {
+        "width": 210,
+        "height": 297
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a4--2-part-3-flaps.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "289e56a18fee45b034dbfe6909e5034b3ccd258da773bbe8eece23f6fe565d41"
+      }
+    },
+    "a4--3-part-1-flap": {
+      "modelKey": "a4--3-part-1-flap",
+      "folderModelKey": "a4--3-part-1-flap",
+      "formatKey": "a4",
+      "constructionKey": "3-part-1-flap",
+      "labelDa": "A4 · 3-delt med 1 flap",
+      "accessibleNameDa": "Illustration af A4, 3-delt med 1 flap",
+      "sourceOrder": 3,
+      "formatDimensionsMm": {
+        "width": 210,
+        "height": 297
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a4--3-part-1-flap.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "75cf00504f58d40ec151e443b415034645056e4c2ea25e1c81ccb2aed020b8ea"
+      }
+    },
+    "a4--2-part-standard-window": {
+      "modelKey": "a4--2-part-standard-window",
+      "folderModelKey": "a4--2-part-standard-window",
+      "formatKey": "a4",
+      "constructionKey": "2-part-standard-window",
+      "labelDa": "A4 · 2-delt standardmappe med vinduesudstansning",
+      "accessibleNameDa": "Illustration af A4, 2-delt standardmappe med vinduesudstansning",
+      "sourceOrder": 4,
+      "formatDimensionsMm": {
+        "width": 210,
+        "height": 297
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a4--2-part-standard-window.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "5203d54642569f3900575dd273a2eca51081d6cbd426c4a005190ac39e94e6d8"
+      }
+    },
+    "a4--2-part-2-flaps-window": {
+      "modelKey": "a4--2-part-2-flaps-window",
+      "folderModelKey": "a4--2-part-2-flaps-window",
+      "formatKey": "a4",
+      "constructionKey": "2-part-2-flaps-window",
+      "labelDa": "A4 · 2-delt med 2 flapper og vinduesudstansning",
+      "accessibleNameDa": "Illustration af A4, 2-delt med 2 flapper og vinduesudstansning",
+      "sourceOrder": 5,
+      "formatDimensionsMm": {
+        "width": 210,
+        "height": 297
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a4--2-part-2-flaps-window.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "8d2fce24cd7ae3dcdc0c6415a3c0dea54931ef53fc394240b64ce1e46becb41b"
+      }
+    },
+    "a4--2-part-3-flaps-window": {
+      "modelKey": "a4--2-part-3-flaps-window",
+      "folderModelKey": "a4--2-part-3-flaps-window",
+      "formatKey": "a4",
+      "constructionKey": "2-part-3-flaps-window",
+      "labelDa": "A4 · 2-delt med 3 flapper og vinduesudstansning",
+      "accessibleNameDa": "Illustration af A4, 2-delt med 3 flapper og vinduesudstansning",
+      "sourceOrder": 6,
+      "formatDimensionsMm": {
+        "width": 210,
+        "height": 297
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a4--2-part-3-flaps-window.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "49b7207b71bef984772efece53ca2f2c5d7cb91368cd04f7322204e2b8869f8b"
+      }
+    },
+    "a5--2-part-standard": {
+      "modelKey": "a5--2-part-standard",
+      "folderModelKey": "a5--2-part-standard",
+      "formatKey": "a5",
+      "constructionKey": "2-part-standard",
+      "labelDa": "A5 · 2-delt standardmappe",
+      "accessibleNameDa": "Illustration af A5, 2-delt standardmappe",
+      "sourceOrder": 7,
+      "formatDimensionsMm": {
+        "width": 148,
+        "height": 210
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a5--2-part-standard.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "9a74216300bf99d83aa7d1415ed12f6b5f82e88fd7cb2f6bb3204256fe2adfca"
+      }
+    },
+    "a5--2-part-2-flaps": {
+      "modelKey": "a5--2-part-2-flaps",
+      "folderModelKey": "a5--2-part-2-flaps",
+      "formatKey": "a5",
+      "constructionKey": "2-part-2-flaps",
+      "labelDa": "A5 · 2-delt med 2 flapper",
+      "accessibleNameDa": "Illustration af A5, 2-delt med 2 flapper",
+      "sourceOrder": 8,
+      "formatDimensionsMm": {
+        "width": 148,
+        "height": 210
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a5--2-part-2-flaps.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "a7af3e14691c08c132b31373917a932feba815785fbe2c0eb3026927b870e568"
+      }
+    },
+    "a5--2-part-3-flaps": {
+      "modelKey": "a5--2-part-3-flaps",
+      "folderModelKey": "a5--2-part-3-flaps",
+      "formatKey": "a5",
+      "constructionKey": "2-part-3-flaps",
+      "labelDa": "A5 · 2-delt med 3 flapper",
+      "accessibleNameDa": "Illustration af A5, 2-delt med 3 flapper",
+      "sourceOrder": 9,
+      "formatDimensionsMm": {
+        "width": 148,
+        "height": 210
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a5--2-part-3-flaps.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "0a159b84bf0f7592022b5940d02d9d571627917709ff541ffe9c8bcc50ed7155"
+      }
+    },
+    "a5--3-part-1-flap": {
+      "modelKey": "a5--3-part-1-flap",
+      "folderModelKey": "a5--3-part-1-flap",
+      "formatKey": "a5",
+      "constructionKey": "3-part-1-flap",
+      "labelDa": "A5 · 3-delt med 1 flap",
+      "accessibleNameDa": "Illustration af A5, 3-delt med 1 flap",
+      "sourceOrder": 10,
+      "formatDimensionsMm": {
+        "width": 148,
+        "height": 210
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a5--3-part-1-flap.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "0a0ef2bd4999d3a48d77f7931128088e6a571502eae92494fff4ae27731d6a5b"
+      }
+    },
+    "a6--2-part-2-flaps": {
+      "modelKey": "a6--2-part-2-flaps",
+      "folderModelKey": "a6--2-part-2-flaps",
+      "formatKey": "a6",
+      "constructionKey": "2-part-2-flaps",
+      "labelDa": "A6 · 2-delt med 2 flapper",
+      "accessibleNameDa": "Illustration af A6, 2-delt med 2 flapper",
+      "sourceOrder": 11,
+      "formatDimensionsMm": {
+        "width": 105,
+        "height": 148
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a6--2-part-2-flaps.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "ff7ca1ac3079f0e190603dd98f3b8f526ba6ef34064796d04f3285ed2209ccfa"
+      }
+    },
+    "a6--2-part-3-flaps": {
+      "modelKey": "a6--2-part-3-flaps",
+      "folderModelKey": "a6--2-part-3-flaps",
+      "formatKey": "a6",
+      "constructionKey": "2-part-3-flaps",
+      "labelDa": "A6 · 2-delt med 3 flapper",
+      "accessibleNameDa": "Illustration af A6, 2-delt med 3 flapper",
+      "sourceOrder": 12,
+      "formatDimensionsMm": {
+        "width": 105,
+        "height": 148
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a6--2-part-3-flaps.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "b6bed2267bba25642c00afac315c3d2e6b2fe80e5a42a74a72a91a4219d5b0ab"
+      }
+    },
+    "a6--2-part-closure": {
+      "modelKey": "a6--2-part-closure",
+      "folderModelKey": "a6--2-part-closure",
+      "formatKey": "a6",
+      "constructionKey": "2-part-closure",
+      "labelDa": "A6 · 2-delt med lukning",
+      "accessibleNameDa": "Illustration af A6, 2-delt med lukning",
+      "sourceOrder": 13,
+      "formatDimensionsMm": {
+        "width": 105,
+        "height": 148
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a6--2-part-closure.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "fad9a2576dc51efed04d9841117ad6b2d2f353bb99459248278a0a77eb00a8a0"
+      }
+    },
+    "a6--3-part-1-flap": {
+      "modelKey": "a6--3-part-1-flap",
+      "folderModelKey": "a6--3-part-1-flap",
+      "formatKey": "a6",
+      "constructionKey": "3-part-1-flap",
+      "labelDa": "A6 · 3-delt med 1 flap",
+      "accessibleNameDa": "Illustration af A6, 3-delt med 1 flap",
+      "sourceOrder": 14,
+      "formatDimensionsMm": {
+        "width": 105,
+        "height": 148
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/a6--3-part-1-flap.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "3af735e1fa3e255340d064d9e15862f4e6809a0ff10ac3333f3599283ad26afd"
+      }
+    },
+    "din-lang--2-part-2-flaps": {
+      "modelKey": "din-lang--2-part-2-flaps",
+      "folderModelKey": "din-lang--2-part-2-flaps",
+      "formatKey": "din-lang",
+      "constructionKey": "2-part-2-flaps",
+      "labelDa": "DIN lang · 2-delt med 2 flapper",
+      "accessibleNameDa": "Illustration af DIN lang, 2-delt med 2 flapper",
+      "sourceOrder": 15,
+      "formatDimensionsMm": {
+        "width": 105,
+        "height": 210
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/din-lang--2-part-2-flaps.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "110712f6259e4fa7790bb57500a8dd152845cda22d612007727196839d49cf04"
+      }
+    },
+    "din-lang--2-part-3-flaps": {
+      "modelKey": "din-lang--2-part-3-flaps",
+      "folderModelKey": "din-lang--2-part-3-flaps",
+      "formatKey": "din-lang",
+      "constructionKey": "2-part-3-flaps",
+      "labelDa": "DIN lang · 2-delt med 3 flapper",
+      "accessibleNameDa": "Illustration af DIN lang, 2-delt med 3 flapper",
+      "sourceOrder": 16,
+      "formatDimensionsMm": {
+        "width": 105,
+        "height": 210
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/din-lang--2-part-3-flaps.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "386626ec86835cd24a2414b453062538731d4d6f4a03e496cf5cb2db10749c15"
+      }
+    },
+    "din-lang--2-part-closure": {
+      "modelKey": "din-lang--2-part-closure",
+      "folderModelKey": "din-lang--2-part-closure",
+      "formatKey": "din-lang",
+      "constructionKey": "2-part-closure",
+      "labelDa": "DIN lang · 2-delt med lukning",
+      "accessibleNameDa": "Illustration af DIN lang, 2-delt med lukning",
+      "sourceOrder": 17,
+      "formatDimensionsMm": {
+        "width": 105,
+        "height": 210
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/din-lang--2-part-closure.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "343cfb0378f394be33003fd767cc27651e7c23c42f25b983f3cce15bc69a6954"
+      }
+    },
+    "square-21x21--2-part-2-flaps": {
+      "modelKey": "square-21x21--2-part-2-flaps",
+      "folderModelKey": "square-21x21--2-part-2-flaps",
+      "formatKey": "square-21x21",
+      "constructionKey": "2-part-2-flaps",
+      "labelDa": "21 × 21 cm · 2-delt med 2 flapper",
+      "accessibleNameDa": "Illustration af 21 × 21 cm, 2-delt med 2 flapper",
+      "sourceOrder": 18,
+      "formatDimensionsMm": {
+        "width": 210,
+        "height": 210
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/square-21x21--2-part-2-flaps.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "e29ae41ecefad982c228abdc0e4ddf4943df5cab57eae56edf49d517f837ce53"
+      }
+    },
+    "square-21x21--2-part-3-flaps": {
+      "modelKey": "square-21x21--2-part-3-flaps",
+      "folderModelKey": "square-21x21--2-part-3-flaps",
+      "formatKey": "square-21x21",
+      "constructionKey": "2-part-3-flaps",
+      "labelDa": "21 × 21 cm · 2-delt med 3 flapper",
+      "accessibleNameDa": "Illustration af 21 × 21 cm, 2-delt med 3 flapper",
+      "sourceOrder": 19,
+      "formatDimensionsMm": {
+        "width": 210,
+        "height": 210
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/square-21x21--2-part-3-flaps.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "653410ba66c4486d6231cd2ab3303acccbc99d81f66ae847c6e71024bbc9006d"
+      }
+    },
+    "cd-135x135--2-part-closure": {
+      "modelKey": "cd-135x135--2-part-closure",
+      "folderModelKey": "cd-135x135--2-part-closure",
+      "formatKey": "cd-135x135",
+      "constructionKey": "2-part-closure",
+      "labelDa": "CD-mappe 13,5 × 13,5 cm · 2-delt med lukning",
+      "accessibleNameDa": "Illustration af CD-mappe 13,5 × 13,5 cm, 2-delt med lukning",
+      "sourceOrder": 20,
+      "formatDimensionsMm": {
+        "width": 135,
+        "height": 135
+      },
+      "svg": {
+        "path": "src/assets/product-options/sales-folders/models/v1/cd-135x135--2-part-closure.svg",
+        "widthPx": 256,
+        "heightPx": 256,
+        "viewBox": "0 0 256 256",
+        "sha256": "ae71384987ffccc405ea1929f38a6a69e74b3af9c06b4abd6c5edd24a35edc03"
+      }
+    }
+  }
+}

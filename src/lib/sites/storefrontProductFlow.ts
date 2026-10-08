@@ -42,6 +42,18 @@ const FLOW_COPY: Record<ProductDesignerMode, {
   showTemplateDownload: boolean;
   prefersTemplateOverlay: boolean;
 }> = {
+  brochure: {
+    badgeLabel: "Trådhæftet brochure",
+    customerHelpText: "Upload hele brochuren eller design side for side. Sidetallet omfatter omslaget.",
+    designerCtaLabel: "Åbn sidedesigner",
+    orderCtaLabel: "Upload brochure og bestil",
+    checkoutTitle: "Brochure og fil-tjek",
+    checkoutUploadTitle: "Upload brochurens PDF",
+    checkoutUploadHelpText: "Brug enkeltsider i læserækkefølge: forside først, bagside sidst. PDF'en skal have det valgte sidetal og 3 mm udfald på alle sider.",
+    showDesignerButton: true,
+    showTemplateDownload: true,
+    prefersTemplateOverlay: true,
+  },
   flat_print: {
     badgeLabel: "Standard tryk",
     customerHelpText: "Design online eller upload en trykklar fil i næste trin.",

@@ -8,6 +8,8 @@ import { useStorefrontCatalog, type StorefrontProduct } from "@/hooks/useStorefr
 import { isCategoryLandingProduct } from "@/lib/catalog/categoryLanding";
 import { cn } from "@/lib/utils";
 import {
+  getProductCategoryPath,
+  getProductCategoryDescendantIds,
   normalizeProductCategoryKey,
   normalizeProductOverviewKey,
   type ProductCategoryRecord,
@@ -121,6 +123,20 @@ const buildCategoryTileDescription = (count: number, categoryName: string) => {
 };
 
 export function StorefrontProductTabs({
+  ...props
+}: StorefrontProductTabsProps) {
+  const catalog = useStorefrontCatalog();
+  return <StorefrontProductTabsView {...props} catalog={catalog} />;
+}
+
+type StorefrontCatalogView = Pick<ReturnType<typeof useStorefrontCatalog>,
+  'products' | 'categories' | 'categoryRecords' | 'overviews' | 'loading' | 'errorMessage' | 'warningMessage'>;
+
+/** Same catalogue presentation for stored products and isolated import review. */
+export function StorefrontProductTabsView({
+  catalog,
+  pathnameOverride,
+  productHref,
   columns = 4,
   buttonConfig,
   layoutStyle = "cards",
@@ -129,7 +145,11 @@ export function StorefrontProductTabs({
   showCategoryTabs = true,
   variant = "default",
   hiddenProductIds = [],
-}: StorefrontProductTabsProps) {
+}: StorefrontProductTabsProps & {
+  catalog: StorefrontCatalogView;
+  pathnameOverride?: string;
+  productHref?: (product: StorefrontProduct) => string;
+}) {
   const {
     products,
     categories,
@@ -138,11 +158,11 @@ export function StorefrontProductTabs({
     loading,
     errorMessage,
     warningMessage,
-  } = useStorefrontCatalog();
+  } = catalog;
   const location = useLocation();
   const { isPreviewMode, previewPath } = usePreviewBranding();
   const [searchParams, setSearchParams] = useSearchParams();
-  const pathname = isPreviewMode && previewPath ? previewPath : location.pathname;
+  const pathname = pathnameOverride || (isPreviewMode && previewPath ? previewPath : location.pathname);
   const isCategoryRoute = pathname === "/produkter";
   const resolvedCategoryTabsConfig = {
     ...DEFAULT_CATEGORY_TABS_CONFIG,
@@ -213,24 +233,12 @@ export function StorefrontProductTabs({
   const descendantIdsByCategoryId = useMemo(() => {
     const map = new Map<string, string[]>();
 
-    const walk = (categoryId: string): string[] => {
-      const children = childrenByParentId.get(categoryId) || [];
-      const descendants = [categoryId];
-      children.forEach((child) => {
-        descendants.push(...walk(child.id));
-      });
-      map.set(categoryId, descendants);
-      return descendants;
-    };
-
     normalizedCategories.forEach((category) => {
-      if (!map.has(category.id)) {
-        walk(category.id);
-      }
+      map.set(category.id, getProductCategoryDescendantIds(normalizedCategories, category.id));
     });
 
     return map;
-  }, [childrenByParentId, normalizedCategories]);
+  }, [normalizedCategories]);
 
   const directProductCountByCategoryId = useMemo(() => {
     const map = new Map<string, number>();
@@ -338,6 +346,27 @@ export function StorefrontProductTabs({
       (category) => (branchProductCountByCategoryId.get(category.id) || 0) > 0,
     );
   }, [branchProductCountByCategoryId, childrenByParentId, selectedRootCategory]);
+  const descendantCategories = useMemo(() => !selectedRootCategory ? [] : normalizedCategories.filter(category =>
+    category.id !== selectedRootCategory.id && (branchProductCountByCategoryId.get(category.id) || 0) > 0
+    && getProductCategoryPath(normalizedCategories, selectedRootCategory.id, category.id)),
+    [normalizedCategories, selectedRootCategory, branchProductCountByCategoryId]);
+  const selectedCategoryPath = useMemo(() => selectedRootCategory && selectedSubcategoryId
+    ? getProductCategoryPath(normalizedCategories, selectedRootCategory.id, selectedSubcategoryId) || [] : [],
+    [normalizedCategories, selectedRootCategory, selectedSubcategoryId]);
+  const selectedBranchCategory = selectedSubcategoryId ? categoryById.get(selectedSubcategoryId) : selectedRootCategory;
+  const selectedBranchChildren = selectedSubcategoryId ? (childrenByParentId.get(selectedSubcategoryId) || []).filter(
+    category => (branchProductCountByCategoryId.get(category.id) || 0) > 0) : [];
+  const showNestedCategoryCards = selectedBranchCategory?.navigation_mode === 'submenu' && selectedBranchChildren.length > 0;
+  const selectSubcategory = (id: string) => {
+    setSelectedSubcategoryId(id);
+    if (isCategoryRoute) {
+      const next = new URLSearchParams(searchParams);
+      const category = categoryById.get(id);
+      if (category) next.set('subcategory', category.slug || normalizeProductCategoryKey(category.name));
+      else next.delete('subcategory');
+      setSearchParams(next);
+    }
+  };
   const selectedOverview = useMemo(
     () => visibleOverviews.find((overview) => overview.id === selectedOverviewId),
     [selectedOverviewId, visibleOverviews],
@@ -425,9 +454,9 @@ export function StorefrontProductTabs({
       return;
     }
     const matchFromQuery = isCategoryRoute && subcategoryParam
-      ? childCategories.find((category) => normalizeProductCategoryKey(category.slug || category.name) === normalizeProductCategoryKey(subcategoryParam))
+      ? descendantCategories.find((category) => normalizeProductCategoryKey(category.slug || category.name) === normalizeProductCategoryKey(subcategoryParam))
       : null;
-    const hasCurrent = childCategories.some((category) => category.id === selectedSubcategoryId);
+    const hasCurrent = descendantCategories.some((category) => category.id === selectedSubcategoryId);
     if (matchFromQuery) {
       if (matchFromQuery.id !== selectedSubcategoryId) {
         setSelectedSubcategoryId(matchFromQuery.id);
@@ -437,7 +466,7 @@ export function StorefrontProductTabs({
     if (!hasCurrent) {
       setSelectedSubcategoryId("");
     }
-  }, [childCategories, isCategoryRoute, selectedRootCategory, selectedSubcategoryId, subcategoryParam]);
+  }, [descendantCategories, isCategoryRoute, selectedRootCategory, selectedSubcategoryId, subcategoryParam]);
 
   useEffect(() => {
     if (!isCategoryRoute || !hierarchyEnabled) return;
@@ -448,7 +477,7 @@ export function StorefrontProductTabs({
       ? rootCategories.find((category) => normalizeProductCategoryKey(category.slug || category.name) === normalizeProductCategoryKey(categoryParam))
       : null;
     const matchedSubcategoryFromRoute = subcategoryParam
-      ? childCategories.find((category) => normalizeProductCategoryKey(category.slug || category.name) === normalizeProductCategoryKey(subcategoryParam))
+      ? descendantCategories.find((category) => normalizeProductCategoryKey(category.slug || category.name) === normalizeProductCategoryKey(subcategoryParam))
       : null;
 
     const routeOverviewNeedsHydration = Boolean(
@@ -481,7 +510,7 @@ export function StorefrontProductTabs({
     }
 
     if (selectedSubcategoryId) {
-      const selectedChild = childCategories.find((category) => category.id === selectedSubcategoryId);
+      const selectedChild = descendantCategories.find((category) => category.id === selectedSubcategoryId);
       if (selectedChild) {
         next.set("subcategory", selectedChild.slug || normalizeProductCategoryKey(selectedChild.name));
       }
@@ -496,7 +525,7 @@ export function StorefrontProductTabs({
     }
   }, [
     categoryParam,
-    childCategories,
+    descendantCategories,
     hierarchyEnabled,
     isCategoryRoute,
     overviewParam,
@@ -511,6 +540,7 @@ export function StorefrontProductTabs({
   ]);
 
   const gridProps = {
+    productHref,
     loadingOverride: loading,
     errorMessageOverride: errorMessage,
     warningMessageOverride: warningMessage,
@@ -767,7 +797,7 @@ export function StorefrontProductTabs({
           <div className="storefront-category-nav flex flex-wrap items-center gap-2" data-branding-id="forside.products.categories">
             <button
                 type="button"
-                onClick={() => setSelectedSubcategoryId("")}
+                onClick={() => selectSubcategory("")}
                 data-branding-id="forside.products.categories.button"
                 style={categoryTabStyleVars}
                 className={cn(
@@ -783,14 +813,14 @@ export function StorefrontProductTabs({
               <button
                 key={category.id}
                 type="button"
-                onClick={() => setSelectedSubcategoryId(category.id)}
+                onClick={() => selectSubcategory(category.id)}
                 data-branding-id="forside.products.categories.button"
                 style={categoryTabStyleVars}
                 className={cn(
                   "min-h-11 touch-manipulation border px-4 py-2 text-xs transition-colors",
                   "bg-[var(--category-tab-bg)] text-[var(--category-tab-text)] border-[var(--category-tab-border)]",
                   "hover:bg-[var(--category-tab-hover-bg)] hover:text-[var(--category-tab-hover-text)]",
-                  selectedSubcategoryId === category.id && "bg-[var(--category-tab-active-bg)] text-[var(--category-tab-active-text)] border-[var(--category-tab-active-border)] hover:bg-[var(--category-tab-active-bg)] hover:text-[var(--category-tab-active-text)]",
+                  selectedCategoryPath[0]?.id === category.id && "bg-[var(--category-tab-active-bg)] text-[var(--category-tab-active-text)] border-[var(--category-tab-active-border)] hover:bg-[var(--category-tab-active-bg)] hover:text-[var(--category-tab-active-text)]",
                 )}
               >
                 {category.name}
@@ -804,7 +834,7 @@ export function StorefrontProductTabs({
                 <Card
                   key={category.id}
                   className="cursor-pointer border hover:border-primary transition-colors"
-                  onClick={() => setSelectedSubcategoryId(category.id)}
+                  onClick={() => selectSubcategory(category.id)}
                 >
                   <CardContent className="p-5">
                     <p className="font-medium">{category.name}</p>
@@ -819,11 +849,46 @@ export function StorefrontProductTabs({
         </div>
       )}
 
+      {selectedCategoryPath.map((parent, depth) => {
+        const children = (childrenByParentId.get(parent.id as string) || []).filter(category =>
+          (branchProductCountByCategoryId.get(category.id) || 0) > 0);
+        if (!children.length) return null;
+        return <div key={parent.id} className="space-y-3">
+          <nav aria-label={`Underkategorier i ${parent.name}`} className="storefront-category-nav flex flex-wrap items-center gap-2" data-branding-id="forside.products.categories">
+            <button type="button" onClick={() => selectSubcategory(parent.id as string)} style={categoryTabStyleVars}
+              data-branding-id="forside.products.categories.button" aria-current={selectedSubcategoryId === parent.id ? 'page' : undefined}
+              className={cn(categoryTabBaseClassName, selectedSubcategoryId === parent.id && categoryTabActiveClassName)}>
+              {parent.navigation_mode === 'submenu' ? 'Vælg underkategori' : `Alle i ${parent.name}`}
+            </button>
+            {children.map(category => <button key={category.id} type="button" onClick={() => selectSubcategory(category.id)}
+              style={categoryTabStyleVars} data-branding-id="forside.products.categories.button"
+              aria-current={selectedCategoryPath[depth + 1]?.id === category.id ? 'page' : undefined}
+              className={cn(categoryTabBaseClassName, selectedCategoryPath[depth + 1]?.id === category.id && categoryTabActiveClassName)}>
+              {category.name}
+            </button>)}
+          </nav>
+        </div>;
+      })}
+
+      {showNestedCategoryCards && selectedOverview && selectedRootCategory && (
+        <ProductGrid category="__all__" products={selectedBranchChildren.flatMap(category => {
+          const ids = new Set(descendantIdsByCategoryId.get(category.id) || [category.id]);
+          const lead = (category.frontend_product_id ? productById.get(category.frontend_product_id) : null)
+            || visibleProducts.find(product => product.categoryId && ids.has(product.categoryId));
+          if (!lead) return [];
+          const count = branchProductCountByCategoryId.get(category.id) || 0;
+          return [withCategoryLandingTarget(lead, selectedOverview, selectedRootCategory, category, {
+            idSuffix: `subcategory-${category.id}`, name: category.name,
+            description: buildCategoryTileDescription(count, category.name), displayPrice: `${count} produkter`,
+          })];
+        })} {...gridProps} />
+      )}
+
       {showChildCategoryCards && (
         <ProductGrid category="__all__" products={childCategoryLeadProducts} {...gridProps} />
       )}
 
-      {!showRootCategoryCards && !showChildCategoryCards && (childNavMode !== "submenu" || selectedSubcategoryId || !showChildCategoryNav) && (
+      {!showRootCategoryCards && !showChildCategoryCards && !showNestedCategoryCards && (childNavMode !== "submenu" || selectedSubcategoryId || !showChildCategoryNav) && (
         <ProductGrid category="__all__" products={productsForBranch} {...gridProps} />
       )}
     </div>

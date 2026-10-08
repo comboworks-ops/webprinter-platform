@@ -1,3 +1,4 @@
+import { StorefrontImage } from '@/components/storefront/StorefrontImage';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import * as Tabs from "@radix-ui/react-tabs";
@@ -6,8 +7,10 @@ import { ArrowLeft, ArrowRight, ChevronDown, Search, X } from "lucide-react";
 import { Link as RouterLink, type LinkProps } from "react-router-dom";
 import { ProductCategoryIcon } from "@/components/ProductCategoryIcon";
 import type { ApprovedDropdownPreset } from "@/lib/branding/dropdownPresets";
+import type { MenuEntrance } from "@/lib/branding/headerMenuSettings";
 import { getProductImage } from "@/utils/productImages";
 import "@/styles/storefrontProductMenu.css";
+import "@/styles/headerMenuMotion.css";
 
 // This menu has its own tenant-configurable text and category colors. Use the
 // existing global-link opt-out so those controls win over the site's link color.
@@ -36,6 +39,7 @@ export interface MenuCategory {
 }
 
 interface MenuDataProps {
+  entrance?: MenuEntrance;
   preset: ApprovedDropdownPreset;
   categories: MenuCategory[];
   products: MenuProduct[];
@@ -78,7 +82,7 @@ function searchText(value: string): string {
     .normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
 }
 
-function ProductImage({ item, packId, className = "" }: { item: MenuImageSource; packId?: string; className?: string }) {
+function ProductImage({ item, packId, className = "", thumbnail = false }: { item: MenuImageSource; packId?: string; className?: string; thumbnail?: boolean }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const source = getProductImage(item.productSlug, item.imageUrl);
   const localFallback = getProductImage(item.productSlug);
@@ -89,7 +93,10 @@ function ProductImage({ item, packId, className = "" }: { item: MenuImageSource;
   return (
     <span className={`spm-image ${className}`}>
       {hasImage ? (
-        <img
+        <StorefrontImage
+          autoSize
+          variant={thumbnail ? "thumbnail" : "card"}
+          sizes={thumbnail ? "96px" : "(min-width: 768px) 320px, 50vw"}
           data-branding-id="header.dropdown.image"
           src={imageSource}
           alt=""
@@ -129,7 +136,7 @@ function ProductRows({ products, onNavigate, selectedIconPackId }: Pick<VariantP
       {products.map((product) => (
         <li key={product.key}>
           <Link data-branding-id="header.dropdown.product" to={product.href} onClick={onNavigate}>
-            <ProductImage item={product} packId={selectedIconPackId} />
+            <ProductImage item={product} thumbnail packId={selectedIconPackId} />
             <span className="spm-product-copy"><strong>{product.label}</strong>{product.category && <span data-branding-id="header.dropdown.meta">{product.category}</span>}</span>
             <ArrowRight aria-hidden="true" />
           </Link>
@@ -462,6 +469,7 @@ export function StorefrontProductMenu({ open, onOpenChange, trigger, onCompactFo
         <Popover.Content
           ref={setContentNode}
           className={`spm-popover spm-popover--${props.preset}`}
+          data-menu-entrance={props.entrance}
           aria-label={props.label}
           side="bottom"
           align="start"

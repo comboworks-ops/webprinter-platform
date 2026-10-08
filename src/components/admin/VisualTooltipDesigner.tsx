@@ -1,3 +1,6 @@
+import { materialTooltipDefaults } from '@/lib/products/materialPresentation';
+import { tooltipDraftChanged } from '@/lib/products/tooltipDraft';
+import { useWideMaterialTooltipDefaults } from '@/hooks/useWideMaterialTooltipDefaults';
 import { ADMIN_WORKSPACE_EXIT_EVENT } from '@/lib/admin/workspaceExit';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -15,7 +18,7 @@ import type { TooltipConfig } from '@/components/ProductTooltipIcon';
 import type { AnchorZone } from './ProductPagePreview';
 import '@/styles/productEditorUnified.css';
 
-type Owner = {id:string; name:string; slug:string; banner_config: {visual_tooltips?:TooltipConfig[]}; pricing_structure?: {layout_rows?:{columns?:{id:string;groupId:string;title?:string;labelOverride?:string;ui_mode?:string;valueIds?:string[];valueSettings?:Record<string,{displayName?:string}>}[]}[]}};
+type Owner = {id:string; name:string; slug:string; banner_config: {visual_tooltips?:TooltipConfig[]}; pricing_structure?: {vertical_axis?:{sectionId:string;sectionType:string;groupId:string;valueIds:string[];valueSettings?:Record<string,{displayName?:string}>};layout_rows?:{columns?:{id:string;groupId:string;title?:string;labelOverride?:string;ui_mode?:string;valueIds?:string[];valueSettings?:Record<string,{displayName?:string}>}[]}[]}};
 export function VisualTooltipDesigner({productId,tenantId,productSlug,productName,tooltips,onTooltipsChange}: {
   productId:string; tenantId:string; productSlug:string; productName?:string; productImage?:string; tooltips:TooltipConfig[]; onTooltipsChange:(tooltips:TooltipConfig[])=>void|Promise<void>;
 }) {
@@ -33,6 +36,7 @@ export function VisualTooltipDesigner({productId,tenantId,productSlug,productNam
   const [list,setList]=useState<TooltipConfig[]>(tooltips);
   const queryClient=useQueryClient();
   const {groups}=useProductAttributes(owner.id,tenantId);
+  const wideMaterialDefaults=useWideMaterialTooltipDefaults(owner.id,tenantId);
   const request=useRef(0);
   const loadOwner=useCallback(async (filter:{id?:string;slug?:string})=>{
     const token=++request.current;setLoading(true);setError('');
@@ -46,7 +50,22 @@ export function VisualTooltipDesigner({productId,tenantId,productSlug,productNam
     finally{if(token===request.current)setLoading(false);}
   },[tenantId]);
   useEffect(()=>{void loadOwner({id:productId});},[loadOwner,productId]);
-  const dirty=Boolean(draft && (draft.text.trim() || draft.imageUrl || draft.iconUrl) && JSON.stringify(draft)!==JSON.stringify(list.find(item=>item.anchor===draft.anchor)));
+  const materialDefaults=useMemo(()=>{
+    const axis=owner.pricing_structure?.vertical_axis;
+    const sections=[...(axis?.sectionType==='materials' ? [{id:axis.sectionId,...axis}] : []), ...(owner.pricing_structure?.layout_rows||[]).flatMap(row=>row.columns||[])];
+    const seen=new Set<string>();
+    return [...sections.flatMap(section=>{
+      const group=groups.find(group=>group.id===section.groupId);
+      if(group?.kind!=='material' && section.id!==axis?.sectionId)return [];
+      return (section.valueIds||[]).flatMap(id=>{
+        const value=group?.values?.find(value=>value.id===id && value.enabled!==false);
+        if(!value)return [];
+        return materialTooltipDefaults({name:section.valueSettings?.[id]?.displayName || value.name,sourceName:value.name,meta:value.meta},section.id,id).filter(config=>{if(seen.has(config.anchor))return false;seen.add(config.anchor);return true;});
+      });
+    }),...wideMaterialDefaults];
+  },[owner,groups,wideMaterialDefaults]);
+  const availableMaterialTooltips=materialDefaults.map(config=>list.find(item=>item.anchor===config.anchor)||config);
+  const dirty=Boolean(draft && (draft.text.trim() || draft.imageUrl || draft.iconUrl) && tooltipDraftChanged(draft,list.find(item=>item.anchor===draft.anchor)||materialDefaults.find(item=>item.anchor===draft.anchor)));
   const dirtyRef=useRef(dirty);dirtyRef.current=dirty;
   useEffect(()=>{
     if(!dirty)return;
@@ -112,8 +131,9 @@ export function VisualTooltipDesigner({productId,tenantId,productSlug,productNam
     {error&&<p role="alert" className="rounded border border-red-200 p-3 text-sm">{error}</p>}
     <div className="tooltip-real-columns">
       <aside className="tooltip-real-inspector">
-        <TooltipEditor key={`${owner.id}:${selected?.anchor||''}`} selectedAnchor={selected?.anchor||null} target={selected?.target} existingTooltip={list.find(item=>item.anchor===selected?.anchor)} tenantId={tenantId} productId={owner.id} onPreview={previewDraft} onSave={tooltip=>saveList([...list.filter(item=>item.anchor!==tooltip.anchor),tooltip])} onDelete={anchor=>saveList(list.filter(item=>item.anchor!==anchor))} onCancel={()=>{setSelected(null);setDraft(null)}}/>
-        <div className="space-y-2 border-t p-4"><h3 className="text-sm font-semibold">Gemte placeringer</h3>{list.filter(item=>!item.anchor.startsWith(UNAVAILABLE_OPTION_ANCHOR)).map(item=><button className="block w-full rounded border p-2 text-left text-sm" key={item.anchor} onClick={()=>{if(dirty&&!window.confirm('Kassér den ugemte tooltiptekst?'))return;setDraft(null);setSelected({anchor:item.anchor,target:item.target});if(item.target?.page && item.target.page!==page)frame.current?.contentWindow?.postMessage({type:'NAVIGATE_TO',path:item.target.page},window.location.origin);}}>{item.target?.label || item.anchor}<small className="block text-muted-foreground">{item.text.slice(0,70)}</small></button>)}</div>
+        <TooltipEditor key={`${owner.id}:${selected?.anchor||''}`} selectedAnchor={selected?.anchor||null} target={selected?.target} existingTooltip={list.find(item=>item.anchor===selected?.anchor)||materialDefaults.find(item=>item.anchor===selected?.anchor)} canDelete={list.some(item=>item.anchor===selected?.anchor)} tenantId={tenantId} productId={owner.id} onPreview={previewDraft} onSave={tooltip=>saveList([...list.filter(item=>item.anchor!==tooltip.anchor),tooltip])} onDelete={anchor=>saveList(list.filter(item=>item.anchor!==anchor))} onCancel={()=>{setSelected(null);setDraft(null)}}/>
+        <div className="space-y-2 border-t p-4"><h3 className="text-sm font-semibold">Materialer og papir</h3><p className="text-xs text-muted-foreground">Materialebeskrivelser vises automatisk som hjælp. Redigér tekst, ikon og Læs mere her. Egne certificeringslogoer skal være godkendt til brug i shoppen.</p>{availableMaterialTooltips.length===0 && <p className="text-xs text-muted-foreground">Ingen supplerende materialebeskrivelser på dette produkt.</p>}{availableMaterialTooltips.map(item=><button type="button" className="block w-full rounded border p-2 text-left text-sm" key={item.anchor} onClick={()=>{if(dirty&&!window.confirm('Kassér den ugemte tooltiptekst?'))return;setDraft(null);setSelected({anchor:item.anchor});}}>{item.title||item.anchor}<small className="block text-muted-foreground">{list.some(saved=>saved.anchor===item.anchor)?'Egen tooltip':'Fra materialebeskrivelsen'} · {item.text.slice(0,70)}</small></button>)}</div>
+        <div className="space-y-2 border-t p-4"><h3 className="text-sm font-semibold">Gemte placeringer</h3>{list.filter(item=>!item.anchor.startsWith(UNAVAILABLE_OPTION_ANCHOR)&&!item.anchor.startsWith('material:')).map(item=><button className="block w-full rounded border p-2 text-left text-sm" key={item.anchor} onClick={()=>{if(dirty&&!window.confirm('Kassér den ugemte tooltiptekst?'))return;setDraft(null);setSelected({anchor:item.anchor,target:item.target});if(item.target?.page && item.target.page!==page)frame.current?.contentWindow?.postMessage({type:'NAVIGATE_TO',path:item.target.page},window.location.origin);}}>{item.target?.label || item.anchor}<small className="block text-muted-foreground">{item.text.slice(0,70)}</small></button>)}</div>
       </aside>
       <section className="pw-preview"><div className="pw-preview-toolbar"><Button variant={!placing?'default':'outline'} aria-pressed={!placing} onClick={()=>setPlacing(false)}>Gå rundt</Button><Button variant={placing?'default':'outline'} aria-pressed={placing} onClick={()=>setPlacing(true)} disabled={loading}>Placér tooltip</Button><select aria-label="Tooltipmål" value={granularity} onChange={e=>setGranularity(e.target.value)}><option value="element">Enkelt element</option><option value="section">Hel sektion</option></select><button type="button" onClick={()=>navigate('/')}>Forside</button><button type="button" onClick={()=>navigate(`/produkt/${productSlug}`)}>Dette produkt</button><button type="button" onClick={()=>setMobile(!mobile)}>{mobile?'Desktop':'Mobil'}</button></div><p className="px-3 py-2 text-xs text-muted-foreground">{page} · {placing?'Klik på teksten, knappen eller billedet':'Afprøv valg og følg butikkens links'}</p><div className={`pw-frame-shell ${mobile?'mobile':''}`}><iframe ref={frame} src={`/preview-shop?${params}`} title="Rigtig webshop til tooltipplacering" onLoad={()=>{setLoaded(value=>value+1);send()}}/></div></section>
     </div>

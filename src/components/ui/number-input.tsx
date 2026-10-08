@@ -36,7 +36,7 @@ const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
           onValueChange(nextValue);
         }}
         onBlur={(event) => {
-          setDraft(null);
+          setDraft((current) => current?.text === "" ? current : null);
           onBlur?.(event);
         }}
       />

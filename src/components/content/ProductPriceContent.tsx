@@ -1209,6 +1209,7 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
             return (
                 <StorformatConfigurator
                     productId={dbProductId}
+                    fastProductionDayOffset={dbProduct?.banner_config?.production_timing?.fast_business_days_saved}
                     onSelectionChange={handleStorformatSelection}
                     layout={{ design: orderDesign, intro: productIntro,
                         extras: <>
@@ -1218,9 +1219,11 @@ export const ProductPriceContent = ({ slug: propSlug }: ProductPriceContentProps
                             />
                             {sizeDistributionBlock}
                         </>,
-                        summary: (
+                        summary: (productionControls) => (
                             <ProductPricePanel
                                 presentation="order-flow"
+                                productionControls={productionControls}
+                                deliveryBusinessDayOffset={storformatSelection?.deliveryBusinessDayOffset || 0}
                                 productPrice={resolvedPanelPrice}
                                 extraPrice={optionExtraPrice}
                                 branding={activeBranding}

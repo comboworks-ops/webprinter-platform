@@ -42,7 +42,7 @@ test('arbitrary sizes and all 32 preset shapes produce deterministic vector guid
     assert.ok(text.includes('/OC /Guide BDC') && text.includes('EMC'));
     // 6mm stroke is specified in normalised coordinates, then scaled by width.
     assert.ok(text.includes(`${6 / size.width} w`));
-    assert.equal(page.node.Resources()?.lookup(PDFName.of('XObject'), PDFDict)?.entries().length || 0, 0);
+    assert.equal(page.node.Resources()?.lookupMaybe(PDFName.of('XObject'), PDFDict)?.entries().length || 0, 0);
   }
 });
 test('stateless template endpoint rejects invalid input and mutations', async () => {

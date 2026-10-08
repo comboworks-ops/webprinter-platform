@@ -1,3 +1,4 @@
+import { EditableNumberInput } from "@/components/ui/editable-number-input";
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Plus, Settings2, Trash2 } from 'lucide-react';
@@ -61,7 +62,7 @@ export function StorformatPriceWorkspace({ productName, imageUrl, config, materi
         <section className="pw-price-points"><h2>{sourceQuotes ? 'Leverandørens prisgrundlag' : 'Dine prisintervaller'}</h2><p>{sourceQuotes ? 'Dette produkt bruger indlæste tilbud pr. emne og antal. Test den valgte kombination til højre.' : 'Priserne beregnes ud fra det samlede areal. Alle eksisterende intervaller og tillæg bevares.'}</p>
           {sourceQuotes ? <Button variant="outline" onClick={onAdvanced}>Se tilbud og dækning</Button> : <><div className="pw-tier-heading"><span>Fra m²</span><span>Til m²</span><span>Pris pr. m²</span><span>Prispunkt</span><span/></div>{tiers.map((tier, index) => <div className="pw-tier" key={tier.id || index}>
             <NumberInput aria-label={`Fra m² ${index + 1}`} min={0} step={0.1} value={tier.from_m2} emptyValue={0} onValueChange={value => patchTier(index, { from_m2: value })}/>
-            <input aria-label={`Til m² ${index + 1}`} type="number" min={tier.from_m2} step="0.1" placeholder="Ubegrænset" value={tier.to_m2 ?? ''} onChange={event => patchTier(index, { to_m2: event.target.value === '' ? null : Number(event.target.value) })}/>
+            <EditableNumberInput aria-label={`Til m² ${index + 1}`} type="number" min={tier.from_m2} step="0.1" placeholder="Ubegrænset" value={tier.to_m2 ?? ''} onChange={event => patchTier(index, { to_m2: event.target.value === '' ? null : Number(event.target.value) })}/>
             <NumberInput aria-label={`Pris pr. m² ${index + 1}`} min={0} step={0.01} value={tier.price_per_m2} emptyValue={0} onValueChange={value => patchTier(index, { price_per_m2: value })}/>
             <label className="pw-anchor"><input aria-label={`Brug interval ${index + 1} som prispunkt`} type="checkbox" checked={!!tier.is_anchor} onChange={event => patchTier(index, { is_anchor: event.target.checked })}/><span>{tier.markup_pct ? `+${tier.markup_pct}%` : 'Fast'}</span></label>
             <button className="pw-icon" aria-label={`Fjern interval ${index + 1}`} onClick={() => onMaterial(material.id!, { tiers: tiers.filter((_, i) => i !== index) })} disabled={tiers.length < 2}><Trash2 size={16}/></button>

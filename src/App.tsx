@@ -1,3 +1,4 @@
+import { IconPackProvider } from "@/components/icons/IconFamily";
 import { StorefrontTooltipLayer } from "@/components/StorefrontTooltipLayer";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -35,6 +36,11 @@ import LlmsTxt from "./pages/LlmsTxt";
 import CanvaReturn from "./pages/CanvaReturn";
 import GrafiskVejledning from "./pages/GrafiskVejledning";
 import Designer from "./pages/Designer";
+import BrochureProductPreview from "./pages/BrochureProductPreview";
+import BrochureNativeProductPreview from './pages/BrochureNativeProductPreview';
+import BrochureShopPreview from './pages/BrochureShopPreview';
+import { lazy, Suspense } from 'react';
+const RollLabelCataloguePreview = import.meta.env.DEV ? lazy(() => import('./pages/RollLabelCataloguePreview')) : null;
 import CompanyHub from "./pages/CompanyHub";
 import NotFound from "./pages/NotFound";
 
@@ -117,6 +123,7 @@ const AnimatedRoutes = () => {
   const transition = getPageTransition(pageTransitionStyle, Boolean(shouldReduceMotion || isHeavyAppRoute || isAccountRoute));
 
   return (
+    <IconPackProvider packId={shopSettings.data?.branding?.selectedIconPackId}>
     <AnimatePresence mode="wait" initial={false}>
       <motion.div
         key={location.pathname}
@@ -182,12 +189,17 @@ const AnimatedRoutes = () => {
           <Route path="/grafisk-vejledning" element={<GrafiskVejledning />} />
           {/* Print Product Designer */}
           <Route path="/designer" element={<Designer />} />
+          {import.meta.env.DEV && <Route path="/brochure-preview" element={<BrochureProductPreview />} />}
+          {import.meta.env.DEV && <Route path="/brochure-native-preview" element={<BrochureNativeProductPreview />} />}
+          {import.meta.env.DEV && <Route path="/brochure-shop-preview" element={<BrochureShopPreview />} />}
+          {import.meta.env.DEV && RollLabelCataloguePreview && <Route path="/roll-labels-preview" element={<Suspense fallback={<p>Åbner katalogprøven…</p>}><RollLabelCataloguePreview /></Suspense>} />}
           <Route path="/designer/:variantId" element={<Designer />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </motion.div>
     </AnimatePresence>
+    </IconPackProvider>
   );
 };
 

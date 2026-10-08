@@ -18,6 +18,29 @@ const a4FiveMillimetreFolder: ProductTemplateFile = {
   designerTemplateId: "228c6131-7235-401e-b38a-78bffbdd2a14",
 };
 
+test("free-size templates match the selected size, shape and orientation without fallback", () => {
+  const shapeId = "rectangle";
+  const templates: ProductTemplateFile[] = [370, 800].map((widthMm) => ({
+    name: `Gulvfolie ${widthMm}.pdf`, url: `https://example.test/${widthMm}.pdf`,
+    widthMm, heightMm: 610, selectionConstraints: { shape: shapeId },
+  }));
+  const resolve = (width: number, height: number, shape = shapeId) => resolveSelectedDesignerTemplateLaunch({
+    templates, selectedSectionValues: { shape }, selectedDimensionsMm: { width, height },
+  });
+  assert.equal(resolve(370, 610)?.pdfUrl, templates[0].url);
+  assert.equal(resolve(800, 610)?.pdfUrl, templates[1].url);
+  assert.equal(resolve(371, 610), null);
+  assert.equal(resolve(610, 370), null);
+  assert.equal(resolve(370, 610, "heart"), null);
+  assert.equal(resolve(NaN, 610), null);
+  assert.equal(resolve(0, 610), null);
+  assert.equal(resolveSelectedDesignerTemplateLaunch({ templates, selectedSectionValues: { shape: shapeId }, selectedDimensionsMm: null }), null);
+  assert.equal(resolveSelectedDesignerTemplateLaunch({ templates: [templates[0], templates[0]], selectedSectionValues: { shape: shapeId }, selectedDimensionsMm: { width: 370, height: 610 } }), null);
+  assert.equal(resolveSelectedDesignerTemplateLaunch({ templates: [{ ...templates[0], widthMm: undefined }], selectedSectionValues: { shape: shapeId }, selectedDimensionsMm: { width: 370, height: 610 } }), null);
+  const legacy = { ...templates[0], selectionConstraints: undefined };
+  assert.equal(resolveSelectedDesignerTemplateLaunch({ templates: [legacy, legacy], selectedDimensionsMm: { width: 370, height: 610 } }), null);
+});
+
 const m65SixPageRollFold: ProductTemplateFile = {
   name: "m65-3-floejet-6-sider-rullefals-skabelon.pdf",
   url: "https://example.test/m65-3-floejet-6-sider-rullefals-skabelon.pdf",
@@ -592,6 +615,28 @@ test("every branded calendar filling resolves only its exact Designer template",
     selectedFormatLabel: "412 × 307 mm",
     selectedOptionLabels: ["300 g/m² GC1-karton", "Ukendt fyld"],
   }), null);
+});
+
+test("brochure format IDs select the exact page PDF independently of paper and page count", () => {
+  const sections = {paperCover:'paper',orientation:'orientation',format:'format',pageCount:'pages',cover:'cover',varnish:'varnish'};
+  const template: ProductTemplateFile = {name:'Brochure sideskabelon',url:'https://example.test/a4.pdf',format:'210x297',
+    selectionConstraintProfile:'brochure_v1',selectionConstraintSections:sections,selectionConstraints:{format:'a4-portrait'},
+    widthMm:210,heightMm:297,bleedMm:3,safeMm:3,templatePdfSha256:'d'.repeat(64),designerTemplateId:'a4-template'};
+  const resolve = (templates: ProductTemplateFile[], format='a4-portrait', pages='8') => resolveSelectedDesignerTemplateLaunch({
+    templates,selectedFormat:format,selectedFormatLabel:'A4 · 210 × 297 mm',
+    selectedSectionValues:{format,pages,paper:'135g',cover:'matte',varnish:'none',orientation:'portrait'}});
+  for (const pages of ['8','152']) {
+    const launch=resolve([template],undefined,pages);
+    assert.equal(launch?.templateId,'a4-template');assert.equal(launch?.pdfUrl,template.url);
+    assert.equal(launch?.templatePdfSha256,template.templatePdfSha256);assert.equal(launch?.widthMm,210);
+  }
+  assert.equal(resolve([template],'a4-landscape'),null);
+  assert.equal(resolve([template,template]),null);
+  assert.equal(resolve([{...template,selectionConstraintSections:{...sections,orientation:'format'}}]),null);
+  assert.equal(resolve([{...template,selectionConstraints:{format:'a4-portrait',pages:'8'}}]),null);
+  assert.equal(resolve([{...template,templatePdfSha256:undefined}]),null);
+  assert.equal(resolve([{...template,widthMm:undefined}]),null);
+  assert.equal(resolve([{...template,selectionConstraintProfile:'unknown_profile'}]),null);
 });
 
 // A direct PDF launch is authoritative, including when it has no library ID.

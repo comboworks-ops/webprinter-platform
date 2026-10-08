@@ -31,3 +31,13 @@ export function customerAuthHref(returnTo = '/min-konto', search = localSearch()
   if (mode === 'reset') params.set('mode', mode);
   return `/auth?${params.toString()}`;
 }
+
+/** Default logins follow the verified role; explicit customer tasks keep their destination. */
+export function postLoginDestination(isAdmin: boolean, returnTo: string | null, search = localSearch()): string {
+  const target = safeCustomerReturnTarget(returnTo);
+  const { pathname } = new URL(target, 'https://account.invalid');
+  const isBackend = pathname === '/admin' || pathname.startsWith('/admin/');
+  if (isBackend && !isAdmin) return customerLink('/min-konto', search);
+  if (isAdmin && (pathname === '/min-konto' || pathname === '/admin/login')) return customerLink('/admin', search);
+  return customerLink(target, search);
+}

@@ -26,6 +26,8 @@ test('every application PDF.js loader enforces the safe options boundary',()=>{
   }
   assert.deepEqual([...loaderFiles].sort(), [
     'components/admin/MachineCostWorkbench.tsx',
+    'components/designer/BrochureDesigner.tsx',
+    'components/product-price-page/RollLabelMotifPdfCheck.tsx',
     'components/designer/PDFImportModal.tsx',
     'lib/localPdf.ts',
     'pages/Designer.tsx',

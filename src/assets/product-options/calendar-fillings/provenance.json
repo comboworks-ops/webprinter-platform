@@ -1,0 +1,19 @@
+{
+  "createdAt": "2026-08-27",
+  "purpose": "Transparent option thumbnails for the Webprinter multi advent calendar storefront preview.",
+  "sources": {
+    "celebrations.png": "Built-in image edit of the locally generated Celebrations calendar; background extraction only.",
+    "kinder-mini-mix.png": "Built-in image edit of the locally generated Kinder Mini Mix calendar; background extraction only.",
+    "merci-petits.png": "Built-in image edit of the locally generated Merci Petits calendar; background extraction only.",
+    "lindt-hello-mini-sticks.png": "Built-in image edit of the locally generated Lindt HELLO calendar; background extraction only.",
+    "milka-favourites.png": "Original transparent supplier reference thumbnail downloaded from the user-supplied WIRmachenDRUCK catalog.",
+    "toblerone-mix.png": "Original transparent supplier reference thumbnail downloaded from the user-supplied WIRmachenDRUCK catalog.",
+    "lindt-lindor-balls.png": "Original transparent supplier reference thumbnail downloaded from the user-supplied WIRmachenDRUCK catalog.",
+    "ritter-sport-cubes.png": "Original transparent supplier reference thumbnail downloaded from the user-supplied WIRmachenDRUCK catalog."
+  },
+  "checks": {
+    "alphaChannelRequired": true,
+    "checkerboardBakedIntoPixels": false,
+    "storefrontSurface": "#FFFFFF"
+  }
+}

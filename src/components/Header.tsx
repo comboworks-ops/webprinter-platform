@@ -1,3 +1,4 @@
+import { StorefrontImage } from '@/components/storefront/StorefrontImage';
 import { useSharedButtonStyles } from '@/components/storefront/SharedButtonContext';
 import { dropdownBackground } from '@/lib/branding/siteDesignControls';
 import { useState, useEffect, useRef, useCallback, useMemo, useId, memo } from "react";
@@ -9,6 +10,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -26,8 +29,12 @@ import { ProductCategoryIcon } from "@/components/ProductCategoryIcon";
 import { buildProductFilter } from "@/lib/branding/productAssets";
 import { cn } from "@/lib/utils";
 import { HeaderSearch } from "@/components/storefront/HeaderSearch";
+import { HeaderLanguageMenu, CompactLanguageChoices } from "@/components/storefront/HeaderLanguageMenu";
+import { headerMenuStyle, resolveMenuEntrance, type MenuEntrance, type LanguagePresentation } from "@/lib/branding/headerMenuSettings";
 import { useHeaderFit } from "@/hooks/useHeaderFit";
 import "@/styles/responsiveHeader.css";
+import "@/styles/headerUtilityMenus.css";
+import "@/styles/headerMenuMotion.css";
 import { appendStorefrontTenantContext } from "@/lib/storefrontTenantContext";
 import { SITE_DESIGN_PREVIEW_EXIT_LINK_PROPS } from "@/lib/preview/siteDesignPreviewNavigation";
 import { resolveShopComponentRecipe } from "@/lib/storefront/shopTemplates";
@@ -184,6 +191,10 @@ type DesktopProductsDropdownProps = {
 };
 
 type DesktopHeaderActionsProps = {
+  entrance?: MenuEntrance;
+  languagePresentation?: LanguagePresentation;
+  dropdownPreset: HeaderDropdownPreset;
+  menuStyle: React.CSSProperties;
   desktopEnabled: boolean;
   onCompactFocus: () => void;
   searchFieldId: string;
@@ -205,7 +216,11 @@ type DesktopHeaderActionsProps = {
   logoutLabel: string;
 };
 
-const DesktopHeaderActions = memo(({
+export const DesktopHeaderActions = memo(({
+  entrance,
+  languagePresentation,
+  dropdownPreset,
+  menuStyle,
   desktopEnabled,
   onCompactFocus,
   searchFieldId,
@@ -227,10 +242,10 @@ const DesktopHeaderActions = memo(({
   logoutLabel,
 }: DesktopHeaderActionsProps) => {
   const sharedCta = useSharedButtonStyles()('cta', 'header');
-  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
+  const [accountView, setAccountView] = useState("profile");
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   useEffect(() => {
-    if (!desktopEnabled) { setLanguageMenuOpen(false); setUserMenuOpen(false); }
+    if (!desktopEnabled) { setUserMenuOpen(false); }
   }, [desktopEnabled]);
   return (
     <>
@@ -248,53 +263,8 @@ const DesktopHeaderActions = memo(({
         <Search className="h-5 w-5" aria-hidden="true" />
       </Button>
 
-      <DropdownMenu modal={false} open={desktopEnabled && languageMenuOpen} onOpenChange={setLanguageMenuOpen}>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label={language === "da" ? "Sprog: Dansk" : "Language: English"} data-branding-id="header.actions" className="flex h-11 w-11 header-action-link">
-            {language === "da" ? (
-              <svg className="h-5 w-5 rounded-sm" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect width="20" height="14" fill="#C8102E" />
-                <rect x="6" width="2" height="14" fill="white" />
-                <rect y="6" width="20" height="2" fill="white" />
-              </svg>
-            ) : (
-              <svg className="h-5 w-5 rounded-sm" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect width="20" height="14" fill="#012169" />
-                <path d="M0 0L20 14M20 0L0 14" stroke="white" strokeWidth="2.5" />
-                <path d="M0 0L20 14M20 0L0 14" stroke="#C8102E" strokeWidth="1.5" />
-                <path d="M10 0V14M0 7H20" stroke="white" strokeWidth="4" />
-                <path d="M10 0V14M0 7H20" stroke="#C8102E" strokeWidth="2" />
-              </svg>
-            )}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent onCloseAutoFocus={event => { if (!desktopEnabled) { event.preventDefault(); onCompactFocus(); } }} align="end" className="w-36 bg-card z-50">
-          <DropdownMenuItem
-            onClick={() => setLanguage("da")}
-            className={`flex items-center gap-2 ${language === "da" ? "bg-muted" : ""}`}
-          >
-            <svg className="h-4 w-4 rounded-sm shrink-0" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect width="20" height="14" fill="#C8102E" />
-              <rect x="6" width="2" height="14" fill="white" />
-              <rect y="6" width="20" height="2" fill="white" />
-            </svg>
-            Dansk
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => setLanguage("en")}
-            className={`flex items-center gap-2 ${language === "en" ? "bg-muted" : ""}`}
-          >
-            <svg className="h-4 w-4 rounded-sm shrink-0" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect width="20" height="14" fill="#012169" />
-              <path d="M0 0L20 14M20 0L0 14" stroke="white" strokeWidth="2.5" />
-              <path d="M0 0L20 14M20 0L0 14" stroke="#C8102E" strokeWidth="1.5" />
-              <path d="M10 0V14M0 7H20" stroke="white" strokeWidth="4" />
-              <path d="M10 0V14M0 7H20" stroke="#C8102E" strokeWidth="2" />
-            </svg>
-            English
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <HeaderLanguageMenu preset={dropdownPreset} presentation={languagePresentation} entrance={entrance} style={menuStyle}
+        language={language} setLanguage={setLanguage} enabled={desktopEnabled} onCompactFocus={onCompactFocus} />
 
       {ctaEnabled && (
         <Button
@@ -331,33 +301,41 @@ const DesktopHeaderActions = memo(({
                 </span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent onCloseAutoFocus={event => { if (!desktopEnabled) { event.preventDefault(); onCompactFocus(); } }} align="end" className="w-56 bg-card">
+            <DropdownMenuContent onCloseAutoFocus={event => { if (!desktopEnabled) { event.preventDefault(); onCompactFocus(); } }} align="end" sideOffset={8} className="header-utility-panel" data-utility-kind="account" data-utility-preset={dropdownPreset} data-menu-entrance={entrance} style={menuStyle}>
+              <div className="header-utility-heading header-account-identity"><span className="header-account-avatar" aria-hidden="true">{(user.email || 'K')[0].toUpperCase()}</span><div><strong>Min konto</strong><small>{user.email}</small></div></div>
+              {dropdownPreset === 'tabbed-explorer' && <DropdownMenuRadioGroup className="header-account-tabs" aria-label="Kontovisning" value={accountView} onValueChange={setAccountView}>
+                <DropdownMenuRadioItem value="profile" onSelect={event => event.preventDefault()}>Konto</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="orders" onSelect={event => event.preventDefault()}>Ordrer</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>}
+              <div className="header-utility-items">
+              {(dropdownPreset !== 'tabbed-explorer' || accountView === 'profile') &&
               <DropdownMenuItem asChild>
-                <Link to={appendStorefrontTenantContext("/min-konto")} className="cursor-pointer">
+                <Link to={appendStorefrontTenantContext("/min-konto")} className="header-utility-item cursor-pointer">
                   <User className="h-4 w-4 mr-2" />
                   Min Konto
                 </Link>
-              </DropdownMenuItem>
+              </DropdownMenuItem>}
+              {(dropdownPreset !== 'tabbed-explorer' || accountView === 'orders') &&
               <DropdownMenuItem asChild>
-                <Link to={appendStorefrontTenantContext("/min-konto/ordrer")} className="cursor-pointer">
+                <Link to={appendStorefrontTenantContext("/min-konto/ordrer")} className="header-utility-item cursor-pointer">
                   <Package className="h-4 w-4 mr-2" />
                   Mine Ordrer
                 </Link>
-              </DropdownMenuItem>
+              </DropdownMenuItem>}
+              {(dropdownPreset !== 'tabbed-explorer' || accountView === 'profile') &&
               <DropdownMenuItem asChild>
-                <Link to={appendStorefrontTenantContext("/min-konto/adresser")} className="cursor-pointer">
+                <Link to={appendStorefrontTenantContext("/min-konto/adresser")} className="header-utility-item cursor-pointer">
                   <MapPin className="h-4 w-4 mr-2" />
                   Adresser
                 </Link>
-              </DropdownMenuItem>
+              </DropdownMenuItem>}
               {isAdmin && (
                 <>
-                  <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
                     <Link
                       {...SITE_DESIGN_PREVIEW_EXIT_LINK_PROPS}
                       to={appendStorefrontTenantContext("/admin")}
-                      className="cursor-pointer"
+                      className="header-utility-item cursor-pointer"
                     >
                       <Shield className="h-4 w-4 mr-2" />
                       {adminPanelLabel}
@@ -365,8 +343,9 @@ const DesktopHeaderActions = memo(({
                   </DropdownMenuItem>
                 </>
               )}
+              </div>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-destructive">
+              <DropdownMenuItem onClick={handleLogout} className="header-utility-item header-utility-logout cursor-pointer">
                 <LogOut className="h-4 w-4 mr-2" />
                 {logoutLabel}
               </DropdownMenuItem>
@@ -429,7 +408,8 @@ const DesktopProductsDropdown = ({
   const [activeDesktopDropdownChildKey, setActiveDesktopDropdownChildKey] = useState<string | null>(null);
   const [localOpen, setLocalOpen] = useState(false);
   useEffect(() => { if (!desktopEnabled) setLocalOpen(false); }, [desktopEnabled]);
-  const shouldReduceMotion = useReducedMotion();
+  const reducedMotion = useReducedMotion();
+  const shouldReduceMotion = reducedMotion || Boolean(resolveMenuEntrance(headerSettings.dropdownEntrance));
   const dropdownPreset = resolveDropdownPreset(headerSettings.dropdownPreset);
   const dropdownMotionStyle = String((headerSettings as any).dropdownMotionStyle || "");
   const richPanelClass = DROPDOWN_PRESET_PANEL_CLASS[dropdownPreset] || DROPDOWN_PRESET_PANEL_CLASS.classic;
@@ -495,6 +475,7 @@ const DesktopProductsDropdown = ({
   if (isApprovedDropdownPreset(dropdownPreset)) {
     return (
       <StorefrontProductMenu
+        entrance={resolveMenuEntrance(headerSettings.dropdownEntrance)}
         preset={dropdownPreset}
         open={desktopEnabled && (previewOpen ?? localOpen)}
         onOpenChange={(open) => { setLocalOpen(open); onPreviewOpenChange?.(open); }}
@@ -569,15 +550,16 @@ const DesktopProductsDropdown = ({
       <DropdownMenuContent
         onCloseAutoFocus={event => { if (!desktopEnabled) { event.preventDefault(); onCompactFocus(); } }}
         data-branding-id="header.dropdown.panel"
+        data-menu-entrance={resolveMenuEntrance(headerSettings.dropdownEntrance)}
         align="start"
         sideOffset={10}
-        className={`backdrop-blur-md z-[1205] max-h-[calc(100vh-7rem)] overflow-y-auto ${headerSettings.dropdownShowBorder !== false ? 'border shadow-2xl' : 'border-0 shadow-none'} ${usesRichDropdownMenu
+        className={`storefront-legacy-menu backdrop-blur-md z-[1205] max-h-[calc(100vh-7rem)] overflow-y-auto ${headerSettings.dropdownShowBorder !== false ? 'border shadow-2xl' : 'border-0 shadow-none'} ${usesRichDropdownMenu
           ? richPanelClass
           : (headerSettings.dropdownMode === 'IMAGE_ONLY' || headerSettings.dropdownMode === 'IMAGE_AND_TEXT')
             ? fallbackPanelClass
             : 'min-w-[200px] rounded-xl p-2'
           }`}
-        style={getDropdownStyles()}
+        style={{ ...getDropdownStyles(), ...menuStyle }}
       >
         <motion.div
           initial={motionInitial}
@@ -588,7 +570,7 @@ const DesktopProductsDropdown = ({
         {/* Custom Dropdown Image */}
         {headerSettings.dropdownCustomImageUrl && (
           <div className="mb-4 rounded-lg overflow-hidden border border-black/10">
-            <img
+            <StorefrontImage
               src={headerSettings.dropdownCustomImageUrl}
               alt=""
               className="w-full h-auto max-h-[200px] object-cover"
@@ -611,7 +593,7 @@ const DesktopProductsDropdown = ({
                 >
                   <div className="flex h-24 items-center justify-center">
                     {category.imageUrl ? (
-                      <img
+                      <StorefrontImage
                         data-branding-id="header.dropdown.image"
                         src={getProductImage(category.fallbackProductSlug, category.imageUrl)}
                         alt={category.label}
@@ -637,7 +619,7 @@ const DesktopProductsDropdown = ({
             data-branding-id="header.dropdown.product"
           >
             {splitPreviewSidePanel.imageUrl && (
-              <img
+              <StorefrontImage
                 data-branding-id="header.dropdown.image"
                 src={splitPreviewSidePanel.imageUrl}
                 alt={splitPreviewSidePanel.title}
@@ -697,7 +679,7 @@ const DesktopProductsDropdown = ({
             </div>
             <div className="mt-6 flex h-52 items-center justify-center">
               {resolvedSplitPreviewProduct.imageUrl ? (
-                <img
+                <StorefrontImage
                   data-branding-id="header.dropdown.image"
                   src={getProductImage(resolvedSplitPreviewProduct.productSlug, resolvedSplitPreviewProduct.imageUrl)}
                   alt={resolvedSplitPreviewProduct.label}
@@ -728,7 +710,7 @@ const DesktopProductsDropdown = ({
                       data-branding-id="header.dropdown.category"
                       className={showCategoryText ? 'flex items-center gap-2' : ''}
                     >
-                      <img
+                      <StorefrontImage variant="thumbnail"
                         src={categoryImageUrl}
                         alt={section.label}
                         className="object-contain"
@@ -893,7 +875,7 @@ const DesktopProductsDropdown = ({
                                           }}
                                         >
                                           {product.imageUrl ? (
-                                            <img
+                                            <StorefrontImage
                                               data-branding-id="header.dropdown.image"
                                               src={getProductImage(product.productSlug, product.imageUrl)}
                                               alt={product.label}
@@ -992,7 +974,7 @@ const DesktopProductsDropdown = ({
                                     }}
                                   >
                                     {product.imageUrl ? (
-                                      <img
+                                      <StorefrontImage
                                         data-branding-id="header.dropdown.image"
                                         src={getProductImage(product.productSlug, product.imageUrl)}
                                         alt={product.label}
@@ -1061,7 +1043,7 @@ const DesktopProductsDropdown = ({
             {/* Custom Dropdown Image for Tile View */}
             {headerSettings.dropdownCustomImageUrl && (
               <div className="mb-4 rounded-lg overflow-hidden border border-black/10">
-                <img
+                <StorefrontImage
                   src={headerSettings.dropdownCustomImageUrl}
                   alt=""
                   className="w-full h-auto max-h-[200px] object-cover"
@@ -1086,7 +1068,7 @@ const DesktopProductsDropdown = ({
                 data-branding-id="header.dropdown.category"
                 className={`mb-2 px-2 ${showCategoryText ? 'flex items-center gap-2' : ''}`}
               >
-                <img
+                <StorefrontImage variant="thumbnail"
                   src={categoryImageUrl}
                   alt={section.label}
                   className="object-contain"
@@ -1143,7 +1125,7 @@ const DesktopProductsDropdown = ({
                             height: `${dropdownImageSizePx}px`,
                           }}
                         >
-                          <img
+                          <StorefrontImage
                             data-branding-id="header.dropdown.image"
                             src={getProductImage(item.productSlug, item.imageUrl)}
                             alt={item.label}
@@ -1507,23 +1489,8 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
   const categoryColor = headerSettings.dropdownCategoryColor || '#6B7280';
   const productFont = headerSettings.dropdownProductFontId || 'Inter';
   const productColor = headerSettings.dropdownProductColor || '#1F2937';
-  const productMenuStyle = {
-    '--menu-bg': getDropdownStyles().backgroundColor,
-    '--menu-text': productColor,
-    '--menu-dark-bg': activeBranding?.themeSettings?.dropdownColorsCustomized ? getDropdownStyles().backgroundColor : undefined,
-    '--menu-dark-text': activeBranding?.themeSettings?.dropdownColorsCustomized ? productColor : undefined,
-    '--menu-accent': activeBranding?.colors?.primary || '#087FC5',
-    '--menu-category-color': categoryColor,
-    '--menu-category-font': categoryFont,
-    '--menu-product-font': productFont,
-    '--menu-category-size': `${Math.min(24, Math.max(10, Number(headerSettings.dropdownCategoryFontSizePx ?? 13)))}px`,
-    '--menu-product-size': `${Math.min(24, Math.max(10, Number(headerSettings.dropdownProductFontSizePx ?? 14)))}px`,
-    '--menu-meta-size': `${Math.min(24, Math.max(10, Number(headerSettings.dropdownMetaFontSizePx ?? 11)))}px`,
-    '--menu-muted': headerSettings.dropdownMetaColor || '#6B7280',
-    '--menu-radius': getDropdownStyles().borderRadius,
-    '--menu-image-radius': `${Math.min(40, Math.max(0, Number(headerSettings.dropdownImageRadiusPx ?? 4)))}px`,
-    '--menu-hover-bg': headerSettings.dropdownHoverColor || '#EFF6FC',
-  } as React.CSSProperties;
+  const productMenuStyle = headerMenuStyle(headerSettings, activeBranding?.colors?.primary, Boolean(activeBranding?.themeSettings?.dropdownColorsCustomized));
+  const menuEntrance = resolveMenuEntrance(headerSettings.dropdownEntrance);
   const menuFontSizePx = Math.min(22, Math.max(12, Number(headerSettings.menuFontSizePx ?? 14)));
   const headerFit = useHeaderFit({ centered: headerSettings.alignment === "center", minimumDesktopWidth: 640 });
   const menuToggleRef = useRef<HTMLButtonElement>(null);
@@ -2405,6 +2372,10 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
           {/* Right Side Actions */}
           <div ref={headerFit.actionsRef} className="responsive-header-desktop responsive-header-actions relative z-[1210]" aria-hidden={headerFit.compact || searchOpen || undefined}>
             <DesktopHeaderActions
+              entrance={menuEntrance}
+              languagePresentation={headerSettings.dropdownLanguagePresentation}
+              dropdownPreset={headerSettings.dropdownPreset}
+              menuStyle={productMenuStyle}
               desktopEnabled={!headerFit.compact && !searchOpen}
               onCompactFocus={focusCompactMenu}
               searchFieldId={searchFieldId}
@@ -2457,6 +2428,11 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
             </Button>
           </div>
           <HeaderSearch
+            onOpen={openHeaderSearch}
+            entrance={menuEntrance}
+            presentation={headerSettings.dropdownSearchPresentation}
+            preset={headerSettings.dropdownPreset}
+            style={productMenuStyle}
             id={searchFieldId}
             open={searchOpen}
             products={allProducts}
@@ -2485,14 +2461,17 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
                 id="storefront-compact-navigation"
                 aria-label="Hovednavigation"
                 data-branding-id="header.menu.layout"
+                data-menu-entrance={menuEntrance}
+                data-state="open"
                 className="storefront-compact-menu absolute z-[1200] overflow-hidden rounded-2xl border border-black/10 shadow-2xl backdrop-blur-xl"
                 style={{
                   ...getDropdownStyles(),
+                  ...productMenuStyle,
                   top: 'calc(100% + 8px)',
                   maxHeight: `calc(100dvh - ${resolvedHeaderHeightPx + 20}px)`,
                   color: productColor,
                 }}
-                initial={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: -8, scale: 0.98 }}
+                initial={menuEntrance ? false : shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: -8, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: -8, scale: 0.98 }}
                 transition={{ duration: shouldReduceMotion ? 0 : 0.22, ease: [0.16, 1, 0.3, 1] }}
@@ -2562,7 +2541,7 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
                               >
                                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-black/[0.04]">
                                   {featuredItem?.imageUrl ? (
-                                    <img
+                                    <StorefrontImage
                                       data-branding-id="header.dropdown.image"
                                       src={getProductImage(featuredItem.productSlug, featuredItem.imageUrl)}
                                       alt=""
@@ -2605,7 +2584,7 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
                                           >
                                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-black/[0.04]">
                                               {item.imageUrl ? (
-                                                <img
+                                                <StorefrontImage
                                                   data-branding-id="header.dropdown.image"
                                                   src={getProductImage(item.productSlug, item.imageUrl)}
                                                   alt=""
@@ -2649,36 +2628,8 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
                     )}
                   </div>}
 
-                  <div data-branding-id="header.actions" className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-black/[0.025] p-2">
-                    <Button
-                      variant={language === "da" ? "secondary" : "ghost"}
-                      data-branding-id="header.actions"
-                      className="min-h-11 justify-center gap-2"
-                      onClick={() => setLanguage("da")}
-                    >
-                      <svg className="h-4 w-4 rounded-sm shrink-0" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <rect width="20" height="14" fill="#C8102E" />
-                        <rect x="6" width="2" height="14" fill="white" />
-                        <rect y="6" width="20" height="2" fill="white" />
-                      </svg>
-                      Dansk
-                    </Button>
-                    <Button
-                      variant={language === "en" ? "secondary" : "ghost"}
-                      data-branding-id="header.actions"
-                      className="min-h-11 justify-center gap-2"
-                      onClick={() => setLanguage("en")}
-                    >
-                      <svg className="h-4 w-4 rounded-sm shrink-0" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <rect width="20" height="14" fill="#012169" />
-                        <path d="M0 0L20 14M20 0L0 14" stroke="white" strokeWidth="2.5" />
-                        <path d="M0 0L20 14M20 0L0 14" stroke="#C8102E" strokeWidth="1.5" />
-                        <path d="M10 0V14M0 7H20" stroke="white" strokeWidth="4" />
-                        <path d="M10 0V14M0 7H20" stroke="#C8102E" strokeWidth="2" />
-                      </svg>
-                      English
-                    </Button>
-                  </div>
+                  <CompactLanguageChoices preset={headerSettings.dropdownPreset} presentation={headerSettings.dropdownLanguagePresentation}
+                    language={language} setLanguage={setLanguage} />
 
                   {headerSettings.cta?.enabled && (
                     <Button
@@ -2699,32 +2650,29 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
                   )}
 
                   {user ? (
-                    <div data-branding-id="header.actions" className="mt-3 space-y-2 rounded-xl bg-black/[0.025] p-2">
-                      <p className="flex min-w-0 items-center gap-2 px-1 text-sm text-muted-foreground">
-                        <User className="h-4 w-4 shrink-0" />
-                        <span className="truncate">{user.email}</span>
-                      </p>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <Button asChild variant="outline" data-branding-id="header.actions" className="min-h-11 w-full">
+                    <div data-branding-id="header.actions" className="header-utility-panel" data-utility-kind="account" data-utility-preset={headerSettings.dropdownPreset}>
+                      <div className="header-utility-heading"><strong>Min konto</strong><small>{user.email}</small></div>
+                      <div className="header-utility-items">
+                        <Button asChild variant="ghost" data-branding-id="header.actions" className="header-utility-item">
                           <Link to={appendStorefrontTenantContext("/min-konto")} onClick={() => setMobileMenuOpen(false)}>
                             <User className="h-4 w-4 mr-2" />
                             Min Konto
                           </Link>
                         </Button>
-                        <Button asChild variant="outline" data-branding-id="header.actions" className="min-h-11 w-full">
+                        <Button asChild variant="ghost" data-branding-id="header.actions" className="header-utility-item">
                           <Link to={appendStorefrontTenantContext("/min-konto/ordrer")} onClick={() => setMobileMenuOpen(false)}>
                             <Package className="h-4 w-4 mr-2" />
                             Mine Ordrer
                           </Link>
                         </Button>
-                        <Button asChild variant="outline" data-branding-id="header.actions" className="min-h-11 w-full">
+                        <Button asChild variant="ghost" data-branding-id="header.actions" className="header-utility-item">
                           <Link to={appendStorefrontTenantContext("/min-konto/adresser")} onClick={() => setMobileMenuOpen(false)}>
                             <MapPin className="h-4 w-4 mr-2" />
                             Adresser
                           </Link>
                         </Button>
                         {isAdmin && (
-                          <Button asChild variant="outline" data-branding-id="header.actions" className="min-h-11 w-full">
+                          <Button asChild variant="ghost" data-branding-id="header.actions" className="header-utility-item">
                             <Link
                               {...SITE_DESIGN_PREVIEW_EXIT_LINK_PROPS}
                               to={appendStorefrontTenantContext("/admin")}
@@ -2739,7 +2687,7 @@ const Header = ({ brandingOverride }: { brandingOverride?: import('@/hooks/useBr
                       <Button
                         variant="outline"
                         data-branding-id="header.actions"
-                        className="min-h-11 w-full"
+                        className="header-utility-item header-utility-logout"
                         onClick={() => {
                           handleLogout();
                           setMobileMenuOpen(false);

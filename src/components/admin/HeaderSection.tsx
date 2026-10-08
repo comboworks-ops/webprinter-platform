@@ -18,6 +18,9 @@ import { ColorPickerWithSwatches } from "@/components/ui/ColorPickerWithSwatches
 import { cn } from "@/lib/utils";
 import { FontSelector } from "./FontSelector";
 import { APPROVED_DROPDOWN_PRESETS, DEFAULT_DROPDOWN_PRESET, isApprovedDropdownPreset, resolveDropdownPreset } from "@/lib/branding/dropdownPresets";
+import { HeaderUtilityPreview } from "@/components/storefront/HeaderUtilityPreview";
+import { HeaderMenuControls } from "@/components/admin/HeaderMenuControls";
+import { headerMenuStyle } from "@/lib/branding/headerMenuSettings";
 import { supabase } from "@/integrations/supabase/client";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
@@ -54,6 +57,8 @@ import {
 } from "lucide-react";
 
 interface HeaderSectionProps {
+    dropdownColorsCustomized?: boolean;
+    primaryColor?: string;
     header: HeaderSettings;
     onChange: (header: HeaderSettings) => void;
     savedSwatches?: string[];
@@ -62,7 +67,7 @@ interface HeaderSectionProps {
     focusTargetId?: string | null;
 }
 
-export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, onRemoveSwatch, focusTargetId }: HeaderSectionProps) {
+export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, onRemoveSwatch, focusTargetId, dropdownColorsCustomized = false, primaryColor }: HeaderSectionProps) {
     // Upload state for dropdown image
     const [uploadingDropdownImage, setUploadingDropdownImage] = useState(false);
 
@@ -638,7 +643,7 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                     <CollapsibleCard
                         key={`header-dropdown-layout-${matchesFocus("site-design-focus-header-dropdown-layout") ? focusTargetId : "default"}`}
                         title="Dropdown layout"
-                        description="Vælg hvordan produkter vises i dropdown-menuen."
+                        description="Vælg ét samlet design til Produkter, konto, søgning og sprog."
                         icon={<ImageIcon className="h-4 w-4" />}
                         defaultOpen={matchesFocus("site-design-focus-header-dropdown-layout")}
                     >
@@ -676,11 +681,12 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                             </div>
                         </RadioGroup>}
                         <div className={cn("space-y-3", !usesApprovedDropdown && "mt-5 border-t pt-4")}>
-                            <Label>Produktmenuens design</Label>
-                            <p className="text-xs leading-5 text-muted-foreground">Vælg mellem ni forskellige menuer. 5. Search &amp; Discover er standard. Billederne viser designretningen; menuen bruger butikkens egne produkter.</p>
+                            <Label>Menuernes design</Label>
+                            <p className="text-xs leading-5 text-muted-foreground">Ét samlet design til Produkter, Min konto, søgning og sprog. Vælg mellem ni menuer. 5. Search &amp; Discover er den balancerede standard. Alle bruger butikkens egne farver, skrifter og produkter.</p>
                             {!isApprovedDropdownPreset(safeHeader.dropdownPreset) && (
                                 <p className="rounded-md bg-muted p-3 text-xs leading-5">Butikken bruger en tidligere valgt menu ({safeHeader.dropdownPreset}). Den bevares, indtil du vælger et nyt design.</p>
                             )}
+                            <HeaderMenuControls primaryColor={primaryColor} header={safeHeader} onChange={updateHeader} savedSwatches={savedSwatches} onSaveSwatch={onSaveSwatch} onRemoveSwatch={onRemoveSwatch} />
                             <div className="grid gap-3 sm:grid-cols-2">
                                 {APPROVED_DROPDOWN_PRESETS.map((preset) => {
                                     const selected = safeHeader.dropdownPreset === preset.id;
@@ -696,6 +702,7 @@ export function HeaderSection({ header, onChange, savedSwatches, onSaveSwatch, o
                                             onClick={() => updateHeader({ dropdownPreset: preset.id })}
                                         >
                                             <img src={preset.previewImage} alt="" loading="lazy" width={1536} height={1024} className="aspect-[3/2] w-full border-b object-cover" />
+                                            <HeaderUtilityPreview preset={preset.id} style={headerMenuStyle(safeHeader, primaryColor, dropdownColorsCustomized)} searchPresentation={safeHeader.dropdownSearchPresentation} languagePresentation={safeHeader.dropdownLanguagePresentation} />
                                             <span className="flex items-start gap-2 p-3">
                                                 <span className="min-w-0 flex-1">
                                                     <span className="block text-sm font-medium">{preset.number}. {preset.name}</span>

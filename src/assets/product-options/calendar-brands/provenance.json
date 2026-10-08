@@ -1,0 +1,49 @@
+{
+  "purpose": "Chocolate-brand badges used only to identify the selected filling beside Webprinter calendar artwork.",
+  "publicationReview": "Trademark and supplier-rights review required before publishing the product.",
+  "retrievedAt": "2026-08-27",
+  "assets": [
+    {
+      "file": "celebrations.png",
+      "brand": "Celebrations",
+      "sourcePage": "https://www.mars.com/it-it/our-brands/mars-snacking",
+      "sourceAsset": "https://www.mars.com/sites/g/files/dfsbuz106/files/styles/content_cards_340x340/public/2025-05/Celebrations_4.png?v=2b0736c3&itok=RW7R7czQ"
+    },
+    {
+      "file": "kinder.png",
+      "brand": "Kinder",
+      "sourcePage": "https://www.ferrero.com/ch/fr/nos-marques/kinder",
+      "sourceAsset": "https://www.ferrero.com/ch/sites/ferrero_ch/files/styles/slick_image/public/2023-06/logo_kinder.png?t=1787666318"
+    },
+    {
+      "file": "milka.svg",
+      "brand": "Milka",
+      "sourcePage": "https://favourites.milka.com/",
+      "sourceAsset": "https://images.ctfassets.net/kd36ds6oakm7/5Bf25pgFQ22hwSajbmqYG9/09370e2a96a2c44b248eeaa49c7e79bb/Milka_Logo.svg?q=80"
+    },
+    {
+      "file": "merci.png",
+      "brand": "merci",
+      "sourcePage": "https://www.storck.com/en/brands/merci?tld=us",
+      "sourceAsset": "https://www.storck.com/fileadmin/dam/_processed_/b/0/csm_merci-logo-2017_d9697365f8.png"
+    },
+    {
+      "file": "toblerone.svg",
+      "brand": "Toblerone",
+      "sourcePage": "https://www.toblerone.com/",
+      "sourceAsset": "https://images.ctfassets.net/fqji69vdivd1/121BT3RuqVSczqN5XnvtKu/f4fd741eb2dbd543748cceb8f6c3a6a3/toblerone.svg?q=80"
+    },
+    {
+      "file": "lindt.png",
+      "brand": "Lindt",
+      "sourcePage": "https://www.chocolate.lindt.com/",
+      "sourceAsset": "https://www.chocolate.lindt.com/static/version1787541241/frontend/Lindt/nontransactional/en_US/images/logo.png"
+    },
+    {
+      "file": "ritter-sport.png",
+      "brand": "Ritter Sport",
+      "sourcePage": "https://www.ritter-sport.com/de",
+      "sourceAsset": "https://irp.cdn-website.com/6cb74a62/dms3rep/multi/opt/RitterSport_logo_app-54f00af6-1920w.png"
+    }
+  ]
+}

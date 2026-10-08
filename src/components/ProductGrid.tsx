@@ -1,3 +1,4 @@
+import { StorefrontImage } from '@/components/storefront/StorefrontImage';
 import { useSharedButtonStyles } from '@/components/storefront/SharedButtonContext';
 import "@/styles/productPresentationEffects.css";
 import { Link } from "react-router-dom";
@@ -23,6 +24,7 @@ import { useShopSettings } from "@/hooks/useShopSettings";
 import { resolveShopComponentRecipe } from "@/lib/storefront/shopTemplates";
 
 interface ProductGridProps {
+  productHref?: (product: StorefrontProduct) => string;
   category: string;
   products?: StorefrontProduct[];
   loadingOverride?: boolean;
@@ -94,6 +96,7 @@ function ensureReadableTextColor(background: string, preferred: string): string 
 }
 
 const ProductGrid = ({
+  productHref: resolveProductHref,
   category,
   products: productsOverride,
   loadingOverride,
@@ -310,8 +313,8 @@ const ProductGrid = ({
           gridColumnsClass,
           isSlimLayout ? "gap-4 sm:gap-6" : "gap-6"
         )}>
-          {filteredProducts.map((product) => {
-            const productHref = buildStorefrontProductHref(product, categoryRecords, overviews);
+          {filteredProducts.map((product, productIndex) => {
+            const productHref = resolveProductHref?.(product) || buildStorefrontProductHref(product, categoryRecords, overviews);
             const productButtonLabel = getStorefrontProductButtonLabel(product);
             const bannerConfig = (product.banner_config as any) || {};
             const productTitle = normalizeCardCopy(product.icon_text || product.name);
@@ -344,10 +347,12 @@ const ProductGrid = ({
                     : "w-full h-36 rounded-lg mb-1"
                 )}
               >
-                <img
+                <StorefrontImage
+                  autoSize
                   src={getProductImage(product.slug, product.image_url)}
                   alt={product.name}
-                  loading="lazy"
+                  sizes={isSlimLayout ? "144px" : "(min-width: 1280px) 360px, (min-width: 768px) 50vw, 100vw"}
+                  loading={productIndex < 3 ? "eager" : "lazy"}
                   decoding="async"
                   className={`w-full h-full object-contain transition-all duration-300 ${hoverImageUrl ? 'group-hover:opacity-0' : ''}`}
                   style={{
@@ -357,7 +362,8 @@ const ProductGrid = ({
                   }}
                 />
                 {hoverImageUrl && (
-                  <img
+                  <StorefrontImage
+                    autoSize
                     src={hoverImageUrl}
                     alt={`${product.name} hover`}
                     loading="lazy"

@@ -39,23 +39,26 @@ globalThis.__roleTestClient = {
     getUser: async () => ({ data: { user: harness.user } }),
     onAuthStateChange(callback) { harness.authChanged = callback; return { data: { subscription: { unsubscribe() {} } } }; },
   },
-  functions: { invoke: async () => ({ data: harness.verification }) },
+  functions: { invoke: async () => ({ data: harness.verify ? await harness.verify() : harness.verification }) },
   from(table) {
     if (table === 'user_roles') return { select: () => ({ eq: async () => ({ data: harness.roles.map(role => ({ role })), error: harness.roleError }) }) };
-    if (table === 'tenants') return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) };
+    if (table === 'tenants') return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: harness.owned ? { id: harness.tenant } : null }) }) }) };
     throw new Error(`Unexpected table ${table}`);
   },
 };
 globalThis.__roleTestTenant = async () => ({ tenantId: harness.tenant });
 const { useUserRole } = await import('./useUserRole.tsx');
-async function run({ verification, roles = [], tenant = 'master', roleError = null, email = 'operator@example.test' }) {
-  harness = { cursor: 0, state: [], mounted: false, user: { id: 'user-1', email }, verification, roles, tenant, roleError };
+function mount({ verification, roles = [], tenant = 'master', roleError = null, email = 'operator@example.test', owned = false, user = { id: 'user-1', email }, verify }) {
+  harness = { cursor: 0, state: [], mounted: false, user, verification, roles, tenant, roleError, owned, verify };
   useUserRole();
   harness.mounted = true;
-  const cleanup = harness.effect();
+  return harness.effect();
+}
+function render() { harness.cursor = 0; return useUserRole(); }
+async function run(options) {
+  const cleanup = mount(options);
   await new Promise(resolve => setTimeout(resolve, 20));
-  harness.cursor = 0;
-  const result = useUserRole();
+  const result = render();
   cleanup();
   return result;
 }
@@ -91,4 +94,42 @@ test('known operator email on localhost is not evidence of a role', async () => 
 test('failed direct role lookup cannot infer master from a legacy response', async () => {
   const result = await run({ verification: { isAdmin: true }, roleError: { message: 'denied' } });
   assert.equal(result.isMasterAdmin, false);
+});
+test('tenant ownership uses the same verified admin path as stored admin roles', async () => {
+  const result = await run({ verification: { isAdmin: false }, owned: true, tenant: 'shop-a' });
+  assert.equal(result.isAdmin, true);
+  assert.equal(result.userId, 'user-1');
+});
+test('switching from admin to customer clears access before the next role lookup', async () => {
+  const cleanup = mount({ verification: { isAdmin: true, isMasterAdmin: false } });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(render().isAdmin, true);
+    harness.user = { id: 'customer-2' };
+    harness.verification = { isAdmin: false };
+    harness.roles = ['user'];
+    harness.authChanged('SIGNED_IN', { user: harness.user });
+    assert.equal(render().loading, true);
+    assert.equal(render().isAdmin, false);
+    assert.equal(render().userId, null);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(render().isAdmin, false);
+    assert.equal(render().loading, false);
+    assert.equal(render().userId, 'customer-2');
+  } finally { cleanup(); }
+});
+test('signing out invalidates an unfinished admin response', async () => {
+  let finish;
+  const cleanup = mount({ verify: () => new Promise(resolve => { finish = resolve; }) });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    harness.user = null;
+    harness.authChanged('SIGNED_OUT', null);
+    finish({ isAdmin: true, isMasterAdmin: true });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(render().isAdmin, false);
+    assert.equal(render().isMasterAdmin, false);
+    assert.equal(render().userId, null);
+    assert.equal(render().loading, false);
+  } finally { cleanup(); }
 });

@@ -20,6 +20,10 @@ export function copyStorefrontContextParams(
   target: URLSearchParams,
   source: URLSearchParams,
 ): void {
+  // A loopback development fixture follows the ordinary product/Designer return path.
+  if (import.meta.env?.DEV && /^[0-9]+$/.test(source.get('rollLabelPreview') || '')) {
+    target.set('rollLabelPreview', source.get('rollLabelPreview')!);
+  }
   STOREFRONT_CONTEXT_QUERY_KEYS.forEach((key) => {
     const value = source.get(key);
     if (value) target.set(key, value);

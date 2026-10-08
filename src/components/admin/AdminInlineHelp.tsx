@@ -1,4 +1,4 @@
-import { Info } from "lucide-react";
+import { HelpCircle } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -19,7 +19,7 @@ export function AdminInlineHelp({ content, className }: AdminInlineHelpProps) {
           )}
           aria-label="Vis forklaring"
         >
-          <Info className="h-3.5 w-3.5" />
+          <HelpCircle className="h-3.5 w-3.5" />
         </button>
       </TooltipTrigger>
       <TooltipContent className="max-w-xs text-xs leading-relaxed">

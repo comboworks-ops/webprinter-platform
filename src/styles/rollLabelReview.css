@@ -1,0 +1,45 @@
+.roll-label-review { max-width: 1280px; margin: 0 auto; padding: var(--ui-page-gutter, 24px); overflow-wrap: anywhere; }
+.roll-label-review header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+.roll-label-review header span, .roll-label-status { color: hsl(var(--muted-foreground)); font-size: 14px; }
+.roll-label-review h1 { font-size: clamp(26px, 4vw, 40px); line-height: 1.2; margin: 20px 0 12px; }
+.roll-label-review h2 { font-size: 20px; line-height: 1.4; margin-bottom: 10px; }
+.roll-label-review p { line-height: 1.6; margin-bottom: 16px; }
+.roll-label-description { max-width: var(--ui-reading-measure, 68ch); }
+.roll-label-family-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 24px; }
+.roll-label-review select, .roll-label-review input { min-height: 44px; max-width: 100%; min-width: 0; border: 1px solid hsl(var(--border)); border-radius: 6px; padding: 10px; background: hsl(var(--background)); font-size: 16px; width: 100%; }
+.roll-label-dimensions { margin: 24px 0; min-width: 0; }
+.roll-label-dimensions legend { font-size: 20px; font-weight: 600; margin-bottom: 12px; }
+.roll-label-review input[aria-invalid="true"] { border-color: hsl(var(--destructive)); }
+.roll-label-family-picker select { width: min(100%, 480px); }
+.roll-label-captured { margin-top: 24px; min-width:0; }
+.order-calculator-extras:has(.roll-label-captured) { min-width:0; max-width:100%; }
+.roll-label-captured select, .roll-label-captured input { min-height: 44px; max-width: 100%; min-width: 0; border: 1px solid hsl(var(--border)); border-radius: 6px; padding: 10px; background: hsl(var(--background)); font-size: 16px; width: 100%; }
+.roll-label-captured h2 { font-size: 20px; line-height: 1.4; margin-bottom: 10px; }
+.roll-label-captured p { line-height: 1.6; margin-bottom: 16px; }
+.roll-label-captured input[aria-invalid="true"] { border-color: hsl(var(--destructive)); }
+.roll-label-field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 16px; }
+.roll-label-field-grid label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.roll-label-field-grid small { color: hsl(var(--muted-foreground)); line-height: 1.5; }
+.roll-label-review select:disabled { opacity: .7; }
+.roll-label-review button:disabled { min-height: 44px; padding: 10px 16px; border-radius: 6px; background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
+.roll-label-inventory { margin-top: 32px; border-top: 1px solid hsl(var(--border)); padding-top: 20px; }
+.roll-label-inventory summary { cursor: pointer; min-height: 44px; }
+.roll-label-inventory ul { display: grid; gap: 12px; }
+.roll-label-inventory li { padding: 12px; border: 1px solid hsl(var(--border)); border-radius: 6px; }
+.roll-label-inventory small { display: block; color: hsl(var(--muted-foreground)); margin-top: 6px; }
+.roll-label-inventory li p { margin: 6px 0 0; }
+.roll-label-price-panel { min-width: 0; padding: var(--ui-space-5,20px); border: 1px solid hsl(var(--border)); border-radius: 10px; }
+.roll-label-price-panel .roll-label-total { font-size: clamp(28px,4vw,40px); font-weight: 700; line-height: 1.2; margin: 8px 0; }
+.roll-label-exact-matrix { min-width: 0; max-width: 100%; }
+.roll-label-exact-matrix h2 { font-size: 20px; line-height: 1.4; margin-bottom: var(--ui-space-3,12px); }
+.roll-label-exact-matrix > .roll-label-status { margin-top: var(--ui-space-3,12px); }
+.roll-label-template-download { display: block; min-height: 44px; padding: 10px 0; color: hsl(var(--primary)); text-decoration: underline; }
+.roll-label-motif-pdf-check { margin-top: var(--ui-space-6, 24px); min-width: 0; }
+.roll-label-motif-pdf-check label { display: flex; flex-direction: column; gap: var(--ui-space-2, 8px); }
+.roll-label-motif-page-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: var(--ui-space-4, 16px); padding: 0; list-style: none; }
+.roll-label-motif-page-grid li { min-width: 0; padding: var(--ui-space-3, 12px); border: 1px solid hsl(var(--border)); border-radius: 6px; }
+.roll-label-motif-page-grid figure { margin: 0; }
+.roll-label-motif-page-grid img { display: block; max-width: 100%; width: auto; height: auto; max-height: 320px; margin: 0 auto var(--ui-space-3, 12px); object-fit: contain; }
+.roll-label-motif-page-grid figcaption { line-height: 1.5; }
+.roll-label-motif-pdf-check label.roll-label-motif-confirm { display: flex; flex-direction: row; align-items: center; gap: var(--ui-space-2, 8px); min-height: 44px; margin-top: var(--ui-space-2, 8px); cursor: pointer; }
+.roll-label-motif-confirm input[type="checkbox"] { width: 20px; height: 20px; min-height: 20px; flex: 0 0 20px; padding: 0; }

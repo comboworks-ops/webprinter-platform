@@ -1,4 +1,5 @@
 import { validateProductionCutContour } from "../validateProductionCutContour";
+import { assertPdfCutContourProduction, registerCopiedCutContourLayers, hasOnlySourceCutLayers } from '../pdfCutContourProductionInspection';
 import { fabric } from 'fabric';
 import { jsPDF } from 'jspdf';
 import { svg2pdf } from 'svg2pdf.js';
@@ -124,7 +125,7 @@ function imagePixels(object: fabric.Object, pixelsPerMm: number, maxTrimMm: numb
 export async function createProductionPdf(context: ProductionPdfContext): Promise<ProductionPdfResult> {
   const { documentSpec: spec, fabricCanvas } = context;
   if (!fabricCanvas) throw new Error('Designfladen er ikke klar.');
-  if (spec.requires_cut_contour) await validateProductionCutContour(fabricCanvas, spec.preset_cut_contour_template);
+  if (spec.requires_cut_contour || spec.cut_contour_requirements) await validateProductionCutContour(fabricCanvas, spec.preset_cut_contour_template, spec.cut_contour_requirements);
   const colorMode = context.colorMode || 'convert_cmyk';
   // The explicit export mode owns this choice even when callers retain a selected
   // CMYK profile for preview. An RGB supplier file must not advertise that target.
@@ -165,7 +166,8 @@ export async function createProductionPdf(context: ProductionPdfContext): Promis
         if (object.clipPath || (object as any).cropX || (object as any).cropY) throw new Error('Beskåret importeret PDF kræver separat klargøring; originalens vektorer er bevaret i designet.');
         const source = await PDFDocument.load(object.data.originalPdfBytes);
         const sourcePage = source.getPage(object.data.pageIndex || 0);
-        if (source.catalog.has(PDFName.of('OCProperties')) || (sourcePage.node.get(PDFName.of('UserUnit')) && sourcePage.node.get(PDFName.of('UserUnit'))?.toString() !== '1')) {
+        if ((source.catalog.has(PDFName.of('OCProperties')) && !(spec.cut_contour_requirements && hasOnlySourceCutLayers(source, spec.cut_contour_requirements)))
+          || (sourcePage.node.get(PDFName.of('UserUnit')) && sourcePage.node.get(PDFName.of('UserUnit'))?.toString() !== '1')) {
           throw new Error('Importeret PDF med valgfrie lag eller særlig sideskalering kræver særskilt klargøring; originalfilen er uændret.');
         }
         const visibleBox = importedVisibleBox(sourcePage);
@@ -173,6 +175,7 @@ export async function createProductionPdf(context: ProductionPdfContext): Promis
         if (annotations?.size()) throw new Error('Importeret PDF med annotationer/formularfelter skal klargøres før produktion.');
         const originalIntent = preserveImportedOutputIntent(source, sourcePage);
         const embedded = await pdf.embedPage(sourcePage, visibleBox);
+        if (spec.cut_contour_requirements) await embedded.embed();
         const sourceGroup = sourcePage.node.get(PDFName.of('Group'));
         if (sourceGroup) {
           await embedded.embed();
@@ -228,7 +231,9 @@ export async function createProductionPdf(context: ProductionPdfContext): Promis
     pdf.setCreator('Webprinter Designer');
     pdf.setSubject(colorMode === 'convert_cmyk' ? 'Production artwork: managed CMYK additions; imported PDF colors preserved' : 'Production artwork: tagged sRGB additions; supplier conversion');
     pdf.setKeywords(['Production artwork', outputProfile?.name || 'sRGB', 'Not PDF/X certified']);
+    if (spec.cut_contour_requirements) registerCopiedCutContourLayers(pdf);
     result.bytes = await pdf.save();
+    if (spec.cut_contour_requirements) await assertPdfCutContourProduction(result.bytes, spec.cut_contour_requirements);
     return result;
   } finally { conversion?.dispose(); }
 }

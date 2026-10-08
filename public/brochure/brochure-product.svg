@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 720" role="img" aria-labelledby="title desc">
+  <title id="title">Brochure med trådhæftning</title>
+  <desc id="desc">En enkel illustration af en brochure med blåt omslag, mange sider og to hæfteklammer.</desc>
+  <rect width="960" height="720" fill="#f6f8fa"/>
+  <path d="M280 168h400v416H280z" fill="#e5ebf0"/>
+  <path d="M266 156h400v416H266z" fill="#fff" stroke="#c9d6df" stroke-width="2"/>
+  <path d="M260 150h400v416H260z" fill="#fff" stroke="#c9d6df" stroke-width="2"/>
+  <path d="M254 144h400v416H254z" fill="#fff" stroke="#c9d6df" stroke-width="2"/>
+  <path d="M248 138h400v416H248z" fill="#fff" stroke="#c9d6df" stroke-width="2"/>
+  <rect x="248" y="138" width="388" height="404" rx="2" fill="#397fb9"/>
+  <path d="M270 138v404" stroke="#2f6ca0" stroke-width="2"/>
+  <path d="M267 238v29m0 147v29" stroke="#e0e7ee" stroke-linecap="round" stroke-width="5"/>
+  <rect x="309" y="196" width="94" height="8" rx="4" fill="#b8d9f1"/>
+  <rect x="309" y="233" width="247" height="11" rx="5" fill="#fff"/>
+  <rect x="309" y="259" width="180" height="11" rx="5" fill="#fff"/>
+  <circle cx="460" cy="364" r="55" fill="#c8e4f5"/>
+  <path d="M418 373l40-49 44 61" fill="none" stroke="#397fb9" stroke-width="8" stroke-linejoin="round"/>
+  <rect x="309" y="471" width="118" height="6" rx="3" fill="#b8d9f1"/>
+  <rect x="309" y="488" width="183" height="6" rx="3" fill="#b8d9f1"/>
+</svg>

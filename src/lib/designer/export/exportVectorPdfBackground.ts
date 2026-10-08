@@ -1,5 +1,7 @@
 import { assertSingleCanvasContour } from "../cutContourValidation";
 import { validateProductionCutContour } from "../validateProductionCutContour";
+import { assertCutContourRequirements, type CutContourRequirements } from '../cutContourRequirements';
+import { assertPdfCutContourProduction, registerCopiedCutContourLayers } from '../pdfCutContourProductionInspection';
 /**
  * Export Vector PDF Background
  * PROTECTED - See .agent/workflows/vector-pdf-protected.md
@@ -20,6 +22,8 @@ import {
     PDFNumber,
     PDFOperator,
     PDFOperatorNames,
+    PDFPage,
+    PDFString,
     concatTransformationMatrix,
     degrees,
     popGraphicsState,
@@ -130,7 +134,7 @@ export async function buildVectorPdfBackgroundPdf(
         pasteboardPaddingPx: PASTEBOARD_PADDING_PX,
     };
 
-    if (documentSpec.requires_cut_contour) await validateProductionCutContour(fabricCanvas, documentSpec.preset_cut_contour_template);
+    if (documentSpec.requires_cut_contour || documentSpec.cut_contour_requirements) await validateProductionCutContour(fabricCanvas, documentSpec.preset_cut_contour_template, documentSpec.cut_contour_requirements);
     const originalPdf = await PDFDocument.load(pdfBackgroundMeta.originalPdfBytes);
     const pageIndex = pdfBackgroundMeta.pageIndex;
 
@@ -144,6 +148,7 @@ export async function buildVectorPdfBackgroundPdf(
     const pageHeight = mmToPt(documentSpec.height_mm + (outputBleedMm * 2));
     const page = newPdf.addPage([pageWidth, pageHeight]);
     const [embeddedPage] = await newPdf.embedPdf(originalPdf, [pageIndex]);
+    if (documentSpec.cut_contour_requirements) await embeddedPage.embed();
     const placement = await withCanonicalExportViewport(
         fabricCanvas,
         async () => getPdfBackgroundPlacement(fabricCanvas),
@@ -200,7 +205,9 @@ export async function buildVectorPdfBackgroundPdf(
         displayMetrics,
     );
 
+    if (documentSpec.cut_contour_requirements) registerCopiedCutContourLayers(newPdf);
     const pdfBytes = await newPdf.save();
+    if (documentSpec.cut_contour_requirements) await assertPdfCutContourProduction(pdfBytes, documentSpec.cut_contour_requirements);
     return {
         pdfBytes,
         filename: getExportFilename(documentSpec.name, pdfBackgroundMeta.originalFileName),
@@ -310,7 +317,10 @@ export async function drawCutContoursAsVector(
         pageHeight,
         displayMetrics,
     );
-    ensureCutContourPdfResources(page, pdfDoc);
+    const requirements = docSpec.cut_contour_requirements;
+    if (requirements) assertCutContourRequirements(requirements);
+    ensureCutContourPdfResources(page, pdfDoc, requirements);
+    const layer = requirements ? ensureSourceCutLayer(page, pdfDoc) : null;
 
     for (const contourObject of cutContourObjects) {
         const contourSvg = wrapSvgMarkup(contourObject.toSVG());
@@ -319,36 +329,46 @@ export async function drawCutContoursAsVector(
 
         for (const pathSpec of pathSpecs) {
             const finalMatrix = multiplyMatrices(canvasToPageMatrix, pathSpec.matrix);
-            const lineWidth = CUT_CONTOUR_LINE_WIDTH_PT / Math.max(estimateMatrixScale(finalMatrix), 0.0001);
+            const lineWidth = requirements ? requirements.lineWidthPt : CUT_CONTOUR_LINE_WIDTH_PT / Math.max(estimateMatrixScale(finalMatrix), 0.0001);
+            const pathOperators = svgPathToOperators(pathSpec.path).map((operator: any) => {
+                const values = operator.args.map((argument: any) => Number(argument.toString()));
+                // Source width is physical points: transform the coordinates rather
+                // than the pen, including anisotropic Fabric scales and rotations.
+                if (requirements) for (let i = 0; i < values.length; i += 2) {
+                    const x = values[i], y = values[i + 1];
+                    values[i] = finalMatrix[0] * x + finalMatrix[2] * y + finalMatrix[4];
+                    values[i + 1] = finalMatrix[1] * x + finalMatrix[3] * y + finalMatrix[5];
+                }
+                return PDFOperator.of(operator.name, values.map((value: number) => PDFNumber.of(value)));
+            });
             page.pushOperators(
                 pushGraphicsState(),
+                ...(layer ? [PDFOperator.of('BDC' as PDFOperatorNames, [PDFName.of('OC'), layer])] : []),
                 setGraphicsState(PDFName.of(CUT_CONTOUR_GSTATE_NAME)),
                 PDFOperator.of(PDFOperatorNames.StrokingColorspace, [PDFName.of(CUT_CONTOUR_COLORSPACE_NAME)]),
                 PDFOperator.of(PDFOperatorNames.StrokingColorN, [PDFNumber.of(1)]),
-                concatTransformationMatrix(
+                ...(!requirements ? [concatTransformationMatrix(
                     finalMatrix[0],
                     finalMatrix[1],
                     finalMatrix[2],
                     finalMatrix[3],
                     finalMatrix[4],
                     finalMatrix[5],
-                ),
+                )] : []),
                 setLineWidth(lineWidth),
                 setDashPattern([], 0),
                 // The path helper's CJS entry can be a separate Vite module instance.
                 // Re-home its numeric operators into the same PDF classes as the page.
-                ...svgPathToOperators(pathSpec.path).map((operator: any) => PDFOperator.of(
-                    operator.name,
-                    operator.args.map((argument: any) => PDFNumber.of(Number(argument.toString()))),
-                )),
+                ...pathOperators,
                 stroke(),
+                ...(layer ? [PDFOperator.of('EMC' as PDFOperatorNames)] : []),
                 popGraphicsState(),
             );
         }
     }
 }
 
-function ensureCutContourPdfResources(page: any, pdfDoc: PDFDocument): void {
+function ensureCutContourPdfResources(page: any, pdfDoc: PDFDocument, requirements?: CutContourRequirements): void {
     const normalized = page.node.normalizedEntries();
     const resources = normalized.Resources;
 
@@ -370,7 +390,7 @@ function ensureCutContourPdfResources(page: any, pdfDoc: PDFDocument): void {
 
         const separation = pdfDoc.context.obj([
             PDFName.of('Separation'),
-            PDFName.of(CUT_CONTOUR_SPOT_NAME),
+            PDFName.of(requirements?.spotName || CUT_CONTOUR_SPOT_NAME),
             PDFName.of('DeviceCMYK'),
             tintFunction,
         ]) as PDFArray;
@@ -388,6 +408,21 @@ function ensureCutContourPdfResources(page: any, pdfDoc: PDFDocument): void {
         }) as PDFDict;
         page.node.setExtGState(extGStateName, extGState);
     }
+}
+
+function ensureSourceCutLayer(page: PDFPage, pdfDoc: PDFDocument): PDFName {
+    const layer = pdfDoc.context.register(pdfDoc.context.obj({ Type: 'OCG', Name: PDFString.of('Cutkontur'),
+        Usage: { View: { ViewState: 'ON' }, Print: { PrintState: 'ON' }, Export: { ExportState: 'ON' } } }));
+    let oc = pdfDoc.catalog.lookupMaybe(PDFName.of('OCProperties'), PDFDict);
+    if (!oc) { oc = pdfDoc.context.obj({ OCGs: [], D: { BaseState: 'ON', Order: [] } }); pdfDoc.catalog.set(PDFName.of('OCProperties'), oc); }
+    const groups = oc.lookup(PDFName.of('OCGs'), PDFArray); groups.push(layer);
+    const defaults = oc.lookupMaybe(PDFName.of('D'), PDFDict);
+    defaults?.lookupMaybe(PDFName.of('Order'), PDFArray)?.push(layer);
+    const resources = page.node.normalizedEntries().Resources;
+    let properties = resources.lookupMaybe(PDFName.of('Properties'), PDFDict);
+    if (!properties) { properties = pdfDoc.context.obj({}); resources.set(PDFName.of('Properties'), properties); }
+    const key = PDFName.of('SourceCutLayer'); properties.set(key, layer);
+    return key;
 }
 
 function getCanvasCropToPageMatrix(

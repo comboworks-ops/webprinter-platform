@@ -1,3 +1,4 @@
+import { StorefrontImage } from '@/components/storefront/StorefrontImage';
 import { hasFeaturedProducts } from '@/lib/branding/featuredProductPresentation';
 import HeroSlider from '@/components/HeroSlider';
 import { resolvePrintHero } from '@/lib/branding/siteDesignControls';
@@ -70,7 +71,7 @@ export function PrintProductsSection(props: ProductsSectionProps) {
       const Icon = art?.icon || FileText;
       const href = buildPrintCategoryHref(category, overviews);
       return <Link key={category.id || category.slug} to={linkTo(href)} className="print-category">
-        {preset.id === 'print-precise' ? <Icon size={26} strokeWidth={1.4} aria-hidden="true" /> : (art?.image || product?.image_url) && <img src={art?.image || product?.image_url || ''} alt="" loading="lazy" />}
+        {preset.id === 'print-precise' ? <Icon size={26} strokeWidth={1.4} aria-hidden="true" /> : (art?.image || product?.image_url) && <StorefrontImage autoSize variant="feature" sizes="(min-width: 1280px) 640px, 50vw" src={art?.image || product?.image_url || ''} alt="" loading="lazy" />}
         <span>{category.name}</span><ChevronRight size={19} aria-hidden="true" />
       </Link>;
     })}
@@ -83,7 +84,7 @@ export function PrintProductsSection(props: ProductsSectionProps) {
     </div>}
     {loading && !categories.length ? <div className="print-loading" role="status">Indlæser produkter…</div> : errorMessage ? <p role="alert">{errorMessage}</p> : query.trim() ? <div className="print-results" aria-live="polite">
       <p>{searchResults.length} {searchResults.length === 1 ? 'produkt' : 'produkter'} matcher “{query}”</p>
-      <div>{searchResults.map(p => <Link to={linkTo(`/produkt/${p.slug}`)} key={p.id}>{p.image_url && <img src={p.image_url} alt="" />}<span>{p.name}</span><ArrowRight size={18} /></Link>)}</div>
+      <div>{searchResults.map(p => <Link to={linkTo(`/produkt/${p.slug}`)} key={p.id}>{p.image_url && <StorefrontImage autoSize variant="thumbnail" src={p.image_url} alt="" />}<span>{p.name}</span><ArrowRight size={18} /></Link>)}</div>
       {!searchResults.length && <p>Prøv et andet produktnavn eller en kategori.</p>}
     </div> : <div className="print-product-layout">{preset.id === 'print-familiar' ? <>{featured}{navigation}</> : <>{navigation}{featured}</>}</div>}
     {preset.id !== 'print-precise' && !query && <Link className="print-browse-all" to={linkTo('/produkter')}>Se alle produkter <ArrowRight size={18} /></Link>}

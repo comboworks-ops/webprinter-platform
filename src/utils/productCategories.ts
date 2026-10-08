@@ -115,6 +115,27 @@ export const getProductCategoryDescendantIds = (
   return Array.from(descendants);
 };
 
+/** The exact ancestry below a root, including the selected descendant.
+ * Reject foreign branches, broken parent links and cycles. */
+export const getProductCategoryPath = (
+  categories: ProductCategoryRecord[], rootId: string, selectedId: string,
+): ProductCategoryRecord[] | null => {
+  const byId = new Map(categories.filter(c => c.id).map(c => [c.id, c]));
+  if (!byId.has(rootId)) return null;
+  const path: ProductCategoryRecord[] = [];
+  const seen = new Set<string>();
+  let currentId = selectedId;
+  while (currentId !== rootId) {
+    if (seen.has(currentId)) return null;
+    seen.add(currentId);
+    const category = byId.get(currentId);
+    if (!category?.parent_category_id || category.overview_id !== byId.get(rootId)?.overview_id) return null;
+    path.unshift(category);
+    currentId = category.parent_category_id;
+  }
+  return path;
+};
+
 export const resolveProductCategory = (
   value?: string | null,
   categories: ProductCategoryRecord[] = [],

@@ -1,3 +1,4 @@
+import { StorefrontImage } from '@/components/storefront/StorefrontImage';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ArrowUpRight, FileText, Search } from 'lucide-react';
@@ -18,7 +19,7 @@ const headings: Record<string, { eyebrow: string; title: string; copy: string }>
 };
 
 function ProductImage({ product }: { product?: StorefrontProduct }) {
-  return product?.image_url ? <img src={product.image_url} alt="" loading="lazy" /> : <FileText size={48} strokeWidth={1} aria-hidden="true" />;
+  return product?.image_url ? <StorefrontImage autoSize src={product.image_url} alt="" loading="lazy" /> : <FileText size={48} strokeWidth={1} aria-hidden="true" />;
 }
 
 function ProductLink({ product, className = '' }: { product: StorefrontProduct; className?: string }) {

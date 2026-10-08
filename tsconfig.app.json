@@ -23,7 +23,9 @@
 
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "lucide-react": ["./src/components/icons/index.ts"],
+      "@webprinter/lucide-base": ["./node_modules/lucide-react/dist/lucide-react.d.ts"]
     }
   },
   "include": ["src"]

@@ -284,3 +284,17 @@ test('Printstudio is a homepage choice using the existing presentation and prese
     assert.equal(next.forside.productsSection.featuredProductConfig.productId, original.forside.productsSection.featuredProductConfig.productId);
   }
 });
+
+test('page-theme changes retain the shared menu animation, behaviour overrides and accent', () => {
+  const draft = fixture();
+  Object.assign(draft.header, { dropdownEntrance:'bounce', dropdownSearchPresentation:'categories', dropdownLanguagePresentation:'cards', dropdownAccentColor:'#A83377' });
+  const before = structuredClone(draft);
+  for (const theme of PRINT_DESIGN_PRESETS) {
+    const result = applyPrintDesignPreset(draft,theme.id);
+    assert.equal(result.header.dropdownEntrance,'bounce');
+    assert.equal(result.header.dropdownSearchPresentation,'categories');
+    assert.equal(result.header.dropdownLanguagePresentation,'cards');
+    assert.equal(result.header.dropdownAccentColor,'#A83377');
+  }
+  assert.deepEqual(draft,before);
+});

@@ -1,14 +1,19 @@
+import { IconPackProvider } from '@/components/icons/IconFamily';
+import { IconPackSelector } from '@/components/admin/IconPackSelector';
+import { resolveIconPack } from '@/lib/icons/registry';
 /** Local menu review: shared editor and storefront, browser-only saved choices. */
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HeaderSection } from '@/components/admin/HeaderSection';
 import { SiteDesignPreviewFrame } from '@/components/admin/SiteDesignPreviewFrame';
-import { mergeBrandingWithDefaults } from '@/hooks/useBrandingDraft';
+import { mergeBrandingWithDefaults, type BrandingData } from '@/hooks/useBrandingDraft';
 import { applyPrintDesignPreset, DEFAULT_PRINT_DESIGN_ID } from '@/lib/branding/printDesignPresets';
 import { APPROVED_DROPDOWN_PRESETS, DEFAULT_DROPDOWN_PRESET } from '@/lib/branding/dropdownPresets';
+import { menuReviewLink, readMenuReviewQuery, MENU_REVIEW_STORAGE_KEY, readMenuReviewPalette } from './headerMenuReviewState';
+import { menuColorsChanged } from '@/lib/branding/headerMenuSettings';
 import '@/index.css';
 
-const STORAGE_KEY = 'webprinter:dropdown-menu-review:v1';
+const STORAGE_KEY = MENU_REVIEW_STORAGE_KEY;
 const TENANT_ID = '00000000-0000-0000-0000-000000000000';
 const WIDTHS = [1440, 1280, 1024, 768, 390, 320] as const;
 
@@ -22,15 +27,19 @@ function readLocalDraft() {
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     if (stored?.version === 1 && stored.header && typeof stored.header === 'object') {
-      return mergeBrandingWithDefaults({ ...baseline, header: { ...baseline.header, ...stored.header } });
+      return mergeBrandingWithDefaults({ ...baseline, selectedIconPackId: resolveIconPack(stored.selectedIconPackId), header: { ...baseline.header, ...stored.header }, themeSettings: { ...baseline.themeSettings, dropdownColorsCustomized: Boolean(stored.dropdownColorsCustomized) } });
     }
   } catch { /* An unavailable or invalid local draft starts from the selected default. */ }
   return baseline;
 }
 
 export function DropdownMenuPreview() {
-  const [savedDraft, setSavedDraft] = useState(readLocalDraft);
-  const [draft, setDraft] = useState(savedDraft);
+  const [savedDraft, setSavedDraft] = useState<BrandingData>(() => {
+    const draft = readLocalDraft();
+    const header = readMenuReviewQuery(draft.header, window.location.search);
+    return { ...draft, selectedIconPackId: resolveIconPack(new URLSearchParams(window.location.search).get('icons') || draft.selectedIconPackId), header, themeSettings: { ...draft.themeSettings, dropdownColorsCustomized: readMenuReviewPalette(Boolean(draft.themeSettings?.dropdownColorsCustomized) || menuColorsChanged(draft.header, header), window.location.search) } };
+  });
+  const [draft, setDraft] = useState<BrandingData>(savedDraft);
   const [width, setWidth] = useState<number>(1440);
   const [availableWidth, setAvailableWidth] = useState(1000);
   const [notice, setNotice] = useState('Local preview · Ændringer gemmes kun i denne browser');
@@ -38,7 +47,7 @@ export function DropdownMenuPreview() {
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const height = width <= 390 ? 844 : 900;
   const scale = Math.min(1, Math.max(0.1, (availableWidth - 32) / width));
-  const changed = JSON.stringify(draft.header) !== JSON.stringify(savedDraft.header);
+  const changed = JSON.stringify([draft.header,draft.selectedIconPackId]) !== JSON.stringify([savedDraft.header,savedDraft.selectedIconPackId]);
   const selected = APPROVED_DROPDOWN_PRESETS.find(preset => preset.id === draft.header.dropdownPreset);
 
   const openMenu = useCallback(() => {
@@ -79,13 +88,14 @@ export function DropdownMenuPreview() {
 
   const save = () => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, header: draft.header }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, header: draft.header, selectedIconPackId: draft.selectedIconPackId, dropdownColorsCustomized: draft.themeSettings?.dropdownColorsCustomized }));
+      window.history.replaceState(null, '', menuReviewLink('/dropdown-menu-review.html', draft.header, Boolean(draft.themeSettings?.dropdownColorsCustomized), draft.selectedIconPackId));
       setSavedDraft(draft);
       setNotice('Gemt lokalt i denne browser');
     } catch { setNotice('Browseren kunne ikke gemme valget lokalt.'); }
   };
 
-  return <main className="dm-review" data-dropdown-menu-preview data-selected-menu={draft.header.dropdownPreset}>
+  return <IconPackProvider packId={draft.selectedIconPackId}><main className="dm-review" data-dropdown-menu-preview data-selected-menu={draft.header.dropdownPreset}>
     <style>{`
       .dm-review { min-height:100vh; background:#eef3f8; color:#132b43; font:14px/1.5 Inter,system-ui,sans-serif; }
       .dm-review-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--ui-space-4); padding:var(--ui-space-4) var(--ui-page-gutter); background:#fff; border-bottom:1px solid #d9e3ed; }
@@ -111,7 +121,7 @@ export function DropdownMenuPreview() {
       @media(max-width:900px) { .dm-review-layout { grid-template-columns:1fr; } .dm-review-inspector { max-height:420px; } }
     `}</style>
     <header className="dm-review-header">
-      <div><h1>Produktmenu · ni designvalg</h1><p role="status">{changed ? 'Lokale ændringer · ikke gemt endnu' : notice}</p></div>
+      <div><h1>Menuernes design · ni designvalg</h1><p role="status">{changed ? 'Lokale ændringer · ikke gemt endnu' : notice}</p></div>
       <div className="dm-review-actions">
         <button type="button" onClick={() => setDraft(initialDraft())}>Vælg standard #5</button>
         <button type="button" disabled={!changed} onClick={() => setDraft(savedDraft)}>Fortryd</button>
@@ -121,8 +131,10 @@ export function DropdownMenuPreview() {
     <div className="dm-review-layout">
       <aside className="dm-review-inspector" aria-label="Vælg produktmenu">
         <HeaderSection header={draft.header}
-          onChange={header => setDraft(current => ({ ...current, header }))}
+          dropdownColorsCustomized={Boolean(draft.themeSettings?.dropdownColorsCustomized)} primaryColor={draft.colors.primary}
+          onChange={header => setDraft(current => ({ ...current, header, themeSettings: { ...current.themeSettings, dropdownColorsCustomized: current.themeSettings?.dropdownColorsCustomized || menuColorsChanged(current.header, header) } }))}
           focusTargetId="site-design-focus-header-dropdown-layout" />
+        <details className="m-3 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-semibold">Ikoner til hele shoppen · 14 sæt</summary><div className="mt-3"><IconPackSelector selectedPackId={draft.selectedIconPackId} onChange={id => setDraft(current => ({ ...current, selectedIconPackId: id }))}/></div></details>
       </aside>
       <section className="dm-review-stage" aria-label="Forhåndsvisning af produktmenu">
         <div className="dm-review-controls">
@@ -140,10 +152,10 @@ export function DropdownMenuPreview() {
           <SiteDesignPreviewFrame presentation="workspace" branding={draft} tenantName="Webprinter"
             previewUrl={`/preview-shop?draft=1&preview_mode=1&tenantId=${TENANT_ID}&editor=dropdown-menu-review`} />
         </div>
-        <p className="dm-review-footnote">Samme menuvalg som i Site Design og rigtige kataloglæsninger. Gem lokalt ændrer kun denne browsers prøvevalg. Standard: 5. Search &amp; Discover.</p>
+        <p className="dm-review-footnote">Samme menuvalg som i Site Design: Produkter, Min konto, søgning og sprog. Gem lokalt ændrer kun denne browsers prøvevalg. Standard: 5. Search &amp; Discover. <a href={menuReviewLink('/header-menu-review.html', draft.header, Boolean(draft.themeSettings?.dropdownColorsCustomized), draft.selectedIconPackId)} className="underline">Prøv dette sæts konto, søgning og sprog med eksempeldata</a>.</p>
       </section>
     </div>
-  </main>;
+  </main></IconPackProvider>;
 }
 
 if (import.meta.env.DEV) {

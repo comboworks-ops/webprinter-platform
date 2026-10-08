@@ -4,7 +4,7 @@ const cutNames = new Set(['/cutcontour', '/cutkontur']);
 
 /** Tokenise PDF operators without treating text strings/comments as graphics.
  * Inline images are deliberately unsupported for contour verification. */
-function tokens(text: string): string[] {
+export function pdfGraphicsTokens(text: string): string[] {
   const result: string[] = [];
   for (let i = 0; i < text.length;) {
     const c = text[i];
@@ -52,7 +52,7 @@ async function inspectDocument(bytes: ArrayBuffer): Promise<PdfContourInspection
       let starts: number[][] = [], first: number[] | null = null, current: number[] | null = null, closed = false, drawn = 0, points: number[][] = [], closedEarly = false;
       const reset = () => { starts = []; first = current = null; closed = false; drawn = 0; points = []; closedEarly = false; };
       const numbers = (count: number) => { const values = operands.slice(-count).map(Number); if (values.length !== count || values.some(n => !Number.isFinite(n))) throw new Error('Ugyldig PDF-sti.'); return values; };
-      for (const token of tokens(new TextDecoder('latin1').decode(decodePDFRawStream(stream).decode()))) {
+      for (const token of pdfGraphicsTokens(new TextDecoder('latin1').decode(decodePDFRawStream(stream).decode()))) {
         if (++operations > 1000000) throw new Error('PDF-stien er for kompleks.');
         if (token.startsWith('/') || /^[-+.\d]/.test(token) || ['[', ']', '<', '>', 'STRING'].includes(token)) { operands.push(token); continue; }
         if (token === 'BI') throw new Error('PDF med inline-billeder skal klargøres før konturkontrol.');

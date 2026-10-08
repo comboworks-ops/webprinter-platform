@@ -343,6 +343,12 @@ export interface HeaderSettings {
     dropdownMode: HeaderDropdownMode;
     dropdownPreset?: HeaderDropdownPreset;
     dropdownMotionStyle?: 'precision' | 'liquid' | 'gallery-rise' | 'soft-slide' | 'focus-slide';
+    /** Shared optional master; absence preserves the selected set's motion. */
+    dropdownEntrance?: import('@/lib/branding/headerMenuSettings').MenuEntrance;
+    dropdownSearchPresentation?: import('@/lib/branding/headerMenuSettings').SearchPresentation;
+    dropdownLanguagePresentation?: import('@/lib/branding/headerMenuSettings').LanguagePresentation;
+    dropdownAccentColor?: string;
+    dropdownIconMotion?: "none" | "subtle" | "playful";
     dropdownSplitPreviewSource?: HeaderSplitPreviewSource;
 
     // Styling

@@ -1,11 +1,13 @@
 const unavailablePrice = new Set([
   "checkout_quote_ambiguous", "checkout_quote_unavailable", "checkout_storformat_price_missing", "checkout_storformat_quantity_price_missing",
   "checkout_storformat_price_invalid", "checkout_storformat_layout_ambiguous", "checkout_quantity_unavailable",
+  "checkout_brochure_price_unavailable",
 ]);
 const invalidSelection = new Set([
   "checkout_dimensions_exceed_material", "checkout_dimensions_invalid", "checkout_area_mismatch",
   "checkout_storformat_required_selection_missing", "checkout_storformat_selection_invalid",
   "checkout_format_dimensions_unverified", "checkout_invalid_options", "checkout_amount_mismatch",
+  "checkout_brochure_selection_invalid", "checkout_dimensions_mismatch",
 ]);
 
 /** Show known public error codes, never arbitrary provider/database error text. */

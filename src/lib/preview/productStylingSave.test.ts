@@ -144,3 +144,19 @@ test('missing or removed option targets reject rather than recreating configurat
     assert.throws(() => applyProductStylingPatches(latest, button), /findes ikke/);
     assert.throws(() => applyProductStylingPatches(latest, selectorBoxStylingPatches('removed', { paddingPx: 16 })), /findes ikke/);
 });
+
+
+test('collapsible choice groups save without replacing concurrent price or template edits', async () => {
+    const original = fixture();
+    const groups = [{ id: 'special', label: 'Særlige former', valueIds: ['silk'], collapsible: true, initiallyExpanded: false, uiMode: 'large' }];
+    const draft = { ...structuredClone(original), vertical_axis: { ...structuredClone(original.vertical_axis), valueGroups: groups } };
+    const patches = collectProductStylingPatches(original, draft);
+    assert.deepEqual(patches.map(patch => patch.path), [['valueGroups']]);
+    const { client, state } = fakeDatabase();
+    state.concurrentWrite = true;
+    const saved = await persistProductStylingPatches(client, 'shop', 'product', patches);
+    assert.deepEqual((saved.vertical_axis as Record<string, unknown>).valueGroups, groups);
+    assert.deepEqual(saved.quantities, [200, 800]);
+    assert.deepEqual(saved.template_files, original.template_files);
+    assert.equal(state.writes.length, 1);
+});

@@ -24,6 +24,7 @@ export interface ExportOptions {
 }
 
 export interface DocumentSpec {
+    cut_contour_requirements?: import('../cutContourRequirements').CutContourRequirements;
     requires_cut_contour?: boolean;
     preset_cut_contour_template?: string | null;
     name: string;

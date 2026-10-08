@@ -1,3 +1,4 @@
+import { IconPackProvider } from "@/components/icons/IconFamily";
 import { SharedButtonContext } from './SharedButtonContext';
 import "@/styles/orderFlowDesigns.css";
 import { useEffect, type ReactNode } from "react";
@@ -163,7 +164,7 @@ function StorefrontThemeFrameInner({
   }, [fontSignature]);
 
   return (
-    <SharedButtonContext.Provider value={branding}><div
+    <IconPackProvider packId={branding.selectedIconPackId}><SharedButtonContext.Provider value={branding}><div
       className="storefront-shop-template-scope"
       {...journey}
       style={{ ...cssVariables, ...journey.style }}
@@ -205,7 +206,7 @@ function StorefrontThemeFrameInner({
           isPreviewMode={isPreviewMode}
         />}
       </Theme.ShopLayout>
-    </div></SharedButtonContext.Provider>
+    </div></SharedButtonContext.Provider></IconPackProvider>
   );
 }
 

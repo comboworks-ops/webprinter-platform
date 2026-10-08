@@ -1,15 +1,18 @@
 import { withMatrixRowSelection } from '@/lib/products/matrixRowSelection';
 import { MaterialLabel, MaterialInfoIcons } from './MaterialLabel';
+import BrochureFreeSizeMatrix from './BrochureFreeSizeMatrix';
+import type { BrochureFreeMatrixMeta, BrochureFreeSelection, BrochureFreeSizeConfig } from '@/lib/pricing/brochureFreePricing';
 import { MaterialOptionInfoContext } from './materialOptionInfoContext';
 import { materialPresentation, materialTooltipDefaults } from '@/lib/products/materialPresentation';
 import { useProductTooltipConfigs } from '@/hooks/useProductAvailabilityTooltips';
 import { WorkspaceEditableSection } from './WorkspacePreviewEditor';
-import { useWorkspacePreviewEditing, useWorkspacePreviewSources } from './workspacePreviewContext';
+import { useWorkspacePreviewEditing, useWorkspacePreviewSources, useWorkspaceConfigurationOnly } from './workspacePreviewContext';
 import { pictureModes, pictureModeSize } from '@/lib/products/productOptionPresentation';
 import '@/styles/productWorkspaceRows.css';
 import { productionMethodLabel, workspaceGroups, workspaceRows, type WorkspaceGroup } from '@/lib/products/productWorkspace';
 import '@/styles/productWorkspaceCustomer.css';
 import { ProductCalculatorLayout, type ProductCalculatorLayoutSlots } from "./ProductCalculatorLayout";
+import { readRollLabelProductContract } from '@/lib/products/rollLabelConfiguration';
 /**
  * MatrixLayoutV1Renderer - Renders product pricing from pricing_structure.mode === 'matrix_layout_v1'
  *
@@ -156,6 +159,8 @@ interface MatrixLayoutV1 {
     vertical_axis: VerticalAxisConfig;
     layout_rows: LayoutRow[];
     quantities?: number[];
+    brochureCompatibility?: { version: 1; selections: Array<Record<string, string | null>> };
+    brochureFreeSize?: BrochureFreeSizeConfig;
     autoResolveExactCombination?: boolean;
     auto_resolve_exact_combination?: boolean;
     customerSelectionOrder?: string[];
@@ -337,6 +342,10 @@ function CalendarArtworkLabelOverlay({ label }: { label: CalendarOptionArtworkLa
 }
 
 interface MatrixLayoutV1RendererProps {
+    /** Source-bound roll prices reuse PriceMatrix through the normal calculator slot. */
+    rollLabelMatrix?: ReactNode;
+    /** Display only; preserves the underlying quantity and price cells. */
+    columnUnit?: string;
     layout?: ProductCalculatorLayoutSlots;
     productId: string;
     pricingStructure: MatrixLayoutV1;
@@ -345,12 +354,13 @@ interface MatrixLayoutV1RendererProps {
     initialSelection?: Record<string, string | null>;
     initialSelectedRow?: string;
     initialSelectedQuantity?: number;
+    initialBrochureFree?: BrochureFreeSelection | null;
     onCellClick?: (row: string, column: number, price: number) => void;
     onSelectionChange?: (
         selections: Record<string, string | null>,
         formatId?: string,
         materialId?: string,
-        meta?: { variantKey?: string; verticalValueId?: string },
+        meta?: BrochureFreeMatrixMeta,
     ) => void;
     onSelectionSummary?: (summary: string[]) => void;
     onQuantityTiers?: (tiers: Array<{ quantity: number; price: number }>) => void;
@@ -633,17 +643,20 @@ async function fetchVariantPriceRowsCached(
     if (inflight) return inflight;
 
     const request = (async () => {
-        const { data, error } = await supabase
-            .from('generic_product_prices')
-            .select('id, variant_name, variant_value, quantity, price_dkk, extra_data')
-            .eq('product_id', productId)
-            .eq('variant_name', variantName)
-            .in('variant_value', verticalValueIds)
-            .order('quantity', { ascending: true });
-
-        if (error) throw error;
-
-        const rows = (data || []) as any[];
+        const rows: any[] = [];
+        // A selected brochure configuration can exceed the Data API's default
+        // result limit. Stable page order retains every native quantity tier.
+        for (let offset = 0; ; offset += PRICE_PAGE_SIZE) {
+            const { data, error } = await supabase.from('generic_product_prices')
+                .select('id, variant_name, variant_value, quantity, price_dkk, extra_data')
+                .eq('product_id', productId).eq('variant_name', variantName)
+                .in('variant_value', verticalValueIds)
+                .order('quantity', { ascending: true }).order('id', { ascending: true })
+                .range(offset, offset + PRICE_PAGE_SIZE - 1);
+            if (error) throw error;
+            rows.push(...(data || []));
+            if ((data || []).length < PRICE_PAGE_SIZE) break;
+        }
         const payload = { at: Date.now(), data: rows };
         variantPriceRowsCache.set(cacheKey, payload);
         return rows;
@@ -656,6 +669,8 @@ async function fetchVariantPriceRowsCached(
 }
 
 export function MatrixLayoutV1Renderer({
+    rollLabelMatrix,
+    columnUnit = 'stk',
     layout,
     productId,
     pricingStructure: basePricingStructure,
@@ -663,6 +678,7 @@ export function MatrixLayoutV1Renderer({
     initialSelection,
     initialSelectedRow,
     initialSelectedQuantity,
+    initialBrochureFree,
     onCellClick,
     onSelectionChange,
     onSelectionSummary,
@@ -691,6 +707,9 @@ export function MatrixLayoutV1Renderer({
     );
     const [loadedAttributeGroups, setAttributeGroups] = useState<AttributeGroup[]>([]);
     const workspaceSources = useWorkspacePreviewSources(productId);
+    const localConfigurationOnly = useWorkspaceConfigurationOnly(productId);
+    const configurationOnly = localConfigurationOnly || Boolean(rollLabelMatrix && readRollLabelProductContract(
+        (pricingStructure as MatrixLayoutV1 & { rollLabelConfiguration?: unknown }).rollLabelConfiguration, productId));
     const attributeGroups = useMemo(() => workspaceSources ? workspaceSources.map(group => ({ ...group, values: group.values || [] })) : loadedAttributeGroups, [workspaceSources, loadedAttributeGroups]);
     const [availabilityPrices, setAvailabilityPrices] = useState<any[]>([]);
     const [variantPrices, setVariantPrices] = useState<any[]>([]);
@@ -704,6 +723,11 @@ export function MatrixLayoutV1Renderer({
     ));
     const [hoveredPictureKey, setHoveredPictureKey] = useState<string | null>(null);
     const [focusedSelectionSectionIds, setFocusedSelectionSectionIds] = useState<Set<string>>(() => new Set());
+    const brochureFreeConfig = pricingStructure.brochureFreeSize?.version === 1 ? pricingStructure.brochureFreeSize : null;
+    const isBrochureFree = Boolean(brochureFreeConfig
+        && selectedSectionValues[brochureFreeConfig.axisSections.format] === brochureFreeConfig.formatValueId);
+    const isBrochureFreeNeutralSection = (id: string) => Boolean(isBrochureFree && brochureFreeConfig
+        && [brochureFreeConfig.axisSections.cover, brochureFreeConfig.axisSections.varnish].includes(id));
 
     const lastNotifiedCellRef = useRef<string>("");
     const lastLoadedProductIdRef = useRef<string | null>(null);
@@ -787,6 +811,7 @@ export function MatrixLayoutV1Renderer({
     }, [pricingStructure, activeBranding?.productPage?.matrix?.textButtons]);
     // Fetch attribute groups for this product
     useEffect(() => {
+        if (workspaceSources) return;
         let active = true;
 
         async function fetchGroups() {
@@ -807,7 +832,7 @@ export function MatrixLayoutV1Renderer({
         return () => {
             active = false;
         };
-    }, [productId]);
+    }, [productId, workspaceSources]);
 
     const sectionTypeById = useMemo(() => {
         const map: Record<string, string> = {};
@@ -1362,6 +1387,10 @@ export function MatrixLayoutV1Renderer({
 
         const requiredSectionIds = selectorSections
             .filter((section) => !isPriceNeutralSectionId(section.id))
+            // Brochure compatibility indexes menus, while the selected exact
+            // price query supplies the available paper/cover matrix rows.
+            .filter((section) => pricingStructure.templateBinding?.profile !== 'brochure_v1'
+                || section.id !== pricingStructure.vertical_axis.sectionId)
             .map((section) => section.id);
         const unique = new Map<string, ExactCombinationCandidate>();
 
@@ -1386,6 +1415,8 @@ export function MatrixLayoutV1Renderer({
         exactCombinationSelections,
         isPriceNeutralSectionId,
         selectorSections,
+        pricingStructure.templateBinding?.profile,
+        pricingStructure.vertical_axis.sectionId,
     ]);
     const hasProvidedExactCompatibility = providedExactCombinationCandidates.length > 0;
 
@@ -1411,7 +1442,7 @@ export function MatrixLayoutV1Renderer({
         // They avoid downloading an entire large sparse price table just to decide
         // which selector values can be combined. Active prices are still fetched
         // from generic_product_prices for the selected exact variant below.
-        if (hasProvidedExactCompatibility) {
+        if (configurationOnly || hasProvidedExactCompatibility) {
             setAvailabilityPrices([]);
             setAvailabilityLoading(false);
             lastLoadedProductIdRef.current = productId;
@@ -1453,12 +1484,18 @@ export function MatrixLayoutV1Renderer({
         return () => {
             active = false;
         };
-    }, [hasProvidedExactCompatibility, productId]);
+    }, [configurationOnly, hasProvidedExactCompatibility, productId]);
 
     useEffect(() => {
         let active = true;
 
         async function fetchActiveVariantPrices() {
+            if (configurationOnly) {
+                setVariantPrices([]); setVariantPricesKey(null); setMatrixLoading(false); return;
+            }
+            if (isBrochureFree) {
+                setVariantPrices([]); setVariantPricesKey(null); setMatrixLoading(false); return;
+            }
             if (!hasCompleteRequiredSelection) {
                 if (active) {
                     setVariantPrices([]);
@@ -1516,6 +1553,8 @@ export function MatrixLayoutV1Renderer({
         pricingStructure.vertical_axis.valueIds,
         hasCompleteRequiredSelection,
         availabilityPreparedPrices.length,
+        isBrochureFree,
+        configurationOnly,
     ]);
 
     const getSectionValueIdForPreparedRow = useCallback((sectionId: string, row: PreparedPriceRow): string | null => {
@@ -2064,6 +2103,7 @@ export function MatrixLayoutV1Renderer({
             row.columns.forEach(col => {
                 if (col.id === verticalSectionId) return;
                 if (isHiddenColumn(col)) return;
+                if (isBrochureFreeNeutralSection(col.id)) return;
                 const selectedValueId = selectedSectionValues[col.id];
                 if (selectedValueId) {
                     summaryParts.push(getDisplayValueName(selectedValueId, col.id));
@@ -2072,7 +2112,7 @@ export function MatrixLayoutV1Renderer({
         });
 
         onSelectionSummary(summaryParts);
-    }, [onSelectionSummary, pricingStructure, selectedSectionValues, getDisplayValueName]);
+    }, [onSelectionSummary, pricingStructure, selectedSectionValues, getDisplayValueName, isBrochureFree]);
 
     // Get values for a section by its config
     const getSectionValues = useCallback((groupId: string, valueIds: string[]): AttributeValue[] => {
@@ -2098,7 +2138,16 @@ export function MatrixLayoutV1Renderer({
         sectionId: string,
         values: AttributeValue[],
         _selections: Record<string, string | null>,
-    ): AttributeValue[] => sortValuesForDisplay(sectionId, values), [sortValuesForDisplay]);
+    ): AttributeValue[] => {
+        // Brochure menus follow the verified supplier graph in reading order.
+        // Keep the established presentation of other product families unchanged.
+        const hideBrochureUnavailable = pricingStructure.templateBinding?.profile === 'brochure_v1'
+            && getSectionBooleanFlag(sectionId, 'hideUnavailableValues', 'hide_unavailable_values');
+        const visible = hideBrochureUnavailable
+            ? values.filter(value => isValueCurrentlyAvailable(sectionId, value.id))
+            : values;
+        return sortValuesForDisplay(sectionId, visible);
+    }, [sortValuesForDisplay, pricingStructure.templateBinding?.profile, getSectionBooleanFlag, isValueCurrentlyAvailable]);
 
     const isOptionAvailable = (sectionId: string, valueId: string) =>
         isValueCurrentlyAvailable(sectionId, valueId) && isValueSelectable(sectionId, valueId);
@@ -2317,21 +2366,26 @@ export function MatrixLayoutV1Renderer({
 
         // Keep the default row count stable. Opt-in filtered matrices use the existing empty state
         // when the active combination has no available quantity at all.
-        const rows = hideUnavailableQuantities && columns.length === 0 ? [] : allRows;
+        const rows = hideUnavailableQuantities && columns.length === 0 ? []
+            : pricingStructure.templateBinding?.profile === 'brochure_v1'
+                ? allRows.filter(rowLabel => columns.some(qty => cells[rowLabel]?.[qty] != null))
+                : allRows;
 
         return { rows, columns, cells, productionMethods };
     }, [computeVariantKey, getDisplayValueName, getSectionValueIdForPreparedRow, matchesPreparedPriceForSelection, mappableSectionIds, normalizeVariantKey, priceIndexByVerticalQty, pricingSelectedSectionValues, pricingStructure, selectedFormatId, selectedMaterialId, selectedVariantDisplayParts, selectedVariantValueIds, selectorSections]);
 
     useEffect(() => {
+        if (isBrochureFree) return;
         if (!onQuantityTiers) return;
         const row = selectedCell?.row;
         onQuantityTiers(row ? matrixData.columns
             .filter(quantity => Number(matrixData.cells[row]?.[quantity]) > 0)
             .map(quantity => ({ quantity, price: Math.round(Number(matrixData.cells[row][quantity])) })) : []);
-    }, [matrixData, selectedCell?.row, onQuantityTiers]);
+    }, [matrixData, selectedCell?.row, onQuantityTiers, isBrochureFree]);
 
     // Ensure a default selection so the price panel can render totals.
     useEffect(() => {
+        if (isBrochureFree) return;
         if (matrixData.rows.length === 0 || matrixData.columns.length === 0) return;
 
         const notifyCellClick = (row: string, column: number, price: number) => {
@@ -2378,9 +2432,10 @@ export function MatrixLayoutV1Renderer({
         for (const row of matrixData.rows) {
             if (selectRow(row)) break;
         }
-    }, [matrixData, selectedCell, onCellClick, getValueName]);
+    }, [matrixData, selectedCell, onCellClick, getValueName, isBrochureFree]);
 
     const emitSelectionChange = useCallback((selections: Record<string, string | null>) => {
+        if (isBrochureFree) return;
         if (!onSelectionChange) return;
 
         // A price-row click or automatic fallback must also reach template,
@@ -2412,7 +2467,7 @@ export function MatrixLayoutV1Renderer({
         const variantKey = buildVariantKeyFromSelections(normalizeSelectionsForPricing(updated));
 
         onSelectionChange(updated, formatId, materialId, { variantKey, verticalValueId });
-    }, [buildVariantKeyFromSelections, getDisplayValueName, normalizeSelectionsForPricing, onSelectionChange, pricingStructure, selectedCell?.row]);
+    }, [buildVariantKeyFromSelections, getDisplayValueName, normalizeSelectionsForPricing, onSelectionChange, pricingStructure, selectedCell?.row, isBrochureFree]);
 
     useEffect(() => {
         emitSelectionChange(selectedSectionValues);
@@ -3099,7 +3154,8 @@ export function MatrixLayoutV1Renderer({
                     onChange={(e) => e.target.value === '' && isOptional ? clearSectionSelection(sectionId) : handleSectionSelect(sectionId, e.target.value)}
                     className="min-h-11 w-full rounded-lg border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                     disabled={!isActive}
-                    aria-label={sectionById[sectionId]?.title || sectionGroupNameById[sectionId] || 'Vælg mulighed'}
+                    aria-label={sectionById[sectionId]?.title || sectionGroupNameById[sectionId]
+                        || (sectionId === pricingStructure.vertical_axis.sectionId ? pricingStructure.vertical_axis.title : null) || 'Vælg mulighed'}
                 >
                     {isOptional && (
                         <option value="">Ingen</option>
@@ -3699,10 +3755,11 @@ export function MatrixLayoutV1Renderer({
     const renderWorkspaceGroup = (group: WorkspaceGroup) => {
         if (group.uiMode === 'hidden' && !workspaceEditing) return null;
         const sourceIds = [...new Set(group.options.map(option => option.sectionId))]
-            .filter(id => id !== pricingStructure.vertical_axis.sectionId);
+            .filter(id => configurationOnly || id !== pricingStructure.vertical_axis.sectionId);
         const rendered = sourceIds.map(id => {
-            const section = sectionById[id];
-            if (!section || (!workspaceEditing && isHiddenColumn(section as LayoutColumn))) return null;
+            const section = sectionById[id] || (configurationOnly && id === pricingStructure.vertical_axis.sectionId
+                ? { ...pricingStructure.vertical_axis, id } : undefined);
+            if (!section || (!workspaceEditing && isHiddenColumn(section as LayoutColumn)) || isBrochureFreeNeutralSection(id)) return null;
             if (!isProgressiveFocusConfirmed && progressiveFocusSectionId && id !== progressiveFocusSectionId) return null;
             const ids = group.options.filter(option => option.sectionId === id).map(option => option.valueId);
             const values = getSectionValues(section.groupId, ids);
@@ -3738,6 +3795,7 @@ export function MatrixLayoutV1Renderer({
                     const filteredColumns = row.columns.filter(
                         col => col.id !== pricingStructure.vertical_axis.sectionId
                             && !isHiddenColumn(col)
+                            && !isBrochureFreeNeutralSection(col.id)
                     );
                     const renderableColumns = filteredColumns.filter((col) => {
                         if (
@@ -3866,7 +3924,13 @@ export function MatrixLayoutV1Renderer({
             </div>
 
     </>);
-    const matrix = (<WorkspaceEditableSection id={workspaceGroups(pricingStructure).find(group => group.options.some(option => option.sectionId === pricingStructure.vertical_axis.sectionId))?.id || pricingStructure.vertical_axis.sectionId} matrix>
+    const matrix = configurationOnly ? rollLabelMatrix ?? null : isBrochureFree && brochureFreeConfig ? <BrochureFreeSizeMatrix
+        key={productId}
+        config={brochureFreeConfig} selectedSectionValues={selectedSectionValues}
+        valueNames={Object.fromEntries(attributeGroups.flatMap(group => group.values.map(value => [value.id, value.name])))}
+        initialSelection={initialBrochureFree} initialQuantity={initialSelectedQuantity}
+        onSelectionChange={onSelectionChange} onCellClick={onCellClick} onQuantityTiers={onQuantityTiers}
+    /> : (<WorkspaceEditableSection id={workspaceGroups(pricingStructure).find(group => group.options.some(option => option.sectionId === pricingStructure.vertical_axis.sectionId))?.id || pricingStructure.vertical_axis.sectionId} matrix>
             {selectedCell && matrixData.productionMethods[selectedCell.row]?.[selectedCell.column] && <p className="workspace-production-method" role="status">{matrixData.productionMethods[selectedCell.row][selectedCell.column]} · {selectedCell.column} stk.</p>}
             {/* Price Matrix */}
             {isProgressiveFocusConfirmed && matrixData.rows.length > 0 && matrixData.columns.length > 0 && (
@@ -3879,7 +3943,7 @@ export function MatrixLayoutV1Renderer({
                         isCellUnavailable={(row, quantity) => matrixData.cells[row]?.[quantity] == null}
                         onCellClick={handleCellClick}
                         selectedCell={selectedCell}
-                        columnUnit="stk"
+                        columnUnit={columnUnit}
                         rowHeaderLabel={pricingStructure.vertical_axis.title || getSectionLabel(pricingStructure.vertical_axis.sectionType, pricingStructure.vertical_axis.groupId, pricingStructure.vertical_axis.labelOverride)}
                         renderRowLabel={workspaceEditing ? row => {
                             const axis = pricingStructure.vertical_axis;
