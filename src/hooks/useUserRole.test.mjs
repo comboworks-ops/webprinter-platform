@@ -100,6 +100,77 @@ test('tenant ownership uses the same verified admin path as stored admin roles',
   assert.equal(result.isAdmin, true);
   assert.equal(result.userId, 'user-1');
 });
+for (const event of ['SIGNED_IN', 'TOKEN_REFRESHED', 'INITIAL_SESSION']) {
+  test(`${event} for the current administrator keeps the editor mounted during re-verification`, async () => {
+    const cleanup = mount({ verification: { isAdmin: true, isMasterAdmin: false } });
+    try {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      assert.equal(render().isAdmin, true);
+      let finish;
+      harness.verify = () => new Promise(resolve => { finish = resolve; });
+      harness.authChanged(event, { user: harness.user });
+      assert.equal(render().loading, false, 'routine session events must not replace the editor with a spinner');
+      assert.equal(render().isAdmin, true);
+      assert.equal(render().userId, 'user-1');
+      await new Promise(resolve => setTimeout(resolve, 10));
+      assert.equal(typeof finish, 'function', 'permissions are still re-verified');
+      harness.roles = ['user'];
+      finish({ isAdmin: false });
+      await new Promise(resolve => setTimeout(resolve, 20));
+      assert.equal(render().isAdmin, false, 'a new denial must still revoke admin access');
+      assert.equal(render().loading, false);
+    } finally { cleanup(); }
+  });
+}
+test('repeated preview-session notifications keep both editor and dashboard mounted', async () => {
+  let verifications = 0;
+  const cleanup = mount({ tenant: 'shop-a', verify: async () => {
+    verifications++;
+    return { isAdmin: true, isMasterAdmin: true };
+  } });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    for (let count = 0; count < 8; count++) {
+      harness.authChanged('SIGNED_IN', { user: harness.user });
+      const pending = render();
+      assert.equal(pending.loading, false, 'a shared-session notification must not remove the admin subtree');
+      assert.equal(pending.isAdmin, true);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      const verified = render();
+      assert.equal(verified.loading, false);
+      assert.equal(verified.isAdmin, true);
+      assert.equal(verified.isMasterAdmin, false, 'tenant masking remains intact');
+    }
+    assert.equal(verifications, 9, 'each notification still re-verifies permissions');
+  } finally { cleanup(); }
+});
+test('signing out during background verification invalidates its unfinished admin response', async () => {
+  const cleanup = mount({ verification: { isAdmin: true, isMasterAdmin: false } });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    let finish;
+    harness.verify = () => new Promise(resolve => { finish = resolve; });
+    harness.authChanged('TOKEN_REFRESHED', { user: harness.user });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    harness.user = null;
+    harness.authChanged('SIGNED_OUT', null);
+    assert.equal(render().isAdmin, false);
+    assert.equal(render().loading, true);
+    finish({ isAdmin: true, isMasterAdmin: true });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(render().isAdmin, false);
+    assert.equal(render().userId, null);
+  } finally { cleanup(); }
+});
+test('user-update events still clear access immediately even for the same account', async () => {
+  const cleanup = mount({ verification: { isAdmin: true, isMasterAdmin: false } });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    harness.authChanged('USER_UPDATED', { user: harness.user });
+    assert.equal(render().isAdmin, false);
+    assert.equal(render().loading, true);
+  } finally { cleanup(); }
+});
 test('switching from admin to customer clears access before the next role lookup', async () => {
   const cleanup = mount({ verification: { isAdmin: true, isMasterAdmin: false } });
   try {
