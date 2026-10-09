@@ -7643,6 +7643,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 if (focusedProductOption?.productId && focusedProductOption.sectionId && focusedProductOption.valueId) {
                     return (
                         <ProductOptionButtonEditor
+                            branding={editor.draft}
+                            onEditSharedButtons={() => setActiveSection('main-buttons')}
                             key={`${editor.entityId}:${focusedProductOption.productId}:${focusedProductOption.sectionId}:${focusedProductOption.valueId}`}
                             pricingPreview={productPricingPreview}
                             persistedStyling={persistedProductPricing}
@@ -7904,6 +7906,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
             return (
                 <Card className="absolute right-6 top-6 z-30 w-[360px] border-border/70 bg-background/95 shadow-2xl backdrop-blur animate-in fade-in-0 zoom-in-95 slide-in-from-right-4 duration-200 max-h-[80vh] overflow-y-auto">
                     <ProductOptionButtonEditor
+                            branding={editor.draft}
+                            onEditSharedButtons={() => setActiveSection('main-buttons')}
                         key={`${editor.entityId}:${contextualEditor.productId}:${contextualEditor.sectionId}:${contextualEditor.valueId}`}
                         pricingPreview={productPricingPreview}
                         persistedStyling={persistedProductPricing}
