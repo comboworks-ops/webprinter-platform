@@ -1,0 +1,16 @@
+# Onlinetryksager Google Analytics — 9 October 2026
+
+The owner requested installation and confirmed that the other computer's cloud/local source is disconnected. This change uses the exact current remote main/live website commit 92f060b53cdfef0f98a9be7c7925f309eb3f105b. It does not overwrite that computer's dirty local work.
+
+Only onlinetryksager.dk and www.onlinetryksager.dk load measurement G-BKKZ1Q3ECQ. Existing statistics consent must be the boolean true; necessary/preferences/marketing alone are insufficient. Basic consent mode blocks the Google request before consent. Manual initial/SPA public page views use send_page_view:false; the stream's Enhanced Measurement remains off. Query strings/fragments, account/auth/admin/designer/checkout/order routes are excluded. Referrers are reduced to origin or a previous measured public location. Google signals and ad consent/personalization stay disabled; cookies are host-only with 180-day expiry. Withdrawal uses Google's per-property disable flag, drops pending views and removes this stream's cookies. A blocked script fails quietly. Isolated builds and all other shops/preview hosts remain outside the tag. The banner and cookie policy disclose the provider only on the target hosts.
+
+Validation: 27 actual consent-component/browser fixtures, 12 existing login routing browser tests pass. TypeScript zero diagnostics; scoped edited-component lint passes; whole frontend health has 1,961 existing ESLint errors/155 warnings and zero regressions against its retained baseline. Production Vite build passes with inherited PDF.js/chunk/colour-module warnings. Unchanged dependency audit has 36 findings: 24 high, 1 critical, 9 moderate, 2 low. This is not a clean dependency/security audit; no new dependency or lockfile change is introduced. Existing package remediation is a separate task.
+
+Deployment inputs were dry-checked: no credential files, browser state, node_modules, .git, .vercel or local output. Seven selected source/test/report paths are preserved in the branch; an ordinary Git patch lets the other computer check/apply the changes without copying the repository. Run git apply --check first and resolve any conflicts in local work rather than forcing a reset. No migration, Supabase function/configuration/price/product/order/payment change is part of this release. Owner test visits must be labelled test traffic, not organic customer acceptance. Google OAuth app review and full English review recording remain separate and pending.
+
+Rollback: restore the prior Vercel production deployment dpl_HoEVhDMM6i6o5g64XNh5AEYNj2Eu (same baseline Git commit). No database rollback is required. Keep customer files, orders, prices, consent choices and Google resources intact. Source rollback removes only the new tag/component/tests and the targeted hunks, preserving unrelated local changes. Deployment identities and live transport checks are recorded in the Embrlla pipeline checkpoint after release.
+
+Google primary references:
+- https://developers.google.com/tag-platform/security/guides/consent?consentmode=basic
+- https://developers.google.com/tag-platform/security/guides/privacy
+- https://developers.google.com/analytics/devguides/collection/ga4/views
