@@ -885,6 +885,7 @@ export function ColorPickerWithSwatches({
                 <button
                     ref={triggerButtonRef}
                     className="h-8 w-8 rounded border overflow-hidden shadow-sm hover:ring-2 ring-primary transition-all relative flex-shrink-0"
+                    type="button"
                     style={{ backgroundColor: currentColor }}
                     title={currentColor}
                     aria-label={label ? `${label}: ${currentColor}` : undefined}
