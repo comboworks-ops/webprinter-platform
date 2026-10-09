@@ -26,6 +26,8 @@ export const useUserRole = () => {
   useEffect(() => {
     let active = true;
     let authTimer: ReturnType<typeof setTimeout> | undefined;
+    let resolvedUserId: string | null = null;
+    let hasResolvedRole = false;
 
     const fetchUserRole = async () => {
       const requestId = ++requestIdRef.current;
@@ -163,6 +165,8 @@ export const useUserRole = () => {
         });
       } finally {
         setIfActive(() => {
+          resolvedUserId = checkedUserId;
+          hasResolvedRole = true;
           setUserId(checkedUserId);
           setLoading(false);
         });
@@ -171,14 +175,26 @@ export const useUserRole = () => {
 
     void fetchUserRole();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
-      // Invalidate the previous identity immediately. Supabase reads run outside
-      // its auth callback so they cannot wait on the callback's own auth lock.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // SIGNED_IN also fires on focus and when a preview iframe restores the
+      // shared session. Unmounting admin here rebuilds that iframe, creating
+      // another auth notification and a reload loop across admin tabs.
+      const sameIdentityRefresh = hasResolvedRole
+        && !!resolvedUserId
+        && session?.user?.id === resolvedUserId
+        && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION');
       ++requestIdRef.current;
-      setRole(null);
-      setServerVerified(false);
-      setUserId(null);
-      setLoading(true);
+      if (!sameIdentityRefresh) {
+        // Sign-out, identity changes and other auth transitions still revoke
+        // the previous access immediately, before any asynchronous lookup.
+        resolvedUserId = null;
+        hasResolvedRole = false;
+        setRole(null);
+        setServerVerified(false);
+        setUserId(null);
+        setLoading(true);
+      }
+      // Supabase reads run outside the callback to avoid its auth lock.
       clearTimeout(authTimer);
       authTimer = setTimeout(() => { if (active) void fetchUserRole(); }, 0);
     });
