@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import { OnlinetryksagerAnalytics } from '@/components/consent/OnlinetryksagerAnalytics';
 import { PageTracker } from "@/hooks/usePageTracking";
 import Index from "./pages/Index";
 import SubdomainRouter from "./pages/SubdomainRouter"; // Import Router
@@ -227,6 +228,7 @@ const App = () => (
             <CookieBanner />
             <CookieSettingsDialog />
             <PageTracker />
+            <OnlinetryksagerAnalytics />
             <PlatformSeoHead />
             <AnimatedRoutes />
             <StorefrontTooltipLayer />
