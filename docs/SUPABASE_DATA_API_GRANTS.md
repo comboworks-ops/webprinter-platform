@@ -111,3 +111,13 @@ Use this for a full audit when you are ready to clean old migrations:
 ```bash
 npm run check:supabase-grants -- --all
 ```
+
+
+## October 2026 audit — NOT reset-ready
+
+See [the audit and remaining blockers](SUPABASE_DATA_API_AUDIT_2026-10-21.md)
+and [the complete static table inventory](SUPABASE_TABLE_GRANT_INVENTORY_2026-10-21.md).
+The changed-file gate is not an effective-privilege or migration-replay test.
+Do not infer reset readiness from a green gate. Private comment markers document
+intent; they do not revoke PostgreSQL's default PUBLIC function EXECUTE privilege.
+Never repair historical gaps with GRANT ALL ON ALL TABLES or broad default ACLs.

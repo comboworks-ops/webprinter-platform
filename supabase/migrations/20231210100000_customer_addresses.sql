@@ -80,3 +80,12 @@ CREATE TRIGGER trigger_update_customer_addresses_timestamp
     BEFORE UPDATE ON customer_addresses
     FOR EACH ROW
     EXECUTE FUNCTION update_customer_addresses_timestamp();
+
+-- Explicit Data API access: signed-in customers manage only their own rows.
+-- Existing auth.uid() = user_id RLS policies remain unchanged. No guest access
+-- or service-role caller is needed by these browser-only account operations.
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.customer_addresses TO authenticated;
+-- data-api: private ensure_single_default_address (trigger-only; not an RPC)
+-- data-api: private update_customer_addresses_timestamp (trigger-only; not an RPC)
+-- Rollback: revert this source addition for future rebuilds. Do not replay
+-- historical migrations on a populated database or revoke pre-existing grants.

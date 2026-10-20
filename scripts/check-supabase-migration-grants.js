@@ -159,11 +159,11 @@ function hasAccessDecision(rawSql, sql, object) {
   }
 
   const grant = new RegExp(
-    String.raw`\bgrant\s+[\s\S]*?\bon\s+(?:table\s+|view\s+|materialized\s+view\s+)?${qualified}\b`,
+    String.raw`\bgrant\s+[^;]*?\bon\s+(?:table\s+|view\s+|materialized\s+view\s+)?${qualified}\b`,
     "i",
   );
   const revoke = new RegExp(
-    String.raw`\brevoke\s+[\s\S]*?\bon\s+(?:table\s+|view\s+|materialized\s+view\s+)?${qualified}\b`,
+    String.raw`\brevoke\s+[^;]*?\bon\s+(?:table\s+|view\s+|materialized\s+view\s+)?${qualified}\b`,
     "i",
   );
 

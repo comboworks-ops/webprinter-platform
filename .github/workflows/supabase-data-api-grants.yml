@@ -5,6 +5,9 @@ on:
     paths:
       - "supabase/migrations/**"
       - "scripts/check-supabase-migration-grants.js"
+      - "scripts/tests/customer-data-api-grants.mjs"
+      - "scripts/tests/supabase-grant-checker.mjs"
+      - ".github/workflows/supabase-data-api-grants.yml"
       - "docs/SUPABASE_DATA_API_GRANTS.md"
       - "package.json"
 
@@ -21,3 +24,10 @@ jobs:
           node-version: 22
 
       - run: npm run check:supabase-grants
+
+      - run: node scripts/tests/supabase-grant-checker.mjs
+
+      - name: Verify customer grants and ownership in isolated PostgreSQL
+        run: |
+          npm install --prefix "$RUNNER_TEMP/grants-test" --no-save --package-lock=false @electric-sql/pglite@0.3.14
+          PGLITE_MODULE="$RUNNER_TEMP/grants-test/node_modules/@electric-sql/pglite/dist/index.js" node scripts/tests/customer-data-api-grants.mjs

@@ -71,3 +71,11 @@ create policy "checkout_customer_profiles_delete_own"
 on public.checkout_customer_profiles
 for delete
 using (auth.uid() = user_id);
+
+-- Explicit Data API access: signed-in customers manage only their own rows.
+-- Existing auth.uid() = user_id RLS policies remain unchanged. No guest access
+-- or service-role caller is needed by these browser-only account operations.
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.checkout_customer_profiles TO authenticated;
+-- data-api: private set_checkout_customer_profiles_updated_at (trigger-only; not an RPC)
+-- Rollback: revert this source addition for future rebuilds. Do not replay
+-- historical migrations on a populated database or revoke pre-existing grants.
