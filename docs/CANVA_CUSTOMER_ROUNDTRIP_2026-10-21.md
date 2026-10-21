@@ -161,3 +161,53 @@ Canva Copy control into the isolated secret-store value field for
 ask the user to complete that exact paste/save themselves. Keep the pilot disabled
 until the secret is verified. Full customer OAuth/autofill/edit/export testing is
 still pending; no Canva designs, shop/product settings or production sites changed.
+
+
+## Credential installed / hosted authentication checkpoint — 21 October
+
+The user completed Supabase browser sign-in. The approved new Canva secret was
+transferred directly from Canva's Copy control into the isolated dashboard's
+`CANVA_CLIENT_SECRET` field using native system paste (the browser virtual
+clipboard did not contain the copied value). Save was confirmed by the new
+secret-name row and the cleared entry form. Do not generate another secret.
+The old credential's Canva expiry notice still applies to older consumers.
+
+`CANVA_WORKFLOW_ENABLED=true` is now set only on `cyurochbkxggcobnxaxq`. No live
+secret, deployment, product or tenant setting changed. The normal gateway JWT
+check remains enabled and works with real signed-in test sessions.
+
+Two existing synthetic shops and products were configured, guarded by exact IDs,
+names and prior empty product specs, via isolated-only migration
+`20261021143000_canva_test_fixtures.sql` in the temporary staging migration workspace:
+
+- Shop A `ef278d1f-17bd-4bf1-86c6-57bde59a45c8`, product `f5b8c8ed-7de3-43c3-a450-5f901200719d`.
+- Shop B `3054e48b-41ca-4a15-a1d5-f07c41c64b30`, product `cbcd0f3b-7306-42a5-9af4-d45432484fd7`.
+- Product specs now 148 × 210 mm, 3 mm bleed, both flyer keys assigned in autofill
+  mode. Only `settings.canva` and the two test products' previously empty
+  `technical_specs` changed. Prices and other rows were not modified.
+- Undo fixture setup by removing settings.canva from these two test shops and
+  restoring those two test products' technical_specs to `{}` after checking drift.
+  Never run this fixture migration against production.
+
+Two ordinary synthetic customer accounts (`canva-pilot-20261021-a@example.invalid`
+and `-b@example.invalid`) were created with test metadata and no role grants or
+email delivery. Their random credentials are in the owner-only temporary file
+`/private/tmp/webprinter-canva-test-accounts.json`; do not copy them into docs/Git.
+The CLI-returned modern secret failed a read-only Auth admin probe with Invalid
+API key. Test-account provisioning succeeded with the existing isolated legacy
+service credential held only in local process memory; no keys were changed.
+Runtime handler authentication with the existing backend configuration passes.
+
+Hosted checks: both genuine test-customer password logins succeed; each receives
+HTTP 200, connected=false and zero drafts from canva-workflow. Anonymous call
+returns HTTP 401. Evidence: `output/canva-roundtrip/hosted-auth-check.json`.
+This validates the deployed auth boundary, not provider OAuth or design creation.
+
+Vercel accepted GitHub sign-in but is waiting for the owner's two-factor code in
+the retained pilot tab. The user has been asked to complete that step. The full
+customer UI → Canva OAuth → autofill → edit → return → PDF/private-upload test is
+still pending. No Canva designs were created or edited during this checkpoint.
+Next: finish Vercel verification, log in through WebPrinter's actual form using
+customer A, start at `/produkt/launch-test-print-a?tenantId=ef278d1f-17bd-4bf1-86c6-57bde59a45c8`,
+select the test quantity, open Canva chooser and follow the real journey. Verify
+scope/template access before claiming an external-customer rollout works.
