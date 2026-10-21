@@ -127,3 +127,37 @@ Rollback: keep the pilot flag false, preserve private tables and records, and
 retain the existing production sites. Record before/after Canva settings before
 changing them. The six original designs and both customer source copies remain
 unchanged by deployment.
+
+
+## Canva portal connection checkpoint — 21 October, 13:42 UTC
+
+The user gave explicit action-time approval for the exact pilot redirect,
+return destination and one additional client secret. Portal readback confirmed:
+
+- Added OAuth URL 2: `https://webprinter-platform-6evw3gsfx-thomas-projects-d80b9ddd.vercel.app/canva-designs`.
+- Preserved OAuth URL 1 (previous backend callback).
+- Return navigation remains enabled and now targets the pilot `/canva-designs` URL.
+- Both changes showed **All changes saved**. Screenshots are under
+  `output/canva-roundtrip/redirect-after.jpg` and `return-after.jpg`.
+
+**Credential incident / urgent follow-up:** the initial “Generate another secret”
+opened a confirmation modal; the first confirmation attempt was blocked by review.
+A read-only count proved only the original secret existed and the initial modal
+was still open. After that evidence the approved confirmation succeeded, creating
+exactly one new secret. Canva automatically marked the previous credential
+**Expiring client secret**, with **in 23 hours** shown. This contradicted the
+promised preservation of the existing credential, and the user was promptly told.
+Do not generate again or remove either credential. Any older consumer of the
+previous secret must migrate before Canva's displayed expiry; the old backend is
+not managed by this pilot and has not been modified. No undo control was observed.
+
+The tool masks the secret in DOM/native reads; its secure browser clipboard read
+returned empty despite a Copied! toast. No usable secret was read, logged, saved
+to a local file, or installed in Supabase. The Canva credential tab must stay open
+because the new value is available only once. The user was asked to sign in to the
+prepared Supabase/GitHub and Vercel tabs. After sign-in, transfer directly from the
+Canva Copy control into the isolated secret-store value field for
+`CANVA_CLIENT_SECRET` without displaying it in chat. If native paste is unavailable,
+ask the user to complete that exact paste/save themselves. Keep the pilot disabled
+until the secret is verified. Full customer OAuth/autofill/edit/export testing is
+still pending; no Canva designs, shop/product settings or production sites changed.
