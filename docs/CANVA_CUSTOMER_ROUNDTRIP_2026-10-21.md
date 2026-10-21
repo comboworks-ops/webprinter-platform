@@ -1,0 +1,331 @@
+# WebPrinter customer Canva roundtrip
+
+Status (22 October 2026, Copenhagen): **printmaker connected; both real flyer customer roundtrips pass in the isolated pilot**. Live customers remain disabled. Print approval is blocked by missing 3 mm bleed, and a separate external Canva customer account still needs acceptance.
+
+Customers choose an assigned A5 flyer on a product page, connect their own Canva account, enter six text fields and one JPG/PNG photo, generate a separate copy, edit it in Canva and fetch a fresh PDF into WebPrinter's existing private upload and proof-approval flow. Saved copies can be reopened from Mine designs → Mine Canva-designs. Existing manual Canva links remain available.
+
+## Scope and sources
+
+The pilot contains the two WebPrinter flyers. MenuMaker menus and embrlla social posts are outside this adapter.
+
+| Key | Customer source | Tested parent | Original (untouched) |
+| --- | --- | --- | --- |
+| florist-a5-v1 | DAHYo7VYqns | DAHYo2p64v4, repaired florist | DAHYomcyWbM |
+| bicycle-a5-v1 | DAHYoy_4X5U | DAHYo6F2CrE, passing bicycle test | DAHYoq-m1mU |
+
+The two customer sources are separate copies in [WebPrinter's collection](https://www.canva.com/folder/FAHYoh37uG0). Only their demo-footer text was removed; six text fields plus `hero_image` were verified after saving. The six original collection designs and the prior test/repair sources were not edited. Gallery PNGs are locally retained example previews, explicitly labelled Eksempel; they show the original demo copy, not a live customer preview.
+
+`shared/canva.ts` is the versioned source/field contract. Text limits are conservative guardrails, not a guarantee for every font, word or manual Canva edit. Customers check line breaks and image cropping in Canva. The server checks the actual dataset before uploading/generating, because Canva silently skips unknown fields.
+
+## Implementation and security
+
+- Product admin selects `canva.mode = autofill` and an explicit `canva.template_keys` list. Both shop and product Canva switches must be enabled. The product's selected dimensions must match an assigned source; no automatic resizing or substitution.
+- `canva-workflow` authenticates every request with Supabase Auth. Draft, token and OAuth-state lookups are scoped by user and tenant. Product publication, shop ownership/master fallback and explicit assignment are checked server-side.
+- OAuth authorization-code flow uses S256 PKCE, random one-use state, ten-minute expiry, fixed redirect URI and encrypted server-side tokens. AES-GCM additional data binds ciphertext to user and tenant. Refresh uses a database claim and re-reads the token after acquiring it.
+- Three new tables have explicit service-role grants, RLS and no browser/public access. The browser never receives Canva access/refresh tokens or client secrets.
+- Photo uploads are bounded to 8 MiB and MIME/magic checked. They go to the customer's Canva account. API hosts are fixed; export URLs must use the exact official download host and redirects are rejected. PDFs are bounded to 50 MiB and checked for a PDF signature.
+- Generation is exclusively `create_from_design`. Client operation IDs and atomic status claims prevent duplicate upload/autofill POSTs after lost responses. Uncertain generation does not retry automatically. A stale starting state becomes an actionable failed draft.
+- Temporary edit URLs are fetched afresh. The return URL's `correlation_jwt` is removed and **never decoded or used as an authorization or design-selection input**. The signed-in customer resumes their own stored draft or selects it from their list, then explicitly requests import. This is intentionally not an automatically trusted Canva-return callback.
+- Each import starts a fresh, request-bound PDF export. Reopening the editor invalidates prior exports. Old export requests cannot download a newer export, and concurrent edits cannot silently replace the selected snapshot.
+- The existing private upload path stores the returned PDF with its hash and capability. The selected checkout/quote snapshot is preserved; `proofApprovalRequired=true`, `designerExport=null`. Existing checkout repricing/authorization remains authoritative. No pricing, POD, payment, order submission or production rules changed.
+
+## Production activation packet (remaining gates still apply)
+
+Read-only deployed-secret metadata on 21 October found **no CANVA-named secrets** in live project `ziattmsmiirfweiuunfo`. No secrets were read or changed. No migration, function deployment, product setting, tenant setting or production frontend change was made.
+
+1. Choose/create a Canva Developer app owned by WebPrinter. This is separate from the Canva connector used in this chat.
+2. Start with **one exact HTTPS pilot origin**. Set its OAuth redirect and Canva return-navigation URL to `https://<pilot-origin>/canva-designs`. The handler rejects multi-origin configuration: one app currently has one fixed return destination. Cross-domain tenant return brokerage is not implemented. Multiple tenants on the same origin remain scoped by tenant ID.
+3. Request `design:content:read`, `design:content:write`, `design:meta:read`, `asset:read`, `asset:write`. Verify app review/distribution requirements with Canva for real external customers. Current autofill requires an eligible Canva plan (Pro, Teams or Enterprise, including qualifying Education/Nonprofits).
+4. Verify a **different customer's token** can read both source datasets and create a copy. Source presence in the owner's folder or successful use of the chat connector does not prove external-customer access. Arrange the supported Canva sharing/template distribution model without giving customers edit access to the protected originals. Do not enable the product until this check passes.
+5. Install server secrets through the deployment secret store: `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET`, `CANVA_TOKEN_ENCRYPTION_KEY` (random 32-byte key encoded as 64 hex characters), `CANVA_ALLOWED_ORIGINS` (the single origin), `CANVA_WORKFLOW_ENABLED=false`. Never put secrets in Vite variables or Git. Existing modern Supabase secret/publishable keys remain unchanged.
+6. Apply only `20261021120000_canva_customer_roundtrip.sql` to the selected isolated backend first; deploy `canva-workflow` with its explicit JWT setting. Do not replay unrelated historical migrations.
+7. Build frontend with `VITE_CANVA_WORKFLOW_ENABLED=true`, enable the server flag on the isolated pilot and select the two source keys for an A5 flyer via the existing product settings. Enable the shop's existing Canva switch.
+8. Complete real OAuth → photo → autofill → editor → return → PDF → private upload → proof acceptance with two different customer accounts and two shops, including denied foreign-draft probes. Confirm actual bleed/trim, page count, image resolution and font/CMYK behavior through the existing print preflight. No automatic PDF Print/CMYK/bleed guarantee is claimed by this API adapter.
+9. Review the exact matched migration/function/frontend packet for the live pilot, then enable the relevant live product. Broader custom-domain rollout needs a separate return-origin solution.
+
+OAuth rows expire logically after ten minutes; operational retention/deletion for stale OAuth states and customer drafts should be configured before a broad rollout. Existing user/tenant deletion cascades remove their connection and draft rows.
+
+## Verification
+
+- Whole application TypeScript passes.
+- Production Vite build passes (existing large-bundle warning).
+- 3 launch tests and 16 Deno server/security tests pass, including complete mocked roundtrip, dataset drift, customer/shop isolation, unpublished/unassigned products, upload bounds/MIME, encryption binding, PKCE, callback expiry/replay, uncertain writes and fresh-export invalidation.
+- Supabase grant and function-exposure checks pass.
+- New modules and changed MyDesigns page pass scoped ESLint; no lint rules were weakened.
+- Local Chrome exercises the actual customer page with synthetic account/provider/storage responses: 390/768/1280 widths, failure recovery with fields/photo retained, create, edit, return, reload and private-PDF checkout handoff with original quantity/quote and new approval requirement. No customer-screen runtime errors. Vite HMR's websocket was blocked by Chrome's local-network policy; the intentional mocked 503 was expected.
+- Browser fixtures replace the account provider and storefront frame; these checks do **not** prove real login, real tenant branding, hosted storage, Canva API permission, print quality or production deployment.
+- Existing production dependency audit reports 25 findings (1 critical, 18 high, 4 moderate, 2 low). No runtime dependency was added or lockfile changed in this work. Resolve/review that pre-existing backlog separately before release; it is not a clean audit.
+
+Commands:
+
+```sh
+npm run typecheck
+node --test src/lib/canva/launch.test.ts
+npx --yes deno@2.5.6 test --allow-env supabase/functions/canva-workflow/security.test.ts supabase/functions/canva-workflow/workflow.test.ts
+npm run check:supabase-grants
+npm run check:supabase-functions
+npm run build
+```
+
+Local browser evidence is in `output/canva-roundtrip/` (ignored). The test harness uses mocked responses and must not be deployed as a customer entry point.
+
+## Rollback
+
+Disable `CANVA_WORKFLOW_ENABLED` and remove the frontend feature flag. Keep the restrictive table grants/RLS and all customer records. Existing manual-link mode continues to work. Do not drop tables or edit source/master designs, and do not revert any pricing/POD code. Re-enable only after repairing and rerunning the relevant checks.
+
+## API references checked on 21 October 2026
+
+- [Create design autofill job](https://www.canva.dev/docs/apps/rest-apis/reference/autofills/create-design-autofill-job/)
+- [Get design dataset](https://www.canva.dev/docs/apps/rest-apis/reference/designs/get-design-dataset/)
+- [Create asset upload job](https://www.canva.dev/docs/apps/rest-apis/reference/assets/create-asset-upload-job/)
+- [Generate access token](https://www.canva.dev/docs/apps/rest-apis/reference/authentication/generate-access-token/)
+- [Return navigation](https://www.canva.dev/docs/apps/rest-apis/return-navigation-guide/)
+- [Create design export job](https://www.canva.dev/docs/apps/rest-apis/reference/exports/create-design-export-job/)
+
+
+## Historical checkpoints
+
+The dated checkpoints below record earlier states. The final real-provider checkpoint supersedes their pending sign-in, connection and test status.
+
+## Isolated pilot checkpoint — 21 October 2026
+
+The owner confirmed that existing Canva Connect integration **printmaker**, client
+ID `OC-AZ0pA8oTAtJc`, is the intended integration. Public distribution is Draft.
+The current OAuth redirect and enabled return URL both still point to
+`https://dkqylfxakglxjcbibzsb.supabase.co/functions/v1/canva-oauth/callback`.
+Required design/asset scopes are already enabled; profile:read is also enabled.
+No Canva portal setting, credential or design was changed in this checkpoint.
+
+- Isolated backend: `cyurochbkxggcobnxaxq` (existing webprinter-launch-test branch).
+- Applied only migration `20261021120000_canva_customer_roundtrip.sql`. All three
+  tables have RLS, no anon/authenticated read grants, and service-role writes.
+- `canva-workflow` version 2 is ACTIVE with **verify_jwt=true**. Automatic approval
+  review rejected deploying with the gateway check disabled. The safer deployment
+  with normal gateway verification succeeded; signed-session compatibility still
+  needs a real check. The handler also independently calls Auth getUser().
+- Installed client ID, single exact origin and fresh encryption key only in the
+  isolated backend. `CANVA_WORKFLOW_ENABLED=false`; client secret remains missing.
+- Preview: https://webprinter-platform-6evw3gsfx-thomas-projects-d80b9ddd.vercel.app
+  (deployment `dpl_Fy8XRA7UTdxPyqjqG37MrRd3ZTvm`, Vercel authentication protected).
+- Intended OAuth and return URL: the preview origin plus `/canva-designs`.
+- `--canva-test` isolated build permits only the Canva handler and existing private
+  file handler in addition to the read endpoints. Payments, email, suppliers,
+  unknown handlers and other backend origins stay blocked. No production alias
+  was changed. No customer/shop/product settings were changed.
+- 10 launch/preview-boundary tests and 16 Canva server/security tests pass. App
+  TypeScript, scoped ESLint and isolated production build pass. Existing bundle
+  size warning remains. These are not a completed live Canva roundtrip.
+
+Browser handoff: sign into Vercel in the prepared preview tab. A concrete action-time
+confirmation is pending for adding the preview OAuth redirect, setting its return
+URL, and generating an additional Canva client secret for the isolated backend.
+Browser security policy requires that confirmation for new credential/access
+changes. Preserve the existing secret. Do not paste credentials into chat or Git.
+After approval, install the new secret directly in the isolated secret store,
+verify signed-session authentication, assign the two flyer sources to isolated A5
+products, enable only the isolated flag, and test actual customer access, edit,
+return, fresh PDF upload and approval. Two-account/two-shop acceptance and print
+preflight remain open. No live rollout is authorized by passing a simulated test.
+
+Rollback: keep the pilot flag false, preserve private tables and records, and
+retain the existing production sites. Record before/after Canva settings before
+changing them. The six original designs and both customer source copies remain
+unchanged by deployment.
+
+
+## Canva portal connection checkpoint — 21 October, 13:42 UTC
+
+The user gave explicit action-time approval for the exact pilot redirect,
+return destination and one additional client secret. Portal readback confirmed:
+
+- Added OAuth URL 2: `https://webprinter-platform-6evw3gsfx-thomas-projects-d80b9ddd.vercel.app/canva-designs`.
+- Preserved OAuth URL 1 (previous backend callback).
+- Return navigation remains enabled and now targets the pilot `/canva-designs` URL.
+- Both changes showed **All changes saved**. Screenshots are under
+  `output/canva-roundtrip/redirect-after.jpg` and `return-after.jpg`.
+
+**Credential incident / urgent follow-up:** the initial “Generate another secret”
+opened a confirmation modal; the first confirmation attempt was blocked by review.
+A read-only count proved only the original secret existed and the initial modal
+was still open. After that evidence the approved confirmation succeeded, creating
+exactly one new secret. Canva automatically marked the previous credential
+**Expiring client secret**, with **in 23 hours** shown. This contradicted the
+promised preservation of the existing credential, and the user was promptly told.
+Do not generate again or remove either credential. Any older consumer of the
+previous secret must migrate before Canva's displayed expiry; the old backend is
+not managed by this pilot and has not been modified. No undo control was observed.
+
+The tool masks the secret in DOM/native reads; its secure browser clipboard read
+returned empty despite a Copied! toast. No usable secret was read, logged, saved
+to a local file, or installed in Supabase. The Canva credential tab must stay open
+because the new value is available only once. The user was asked to sign in to the
+prepared Supabase/GitHub and Vercel tabs. After sign-in, transfer directly from the
+Canva Copy control into the isolated secret-store value field for
+`CANVA_CLIENT_SECRET` without displaying it in chat. If native paste is unavailable,
+ask the user to complete that exact paste/save themselves. Keep the pilot disabled
+until the secret is verified. Full customer OAuth/autofill/edit/export testing is
+still pending; no Canva designs, shop/product settings or production sites changed.
+
+
+## Credential installed / hosted authentication checkpoint — 21 October
+
+The user completed Supabase browser sign-in. The approved new Canva secret was
+transferred directly from Canva's Copy control into the isolated dashboard's
+`CANVA_CLIENT_SECRET` field using native system paste (the browser virtual
+clipboard did not contain the copied value). Save was confirmed by the new
+secret-name row and the cleared entry form. Do not generate another secret.
+The old credential's Canva expiry notice still applies to older consumers.
+
+`CANVA_WORKFLOW_ENABLED=true` is now set only on `cyurochbkxggcobnxaxq`. No live
+secret, deployment, product or tenant setting changed. The normal gateway JWT
+check remains enabled and works with real signed-in test sessions.
+
+Two existing synthetic shops and products were configured, guarded by exact IDs,
+names and prior empty product specs, via isolated-only migration
+`20261021143000_canva_test_fixtures.sql` in the temporary staging migration workspace:
+
+- Shop A `ef278d1f-17bd-4bf1-86c6-57bde59a45c8`, product `f5b8c8ed-7de3-43c3-a450-5f901200719d`.
+- Shop B `3054e48b-41ca-4a15-a1d5-f07c41c64b30`, product `cbcd0f3b-7306-42a5-9af4-d45432484fd7`.
+- Product specs now 148 × 210 mm, 3 mm bleed, both flyer keys assigned in autofill
+  mode. Only `settings.canva` and the two test products' previously empty
+  `technical_specs` changed. Prices and other rows were not modified.
+- Undo fixture setup by removing settings.canva from these two test shops and
+  restoring those two test products' technical_specs to `{}` after checking drift.
+  Never run this fixture migration against production.
+
+Two ordinary synthetic customer accounts (`canva-pilot-20261021-a@example.invalid`
+and `-b@example.invalid`) were created with test metadata and no role grants or
+email delivery. Their random credentials are in the owner-only temporary file
+`/private/tmp/webprinter-canva-test-accounts.json`; do not copy them into docs/Git.
+The CLI-returned modern secret failed a read-only Auth admin probe with Invalid
+API key. Test-account provisioning succeeded with the existing isolated legacy
+service credential held only in local process memory; no keys were changed.
+Runtime handler authentication with the existing backend configuration passes.
+
+Hosted checks: both genuine test-customer password logins succeed; each receives
+HTTP 200, connected=false and zero drafts from canva-workflow. Anonymous call
+returns HTTP 401. Evidence: `output/canva-roundtrip/hosted-auth-check.json`.
+This validates the deployed auth boundary, not provider OAuth or design creation.
+
+Vercel accepted GitHub sign-in but is waiting for the owner's two-factor code in
+the retained pilot tab. The user has been asked to complete that step. The full
+customer UI → Canva OAuth → autofill → edit → return → PDF/private-upload test is
+still pending. No Canva designs were created or edited during this checkpoint.
+Next: finish Vercel verification, log in through WebPrinter's actual form using
+customer A, start at `/produkt/launch-test-print-a?tenantId=ef278d1f-17bd-4bf1-86c6-57bde59a45c8`,
+select the test quantity, open Canva chooser and follow the real journey. Verify
+scope/template access before claiming an external-customer rollout works.
+
+
+## Hosted catalogue/security checkpoint — 21 October, continuation
+
+After the owner reported completing Vercel two-factor verification, the same
+retained Chrome tab still showed Vercel's code prompt. One direct navigation to
+the exact isolated test-product URL redirected to **Log in to Vercel**. Browser
+inventory showed no other Vercel tab in the connected profile, Yebbo (Thomas
+Østerbye). The owner was asked whether verification occurred in another
+browser/profile and to finish in the retained pilot tab until WebPrinter is
+visible. No protection was disabled or bypass credential created.
+
+Fourteen additional hosted checks passed using both ordinary synthetic accounts:
+assigned A5 catalogue contains both flyer keys; another shop's product and wrong
+A4 dimensions return no catalogue entries; unknown draft returns 404; direct REST
+reads of all three private tables return 403. This does not prove foreign access
+to an existing customer draft, which still needs real generation first. Evidence:
+`output/canva-roundtrip/hosted-catalog-check.json`. Original flyer metadata was
+read before planned generation: DAHYomcyWbM updated_at=1792581356, DAHYoq-m1mU
+updated_at=1792581357, each one page. No design write occurred. The intended test
+photo is the existing local `public/hero-flyer.jpg` (144169 bytes).
+
+Full customer UI/OAuth/autofill/editor/PDF-return acceptance is still blocked by
+the absent authenticated Vercel session in the connected browser. Preserve the
+existing source/master IDs, test fixtures, credentials and enabled isolated pilot;
+resume directly from the retained Vercel preview tab once its product page opens.
+
+
+## Real-provider roundtrip and PDF preview checkpoint — 22 October 2026
+
+The owner completed Vercel sign-in and explicitly approved printmaker's Canva
+consent for the test connection. The actual WebPrinter customer form signed in
+synthetic customer A, completed PKCE OAuth and created two separate designs with
+six supplied text values and the existing local hero-flyer.jpg replacement photo.
+The provider account used was the owner's Canva account; this does not establish
+source access or app distribution to a separate external Canva account.
+
+| Customer source | New customer copy | Manual Canva edit saved and returned |
+| --- | --- | --- |
+| DAHYo7VYqns (florist) | [Nordkyst Printstudio, DAHYqLIGawM](https://www.canva.com/d/QQw-2FzU-JFaTqO) | CTA: Book din gratis designsamtale |
+| DAHYoy_4X5U (bicycle) | [Byens Cykelservice, DAHYrjBZk68](https://www.canva.com/d/m_F3bSX9wFmZebO) | Offer: Forårstjek fra 379 kr. |
+
+Both layouts and their replacement photo were checked visually in Canva. Canva's
+actual Return to printmaker control returned to WebPrinter, stripped the query
+correlation token, and restored the customer's own saved draft. Both fresh PDFs
+were stored through the private upload flow and opened in checkout's proof modal.
+No original or customer source design was edited by the customer workflow.
+
+The first real import exposed a frontend adapter bug: checkout received a PDF
+URL without rendered image/physical-size metadata. Fixed in canva/pdfPreview.ts
+and workflow.ts by rendering the actual single-page PDF with the existing local
+PDF reader, preserving its real physical dimensions and private PDF/hash path.
+Multi-page and invalid-dimension results reject. The PDF bytes are not modified
+or approved. Both real imports now display correctly on the corrected deployment.
+
+Current protected preview: https://webprinter-platform-1qbsxztfw-thomas-projects-d80b9ddd.vercel.app
+(deployment dpl_HX7QZGBtcVhGToT2G8zAfs6aaGuP). OAuth URL 2, enabled Canva return
+destination and isolated CANVA_ALLOWED_ORIGINS now use this preview's
+/canva-designs route/origin. Portal readback showed All changes saved. Original
+OAuth URL 1 remains intact. No new scope, secret or production alias was added
+for this routing correction. Backend remains cyurochbkxggcobnxaxq, handler v2,
+verify_jwt=true. Older preview origins are no longer allowed by the handler.
+
+Final returned files (customer A / shop A only):
+
+- Florist re-import: ed3df5ef-a008-4853-a799-69eecbbfad96, 1,816,796 bytes,
+  SHA-256 4a41a61c23ace7fe588cef771cc9b3f39dbc4b70ac376032a2f4a811d8f13b0d.
+- Bicycle: 11d494f2-f325-4a5e-921c-b55e84f0d409, 3,154,544 bytes,
+  SHA-256 afccaaec3af0a79104468790f40fe74bf27bdf7a9a5357d5e1f6ffe07aa85b4a.
+- Earlier pre-fix florist import a31275dc-6f69-4305-93d4-80518db77fb5 retained.
+  No file was overwritten. Different export metadata can change a fresh hash.
+
+**Print gate:** both actual PDF exports are one page, approximately 148 × 210 mm;
+Media/Crop/Bleed/Trim boxes are equal. The product needs 154 × 216 mm including
+3 mm bleed. Both proof dialogs correctly show Filen kræver klargøring før ordre,
+with no approval action. The original-file automated preflight was unavailable
+in this session; this is not a passed full print preflight. The saved PDFs were
+rendered and checked visually, including each manual edit. PDF fonts, effective
+photo DPI and CMYK/production suitability have not been accepted. Canva's current
+[PDF export API](https://www.canva.dev/docs/apps/rest-apis/reference/exports/create-design-export-job/)
+documents type, export_quality, Docs-only size and pages; it exposes no bleed
+option. export_quality=pro is not a bleed or PDF Print guarantee. A separately
+validated bleed-aware source/export path or prepared print PDF is still needed;
+do not approve an enlarged preview as if it changed the PDF bytes.
+
+Validation after the preview fix: whole-app TypeScript, scoped ESLint, isolated
+production build and 20 focused launch/isolated-preview/proof tests pass. Real
+checkout previews/proof opening pass for both copies. Sixteen additional hosted
+checks against the actual saved florist draft pass: owner+shop access 200; wrong
+shop or customer progress/edit/export/download all 404. Earlier two-customer auth,
+14 catalogue/private-table checks and 16 backend tests remain recorded separately.
+The second test customer did not create a second-provider-account design.
+
+Final read-only metadata comparisons match the recorded updated_at values for
+both protected originals (1792581356 / 1792581357) and both customer source copies
+(1792584245 / 1792584247), each one page. The other four originals were not touched.
+Prices, quantity, shipping and the existing checkout/POD rules were preserved.
+No order, payment, email, supplier job or production deployment was performed.
+
+Evidence is retained locally in ignored output/canva-roundtrip/: real-provider-
+checkpoint.json, original-preservation.json, real-draft-isolation.json, edited
+Canva/returned-checkout/proof screenshots, and rendered test PDFs. No account
+password, client secret, OAuth token, signed edit URL or return correlation JWT
+belongs in those files or Git.
+
+Remaining launch gates: external Canva account/source-sharing and plan access;
+bleed-aware actual production PDF plus full preflight/proof acceptance; relevant
+production release review. The earlier credential incident remains urgent: Canva
+marked the previous secret Expiring (in 23 hours on 21 October). The new secret
+is installed only in this isolated backend. Any older integration using the
+previous secret must migrate before the expiry shown in Canva. Do not rotate
+again or assume the old backend has been updated. Rollback disables the isolated
+workflow and frontend flag while retaining private records; it does not revert
+Canva's credential expiry or restore the previous return destination automatically.

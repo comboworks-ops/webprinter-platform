@@ -1,3 +1,4 @@
+import { CANVA_TEMPLATES } from "../../../shared/canva.ts";
 export type TenantCanvaSettings = {
   enabled?: boolean;
   button_label?: string | null;
@@ -5,6 +6,8 @@ export type TenantCanvaSettings = {
 };
 
 export type ProductCanvaSettings = {
+  mode?: "link" | "autofill";
+  template_keys?: string[];
   enabled?: boolean;
   template_url?: string | null;
   button_label?: string | null;
@@ -12,6 +15,8 @@ export type ProductCanvaSettings = {
 };
 
 export type CanvaLaunchContext = {
+  tenantId?: string | null;
+  workflowEnabled?: boolean;
   productId?: string | null;
   productSlug?: string | null;
   productName?: string | null;
@@ -69,7 +74,19 @@ export function resolveCanvaOffer(
 ): ResolvedCanvaOffer {
   const tenantEnabled = tenantSettings?.enabled === true;
   const productEnabled = productSettings?.enabled === true;
-  const launchUrl = buildCanvaLaunchUrl(productSettings?.template_url, context);
+  const autofill = productSettings?.mode === 'autofill';
+  const eligible = CANVA_TEMPLATES.some(template => productSettings?.template_keys?.includes(template.key)
+    && context.widthMm === template.widthMm && context.heightMm === template.heightMm);
+  let launchUrl = buildCanvaLaunchUrl(productSettings?.template_url, context);
+  if (autofill) {
+    launchUrl = null;
+    if (context.workflowEnabled && eligible && context.productId && context.tenantId && context.returnUrl) {
+      const target = new URL('/canva-designs', context.returnUrl);
+      target.searchParams.set('tenantId', context.tenantId);
+      target.searchParams.set('productId', context.productId);
+      launchUrl = target.href;
+    }
+  }
 
   return {
     enabled: tenantEnabled && productEnabled && Boolean(launchUrl),
@@ -77,7 +94,7 @@ export function resolveCanvaOffer(
     buttonLabel: String(
       productSettings?.button_label
       || tenantSettings?.button_label
-      || DEFAULT_BUTTON_LABEL,
+      || (autofill ? "Vælg design og tilpas" : DEFAULT_BUTTON_LABEL),
     ),
     helperText: String(
       productSettings?.helper_text

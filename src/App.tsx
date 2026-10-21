@@ -34,6 +34,7 @@ import PreviewShop from "./pages/PreviewShop";
 import FileUploadConfiguration from "./pages/FileUploadConfiguration";
 import LlmsTxt from "./pages/LlmsTxt";
 import CanvaReturn from "./pages/CanvaReturn";
+import CanvaDesigns from "./pages/CanvaDesigns";
 import GrafiskVejledning from "./pages/GrafiskVejledning";
 import Designer from "./pages/Designer";
 import BrochureProductPreview from "./pages/BrochureProductPreview";
@@ -168,6 +169,7 @@ const AnimatedRoutes = () => {
           <Route path="/produkt/:slug" element={<ProductPrice />} />
           <Route path="/checkout/konfigurer" element={<FileUploadConfiguration />} />
           <Route path="/canva-return" element={<CanvaReturn />} />
+          <Route path="/canva-designs" element={<CanvaDesigns />} />
           <Route path="/auth" element={<Auth />} />
           <Route path="/opret-shop" element={<TenantSignup />} />
           <Route path="/profil" element={<Profile />} />

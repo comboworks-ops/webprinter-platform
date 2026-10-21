@@ -1,3 +1,4 @@
+import { CANVA_TEMPLATES } from "../../../shared/canva";
 import '@/styles/productEditorConsolidation.css';
 import { requestAdminWorkspaceExit } from '@/lib/admin/workspaceExit';
 import { saveProductTooltips } from "@/lib/products/saveProductTooltips";
@@ -377,6 +378,8 @@ export function ProductPriceManager() {
   const [editedIsFreeForm, setEditedIsFreeForm] = useState(false);
   const [editedStandardFormat, setEditedStandardFormat] = useState("");
   const [editedCanvaEnabled, setEditedCanvaEnabled] = useState(false);
+  const [editedCanvaMode, setEditedCanvaMode] = useState("link");
+  const [editedCanvaTemplateKeys, setEditedCanvaTemplateKeys] = useState<string[]>([]);
   const [editedCanvaTemplateUrl, setEditedCanvaTemplateUrl] = useState("");
   const [editedCanvaButtonLabel, setEditedCanvaButtonLabel] = useState("");
   const [editedCanvaHelperText, setEditedCanvaHelperText] = useState("");
@@ -794,6 +797,8 @@ export function ProductPriceManager() {
       setEditedIsFreeForm(specs.is_free_form || false);
       setEditedStandardFormat(specs.standard_format || "");
       setEditedCanvaEnabled(specs.canva?.enabled === true);
+      setEditedCanvaMode(specs.canva?.mode || "link");
+      setEditedCanvaTemplateKeys(Array.isArray(specs.canva?.template_keys) ? specs.canva.template_keys : []);
       setEditedCanvaTemplateUrl(specs.canva?.template_url || "");
       setEditedCanvaButtonLabel(specs.canva?.button_label || "");
       setEditedCanvaHelperText(specs.canva?.helper_text || "");
@@ -1410,6 +1415,8 @@ export function ProductPriceManager() {
         requires_cut_contour: editedRequiresCutContour,
         canva: {
           enabled: editedCanvaEnabled,
+          mode: editedCanvaMode,
+          template_keys: editedCanvaTemplateKeys,
           template_url: editedCanvaTemplateUrl.trim() || null,
           button_label: editedCanvaButtonLabel.trim() || null,
           helper_text: editedCanvaHelperText.trim() || null,
@@ -2096,7 +2103,17 @@ export function ProductPriceManager() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label>Canva template URL</Label>
+                      <Label htmlFor="canva-mode">Canva-forløb</Label>
+                      <select id="canva-mode" className="flex h-10 w-full rounded-md border bg-background px-3 text-sm" value={editedCanvaMode} onChange={event => { setEditedCanvaMode(event.target.value); setHasSpecEdits(true); }}>
+                        <option value="link">Link og manuel filupload</option><option value="autofill">Designvalg, tekst og foto med retur fra Canva</option>
+                      </select>
+                      {editedCanvaMode === 'autofill' && <div className="space-y-2 rounded-md border p-3">
+                        <p className="text-sm">Vælg kundeskabeloner (A5, stående). Serverforbindelsen skal være aktiveret før kunder kan bruge dem.</p>
+                        {CANVA_TEMPLATES.map(template => <label key={template.key} className="flex items-center gap-2 text-sm">
+                          <Checkbox checked={editedCanvaTemplateKeys.includes(template.key)} onCheckedChange={checked => { setEditedCanvaTemplateKeys(previous => checked ? [...new Set([...previous,template.key])] : previous.filter(key => key !== template.key)); setHasSpecEdits(true); }} />{template.name}
+                        </label>)}
+                      </div>}
+                      <Label>Canva template URL (manuel filupload)</Label>
                       <Input
                         value={editedCanvaTemplateUrl}
                         onChange={(event) => {

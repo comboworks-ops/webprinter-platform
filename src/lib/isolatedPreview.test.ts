@@ -42,3 +42,15 @@ test('checkout test preview permits only its matched payment handlers while keep
     assert.equal(isolatedPreviewRequestBlock(`https://${PREVIEW_BACKEND}${path}`,true,true)?.status,403);
   }
 });
+
+
+test('Canva pilot allows Canva and private files without enabling payments or outbound handlers', () => {
+  for (const fn of ['canva-workflow', 'storefront-file-access']) {
+    assert.equal(isolatedPreviewRequestBlock(`https://${PREVIEW_BACKEND}/functions/v1/${fn}`,true,false,true),null);
+    assert.equal(isolatedPreviewRequestBlock(`https://${PREVIEW_BACKEND}/functions/v1/${fn}`,true,false,false)?.status,403);
+    assert.equal(isolatedPreviewRequestBlock(`https://ziattmsmiirfweiuunfo.supabase.co/functions/v1/${fn}`,true,false,true)?.status,403);
+  }
+  for (const fn of ['stripe-create-payment-intent','stripe-finalize-checkout','send-order-email','pod2-order-submit','canva-workflow/extra']) {
+    assert.equal(isolatedPreviewRequestBlock(`https://${PREVIEW_BACKEND}/functions/v1/${fn}`,true,false,true)?.status,403);
+  }
+});

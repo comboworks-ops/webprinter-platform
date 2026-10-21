@@ -2,7 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 import { supabaseRequestTimeoutMs } from '@/lib/storage/supabaseRequestTimeout';
-import { IS_ISOLATED_PREVIEW, IS_ISOLATED_CHECKOUT_TEST, isolatedPreviewRequestBlock } from '@/lib/isolatedPreview';
+import { IS_ISOLATED_PREVIEW, IS_ISOLATED_CHECKOUT_TEST, IS_ISOLATED_CANVA_TEST, isolatedPreviewRequestBlock } from '@/lib/isolatedPreview';
 import {
   migrateLocalKeysToTransient,
   removeLocalStorageKeysByPrefix,
@@ -231,7 +231,7 @@ const setSupabaseTransportCooldown = (reason: 'http' | 'transport', status?: num
 };
 
 const supabaseFetch: typeof fetch = async (input, init) => {
-  const previewBlock = isolatedPreviewRequestBlock(input, IS_ISOLATED_PREVIEW, IS_ISOLATED_CHECKOUT_TEST);
+  const previewBlock = isolatedPreviewRequestBlock(input, IS_ISOLATED_PREVIEW, IS_ISOLATED_CHECKOUT_TEST, IS_ISOLATED_CANVA_TEST);
   if (previewBlock) return previewBlock;
   const supabaseRequest = isSupabaseRequest(input);
   const requestUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;

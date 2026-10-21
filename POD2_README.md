@@ -1,5 +1,15 @@
 # POD v2 System (Print.com Integration) — High Priority
 
+22 October 2026 — printmaker connected in the isolated Canva pilot. Both flyer copies completed real OAuth/text/photo/autofill, manual Canva edit, Return to printmaker and fresh private PDF import. Fixed missing checkout PDF preview; both previews/proof dialogs pass. Print approval correctly blocked: actual A5 PDFs lack 3 mm bleed. External Canva customer/source-sharing acceptance remains open. Corrected protected preview is webprinter-platform-1qbsxztfw-thomas-projects-d80b9ddd.vercel.app; same isolated backend, JWT enabled, production untouched. Originals/sources unchanged by metadata readback; 16 real-draft isolation probes and 20 frontend checks pass. Existing prior-secret expiry remains urgent for older consumers; no second rotation. Read docs/CANVA_CUSTOMER_ROUNDTRIP_2026-10-21.md, final checkpoint, before resuming.
+
+
+21 October 2026 — additive `canva-workflow` customer adapter prepared locally.
+It creates customer-owned flyer copies and imports an unapproved PDF through
+existing private checkout uploads. No POD/pricing/order-submission behavior changed.
+Private migration, deployment gates and rollback are in
+`docs/CANVA_CUSTOMER_ROUNDTRIP_2026-10-21.md`. Not deployed; live Canva app credentials
+and real customer/print acceptance are still required.
+
 23 September 2026 — product image/large-file upload fixes implemented locally. Product image transfer retries/progress, reference-first removal, unsaved editor preservation; chunked 1 GiB checkout candidate with bounded hashing/PDF reads and server-side copy. 37 focused tests, recovered-copy TypeScript/build, local synthetic 1 GiB interrupted-transfer test pass. Live 50 MiB limit is intentionally retained until matching backend activation; delivery destination/retention and authenticated image upload acceptance remain open. No live writes/deployment. See docs/PRODUCT_UPLOAD_FIXES_2026-09-23.md.
 
 
