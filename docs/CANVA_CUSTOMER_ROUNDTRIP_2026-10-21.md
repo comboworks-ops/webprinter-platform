@@ -1,6 +1,6 @@
 # WebPrinter customer Canva roundtrip
 
-Status: implemented and locally verified; **not deployed or enabled for customers**.
+Status: implemented and deployed to an isolated pilot; **not connected to Canva or enabled for live customers**.
 
 Customers choose an assigned A5 flyer on a product page, connect their own Canva account, enter six text fields and one JPG/PNG photo, generate a separate copy, edit it in Canva and fetch a fresh PDF into WebPrinter's existing private upload and proof-approval flow. Saved copies can be reopened from Mine designs → Mine Canva-designs. Existing manual Canva links remain available.
 
@@ -81,3 +81,49 @@ Disable `CANVA_WORKFLOW_ENABLED` and remove the frontend feature flag. Keep the 
 - [Generate access token](https://www.canva.dev/docs/apps/rest-apis/reference/authentication/generate-access-token/)
 - [Return navigation](https://www.canva.dev/docs/apps/rest-apis/return-navigation-guide/)
 - [Create design export job](https://www.canva.dev/docs/apps/rest-apis/reference/exports/create-design-export-job/)
+
+
+## Isolated pilot checkpoint — 21 October 2026
+
+The owner confirmed that existing Canva Connect integration **printmaker**, client
+ID `OC-AZ0pA8oTAtJc`, is the intended integration. Public distribution is Draft.
+The current OAuth redirect and enabled return URL both still point to
+`https://dkqylfxakglxjcbibzsb.supabase.co/functions/v1/canva-oauth/callback`.
+Required design/asset scopes are already enabled; profile:read is also enabled.
+No Canva portal setting, credential or design was changed in this checkpoint.
+
+- Isolated backend: `cyurochbkxggcobnxaxq` (existing webprinter-launch-test branch).
+- Applied only migration `20261021120000_canva_customer_roundtrip.sql`. All three
+  tables have RLS, no anon/authenticated read grants, and service-role writes.
+- `canva-workflow` version 2 is ACTIVE with **verify_jwt=true**. Automatic approval
+  review rejected deploying with the gateway check disabled. The safer deployment
+  with normal gateway verification succeeded; signed-session compatibility still
+  needs a real check. The handler also independently calls Auth getUser().
+- Installed client ID, single exact origin and fresh encryption key only in the
+  isolated backend. `CANVA_WORKFLOW_ENABLED=false`; client secret remains missing.
+- Preview: https://webprinter-platform-6evw3gsfx-thomas-projects-d80b9ddd.vercel.app
+  (deployment `dpl_Fy8XRA7UTdxPyqjqG37MrRd3ZTvm`, Vercel authentication protected).
+- Intended OAuth and return URL: the preview origin plus `/canva-designs`.
+- `--canva-test` isolated build permits only the Canva handler and existing private
+  file handler in addition to the read endpoints. Payments, email, suppliers,
+  unknown handlers and other backend origins stay blocked. No production alias
+  was changed. No customer/shop/product settings were changed.
+- 10 launch/preview-boundary tests and 16 Canva server/security tests pass. App
+  TypeScript, scoped ESLint and isolated production build pass. Existing bundle
+  size warning remains. These are not a completed live Canva roundtrip.
+
+Browser handoff: sign into Vercel in the prepared preview tab. A concrete action-time
+confirmation is pending for adding the preview OAuth redirect, setting its return
+URL, and generating an additional Canva client secret for the isolated backend.
+Browser security policy requires that confirmation for new credential/access
+changes. Preserve the existing secret. Do not paste credentials into chat or Git.
+After approval, install the new secret directly in the isolated secret store,
+verify signed-session authentication, assign the two flyer sources to isolated A5
+products, enable only the isolated flag, and test actual customer access, edit,
+return, fresh PDF upload and approval. Two-account/two-shop acceptance and print
+preflight remain open. No live rollout is authorized by passing a simulated test.
+
+Rollback: keep the pilot flag false, preserve private tables and records, and
+retain the existing production sites. Record before/after Canva settings before
+changing them. The six original designs and both customer source copies remain
+unchanged by deployment.

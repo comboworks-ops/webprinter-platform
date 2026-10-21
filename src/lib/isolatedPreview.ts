@@ -19,16 +19,18 @@ export const IS_ISOLATED_CHECKOUT_TEST = isolatedCheckoutTestEnabled({
 export const PREVIEW_PAYMENT_DISABLED = IS_ISOLATED_PREVIEW && !IS_ISOLATED_CHECKOUT_TEST;
 
 const READ_FUNCTIONS = new Set(['catalog-read', 'product-detail-read', 'tenant-context-read']);
+export const IS_ISOLATED_CANVA_TEST = IS_ISOLATED_PREVIEW && import.meta.env?.VITE_CANVA_WORKFLOW_ENABLED === 'true';
+const CANVA_TEST_FUNCTIONS = new Set(['canva-workflow', 'storefront-file-access']);
 const CHECKOUT_TEST_FUNCTIONS = new Set(['stripe-create-payment-intent', 'stripe-finalize-checkout', 'storefront-file-access']);
 
 /** Fail closed before any request can reach a live backend or outbound handler. */
-export function isolatedPreviewRequestBlock(input: RequestInfo | URL, enabled: boolean, checkoutTest = false): Response | null {
+export function isolatedPreviewRequestBlock(input: RequestInfo | URL, enabled: boolean, checkoutTest = false, canvaTest = false): Response | null {
   if (!enabled) return null;
   const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   const url = new URL(raw, `https://${PREVIEW_BACKEND}`);
   const fn = url.pathname.match(/^\/functions\/v1\/([^/]+)\/?$/)?.[1];
   const allowedPath = !url.pathname.startsWith('/functions/')
-    || !!fn && (READ_FUNCTIONS.has(fn) || checkoutTest && CHECKOUT_TEST_FUNCTIONS.has(fn));
+    || !!fn && (READ_FUNCTIONS.has(fn) || checkoutTest && CHECKOUT_TEST_FUNCTIONS.has(fn) || canvaTest && CANVA_TEST_FUNCTIONS.has(fn));
   if (url.origin === `https://${PREVIEW_BACKEND}` && allowedPath) return null;
   return new Response(JSON.stringify({error:'isolated_preview_action_disabled',message:'Denne handling er slået fra i testversionen.'}), {
     status:403, headers:{'Content-Type':'application/json'},
