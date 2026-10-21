@@ -1502,6 +1502,8 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
     const productCanva = (dbProduct?.technical_specs as any)?.canva || null;
 
     return resolveCanvaOffer(tenantCanva, productCanva, {
+      workflowEnabled: import.meta.env.VITE_CANVA_WORKFLOW_ENABLED === "true",
+      tenantId: shopSettings.data?.id || null,
       productId: dbProduct?.id || null,
       productSlug: slug || null,
       productName: dbProduct?.name || product?.name || null,

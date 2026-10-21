@@ -1496,7 +1496,10 @@ export function ProductPricePanel({
                     style={secondaryButtonCssVars}
                     onClick={() => {
                       persistCheckoutState({ crossTab: true });
-                      window.open(canvaOffer.launchUrl as string, "_blank", "noopener,noreferrer");
+                      const target = new URL(canvaOffer.launchUrl as string, window.location.origin);
+                      if (target.origin === window.location.origin && target.pathname === '/canva-designs') {
+                        window.location.assign(target.href);
+                      } else window.open(target.href, "_blank", "noopener,noreferrer");
                     }}
                   >
                     <Sparkles className="h-5 w-5" />
@@ -1954,7 +1957,10 @@ export function ProductPricePanel({
                     style={secondaryButtonCssVars}
                     onClick={() => {
                       persistCheckoutState({ crossTab: true });
-                      window.open(canvaOffer.launchUrl as string, "_blank", "noopener,noreferrer");
+                      const target = new URL(canvaOffer.launchUrl as string, window.location.origin);
+                      if (target.origin === window.location.origin && target.pathname === '/canva-designs') {
+                        window.location.assign(target.href);
+                      } else window.open(target.href, "_blank", "noopener,noreferrer");
                     }}
                   >
                     <Sparkles className="h-5 w-5" />

@@ -36,7 +36,10 @@ export default function MyDesigns() {
 
   const current = result.key === identityKey ? result : { state: 'loading' as const, designs: [] };
   return <AccountShell title="Mine designs" description="Dine gemte designs, klar til at arbejde videre med."
-    actions={<Button asChild className="customer-button"><Link to={account.link('/')} className="gap-2">Find et produkt <ArrowRight size={16} /></Link></Button>}>
+    actions={<div className="flex flex-wrap gap-2">
+      {import.meta.env.VITE_CANVA_WORKFLOW_ENABLED === 'true' && <Button asChild variant="outline"><Link to={account.link('/canva-designs')}>Mine Canva-designs</Link></Button>}
+      <Button asChild className="customer-button"><Link to={account.link('/')} className="gap-2">Find et produkt <ArrowRight size={16} /></Link></Button>
+    </div>}>
     {account.loading ? <AccountState kind="loading" /> : account.error ? <AccountState kind="error" description={account.error} onRetry={account.retry} /> : (
       <CustomerDesignsView key={identityKey} designs={current.designs} state={current.state} onRetry={() => setReload(value => value + 1)} link={account.link} />
     )}

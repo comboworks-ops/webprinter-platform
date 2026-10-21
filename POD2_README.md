@@ -1,5 +1,12 @@
 # POD v2 System (Print.com Integration) — High Priority
 
+21 October 2026 — additive `canva-workflow` customer adapter prepared locally.
+It creates customer-owned flyer copies and imports an unapproved PDF through
+existing private checkout uploads. No POD/pricing/order-submission behavior changed.
+Private migration, deployment gates and rollback are in
+`docs/CANVA_CUSTOMER_ROUNDTRIP_2026-10-21.md`. Not deployed; live Canva app credentials
+and real customer/print acceptance are still required.
+
 23 September 2026 — product image/large-file upload fixes implemented locally. Product image transfer retries/progress, reference-first removal, unsaved editor preservation; chunked 1 GiB checkout candidate with bounded hashing/PDF reads and server-side copy. 37 focused tests, recovered-copy TypeScript/build, local synthetic 1 GiB interrupted-transfer test pass. Live 50 MiB limit is intentionally retained until matching backend activation; delivery destination/retention and authenticated image upload acceptance remain open. No live writes/deployment. See docs/PRODUCT_UPLOAD_FIXES_2026-09-23.md.
 
 

@@ -181,3 +181,6 @@ verify_jwt = true
 
 [functions.erp-shadow-dispatch]
 verify_jwt = true
+
+[functions.canva-workflow]
+verify_jwt = true
