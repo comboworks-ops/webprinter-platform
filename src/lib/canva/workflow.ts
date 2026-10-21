@@ -22,13 +22,16 @@ export async function canvaWorkflow(tenantId: string, input: Record<string,unkno
 export async function importCanvaPdf(tenantId: string, id: string, exportRequestId: string, checkout: SiteCheckoutState): Promise<SiteCheckoutState> {
   const { data, error } = await supabase.functions.invoke('canva-workflow', { body: { action: 'download', tenantId, id, exportRequestId } });
   if (error || !(data instanceof Blob) || data.type !== 'application/pdf') throw new Error('PDF-filen kunne ikke hentes. Prøv igen.');
+  // Checkout needs a rendered preview, not a PDF URL in an image element.
+  const { createCanvaPdfPreview } = await import('./pdfPreview');
+  const preview = await createCanvaPdfPreview(data);
   const uploaded = await uploadCheckoutFile(supabase, tenantId, data, 'Mit Canva-design.pdf', `canva/${id}/${crypto.randomUUID()}.pdf`);
   return {
     ...checkout,
     // Imported artwork is always unapproved; existing checkout does the print check.
     proofApprovalRequired: true,
     designerExport: null,
-    siteUpload: { name: uploaded.name, filePath: uploaded.path, fileUrl: uploaded.url, mimeType: 'application/pdf', sha256: uploaded.sha256 },
+    siteUpload: { ...preview, name: uploaded.name, filePath: uploaded.path, fileUrl: uploaded.url, mimeType: 'application/pdf', sha256: uploaded.sha256 },
     createdAt: new Date().toISOString(),
   };
 }
