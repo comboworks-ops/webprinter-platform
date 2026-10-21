@@ -211,3 +211,29 @@ Next: finish Vercel verification, log in through WebPrinter's actual form using
 customer A, start at `/produkt/launch-test-print-a?tenantId=ef278d1f-17bd-4bf1-86c6-57bde59a45c8`,
 select the test quantity, open Canva chooser and follow the real journey. Verify
 scope/template access before claiming an external-customer rollout works.
+
+
+## Hosted catalogue/security checkpoint — 21 October, continuation
+
+After the owner reported completing Vercel two-factor verification, the same
+retained Chrome tab still showed Vercel's code prompt. One direct navigation to
+the exact isolated test-product URL redirected to **Log in to Vercel**. Browser
+inventory showed no other Vercel tab in the connected profile, Yebbo (Thomas
+Østerbye). The owner was asked whether verification occurred in another
+browser/profile and to finish in the retained pilot tab until WebPrinter is
+visible. No protection was disabled or bypass credential created.
+
+Fourteen additional hosted checks passed using both ordinary synthetic accounts:
+assigned A5 catalogue contains both flyer keys; another shop's product and wrong
+A4 dimensions return no catalogue entries; unknown draft returns 404; direct REST
+reads of all three private tables return 403. This does not prove foreign access
+to an existing customer draft, which still needs real generation first. Evidence:
+`output/canva-roundtrip/hosted-catalog-check.json`. Original flyer metadata was
+read before planned generation: DAHYomcyWbM updated_at=1792581356, DAHYoq-m1mU
+updated_at=1792581357, each one page. No design write occurred. The intended test
+photo is the existing local `public/hero-flyer.jpg` (144169 bytes).
+
+Full customer UI/OAuth/autofill/editor/PDF-return acceptance is still blocked by
+the absent authenticated Vercel session in the connected browser. Preserve the
+existing source/master IDs, test fixtures, credentials and enabled isolated pilot;
+resume directly from the retained Vercel preview tab once its product page opens.
