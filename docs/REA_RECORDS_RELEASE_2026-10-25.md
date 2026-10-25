@@ -4,7 +4,7 @@ The REA assessment and subsequent work are reconciled in [the status index](REA_
 
 ## GitHub recording
 
-Prepared on `codex/rea-records-and-release-2026-10-25`, based on GitHub main `92f060b53cdfef0f98a9be7c7925f309eb3f105b`.
+Published to GitHub branch `codex/rea-records-and-release-2026-10-25`, based on main `92f060b53cdfef0f98a9be7c7925f309eb3f105b`. Review: [draft PR #19](https://github.com/comboworks-ops/webprinter-platform/pull/19). Source/record checkpoint: `9669e23c1fbf371bba8310a97c4aa4420ab9ed86`; a subsequent documentation-only receipt commit records these publication links.
 
 - Separate first commit `f7208c5` records the current live Webprinter application baseline, which had moved beyond GitHub main. This is source recording of already-deployed behavior, not 217 newly released changes.
 - Twenty-eight related reports are indexed. This release report is an additional receipt.
