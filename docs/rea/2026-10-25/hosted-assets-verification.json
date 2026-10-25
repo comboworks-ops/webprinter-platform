@@ -1,0 +1,19 @@
+{
+  "deployment": "dpl_Edtv5bbmTabSpaJ6DYBjyz9n9oB5",
+  "httpStatus": 200,
+  "entry": "/assets/index-DeLtk_J1.js",
+  "verifiedChunks": [
+    "/assets/index-DeLtk_J1.js"
+  ],
+  "entrySha256": "6ec1478d7cb4af3f1c7dc89985e3b51e0f289be2d3b4787c0b1e6a76832fb19d",
+  "checks": {
+    "revisedWhiteLabelCopy": true,
+    "signupPlanBoundCatalogue": true,
+    "automaticSelectionNotice": true,
+    "plainPrintTerms": true,
+    "artworkGuidance": true,
+    "warningResponsibilityPolicyPreserved": true
+  },
+  "authentication": "Existing Vercel CLI session; deployment protection unchanged",
+  "browserBoundary": "Actual browser interaction verified on exact local candidate; hosted HTML/compiled assets and source verified separately"
+}

@@ -1,0 +1,108 @@
+{
+  "allAliasesVerified": 37,
+  "updatedShopAliases": 10,
+  "otherAliasesUnchanged": 27,
+  "redirectsPreserved": true,
+  "routes": [
+    {
+      "group": "webprinter",
+      "host": "webprinter.dk",
+      "deployment": "dpl_Edtv5bbmTabSpaJ6DYBjyz9n9oB5",
+      "httpStatus": 200,
+      "resolvedUrl": "https://www.webprinter.dk/",
+      "entry": "/assets/index-DeLtk_J1.js",
+      "entrySha256": "6ec1478d7cb4af3f1c7dc89985e3b51e0f289be2d3b4787c0b1e6a76832fb19d",
+      "matchesVerifiedStagedBuild": true
+    },
+    {
+      "group": "webprinter",
+      "host": "www.webprinter.dk",
+      "deployment": "dpl_Edtv5bbmTabSpaJ6DYBjyz9n9oB5",
+      "httpStatus": 200,
+      "resolvedUrl": "https://www.webprinter.dk/",
+      "entry": "/assets/index-DeLtk_J1.js",
+      "entrySha256": "6ec1478d7cb4af3f1c7dc89985e3b51e0f289be2d3b4787c0b1e6a76832fb19d",
+      "matchesVerifiedStagedBuild": true
+    },
+    {
+      "group": "online",
+      "host": "onlinetryksager.dk",
+      "deployment": "dpl_BCmPZcEAH2bjB1nTkPqcmh5n7WAC",
+      "httpStatus": 200,
+      "resolvedUrl": "https://www.onlinetryksager.dk/",
+      "entry": "/assets/index-DSqLF6-M.js",
+      "entrySha256": "e26229acb4b95bd303ccd38f904f22701b6f151a96123f7ffb1bf875c3697841",
+      "matchesVerifiedStagedBuild": true
+    },
+    {
+      "group": "online",
+      "host": "www.onlinetryksager.dk",
+      "deployment": "dpl_BCmPZcEAH2bjB1nTkPqcmh5n7WAC",
+      "httpStatus": 200,
+      "resolvedUrl": "https://www.onlinetryksager.dk/",
+      "entry": "/assets/index-DSqLF6-M.js",
+      "entrySha256": "e26229acb4b95bd303ccd38f904f22701b6f151a96123f7ffb1bf875c3697841",
+      "matchesVerifiedStagedBuild": true
+    },
+    {
+      "group": "online",
+      "host": "printmaker-web-craft-main.vercel.app",
+      "deployment": "dpl_BCmPZcEAH2bjB1nTkPqcmh5n7WAC",
+      "httpStatus": 200,
+      "resolvedUrl": "https://printmaker-web-craft-main.vercel.app/",
+      "entry": "/assets/index-DSqLF6-M.js",
+      "entrySha256": "e26229acb4b95bd303ccd38f904f22701b6f151a96123f7ffb1bf875c3697841",
+      "matchesVerifiedStagedBuild": true
+    },
+    {
+      "group": "pvc-sales",
+      "host": "pvcbanner.dk",
+      "deployment": "dpl_3ZWANcUtqFzxy4raha4Eu7bV3KL9",
+      "httpStatus": 200,
+      "resolvedUrl": "https://pvcbanner.dk/",
+      "entry": "/assets/index-DpupaniJ.js",
+      "entrySha256": "edf1921153e1d3425309f9b9129eb44f00a0d0c1f9791bba62a927f045e3c7c7",
+      "matchesVerifiedStagedBuild": true
+    },
+    {
+      "group": "pvc-sales",
+      "host": "www.pvcbanner.dk",
+      "deployment": "dpl_3ZWANcUtqFzxy4raha4Eu7bV3KL9",
+      "httpStatus": 200,
+      "resolvedUrl": "https://www.pvcbanner.dk/",
+      "entry": "/assets/index-DpupaniJ.js",
+      "entrySha256": "edf1921153e1d3425309f9b9129eb44f00a0d0c1f9791bba62a927f045e3c7c7",
+      "matchesVerifiedStagedBuild": true
+    },
+    {
+      "group": "pvc-sales",
+      "host": "salgsmapper.dk",
+      "deployment": "dpl_3ZWANcUtqFzxy4raha4Eu7bV3KL9",
+      "httpStatus": 200,
+      "resolvedUrl": "https://www.salgsmapper.dk/",
+      "entry": "/assets/index-DpupaniJ.js",
+      "entrySha256": "edf1921153e1d3425309f9b9129eb44f00a0d0c1f9791bba62a927f045e3c7c7",
+      "matchesVerifiedStagedBuild": true
+    },
+    {
+      "group": "pvc-sales",
+      "host": "www.salgsmapper.dk",
+      "deployment": "dpl_3ZWANcUtqFzxy4raha4Eu7bV3KL9",
+      "httpStatus": 200,
+      "resolvedUrl": "https://www.salgsmapper.dk/",
+      "entry": "/assets/index-DpupaniJ.js",
+      "entrySha256": "edf1921153e1d3425309f9b9129eb44f00a0d0c1f9791bba62a927f045e3c7c7",
+      "matchesVerifiedStagedBuild": true
+    },
+    {
+      "group": "general",
+      "host": "printmaker-web-craft-main-thomas-projects-d80b9ddd.vercel.app",
+      "deployment": "dpl_9vjfMCTx65gcbh2m5vFZXuDjTeSw",
+      "httpStatus": 200,
+      "resolvedUrl": "https://printmaker-web-craft-main-thomas-projects-d80b9ddd.vercel.app/",
+      "entry": "/assets/index-DXQvhvSv.js",
+      "entrySha256": "8167ea5fa5e76aa2a317706c960016df2f4958ba884bd9ec343378f6c1e00f57",
+      "matchesVerifiedStagedBuild": true
+    }
+  ]
+}

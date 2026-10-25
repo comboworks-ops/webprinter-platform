@@ -1,3 +1,4 @@
+import { resolveWideFormatEditorBranding } from '@/lib/branding/wideFormatEditor';
 import { useQuery } from "@tanstack/react-query";
 import { IS_ISOLATED_PREVIEW } from "@/lib/isolatedPreview";
 import { useState, useEffect, useMemo } from "react";
@@ -192,7 +193,8 @@ export function useShopSettings() {
     const pathname = location.pathname;
     const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
     const shouldHonorLocalStorefrontPin = (isLocalhost || IS_ISOLATED_PREVIEW) && isLocalStorefrontContext(pathname);
-    const marketingDomains = [ROOT_DOMAIN, `www.${ROOT_DOMAIN}`];
+    // Keep the established platform alias aligned with platform/account routing.
+    const marketingDomains = [ROOT_DOMAIN, `www.${ROOT_DOMAIN}`, 'webprinter-platform.vercel.app'];
     const [localTenantPin, setLocalTenantPin] = useState(readLocalStorefrontTenantPin);
     const cachedTenantPin = shouldHonorLocalStorefrontPin ? localTenantPin : null;
     const pinContextId = storefrontPinContextId({
@@ -422,7 +424,9 @@ export function useShopSettings() {
                     }
                 }
 
-                if (lookupDomain && !marketingDomains.includes(lookupDomain)) {
+                // An unresolved production hostname must not turn into the signed-in
+                // owner's shop or the master catalog on the same URL.
+                if (!isEffectiveLocalhost && !marketingDomains.includes(effectiveHostname)) {
                     throw new Error('Den valgte shops domæne blev ikke fundet eller er ikke tilgængeligt.');
                 }
 
@@ -539,7 +543,8 @@ export function useShopSettings() {
                     }
 
                     // A requested shop must never turn into another shop on a network failure.
-                    if (isLocalhost || forceTenantId || forceDomain || forceSubdomain || pinContextId) throw error;
+                    const isProductionTenantHost = !isLocalhost && !IS_ISOLATED_PREVIEW && !marketingDomains.includes(hostname);
+                    if (isProductionTenantHost || isLocalhost || forceTenantId || forceDomain || forceSubdomain || pinContextId) throw error;
 
                     console.warn('[useShopSettings] Supabase transport unavailable and no tenant cache. Using fallback tenant context.');
                     return {
@@ -570,7 +575,7 @@ export function useShopSettings() {
     // Normalize only the consumer's view; caches and hosted settings retain their source data.
     const storefrontData = useMemo(() => query.data ? {
         ...query.data,
-        branding: mergeBrandingWithDefaults(query.data.branding),
+        branding: resolveWideFormatEditorBranding(mergeBrandingWithDefaults(query.data.branding), query.data.id),
     } : query.data, [query.data]);
 
     return { ...query, data: storefrontData };

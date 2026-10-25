@@ -79,6 +79,7 @@ import { customerAuthHref, customerLink } from "@/lib/account/navigation";
 import { assertDesignerDocumentSaveSupported, decodeDesignerSnapshot, encodeDesignerSnapshot, resolveDesignerSaveTenant, updateOwnedDesign } from "@/lib/designer/saveDesign";
 import { mmToPx } from "@/utils/unitConversions";
 import { runPreflightChecks, PreflightWarning } from "@/utils/preflightChecks";
+import { recommendedPrintDpi, PRINT_QUALITY_RESPONSIBILITY } from "@/lib/checkout/printQualityPolicy";
 import { useColorProofing } from "@/hooks/useColorProofing";
 import { useProductColorProfile } from "@/hooks/useProductColorProfile";
 import { readSavedColorProfile, withSavedColorProfile, type SavedColorProfile } from "@/lib/color/savedColorProfile";
@@ -866,14 +867,13 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
         }
 
         if (customWidthMm !== null && customHeightMm !== null) {
-            const areaM2 = (customWidthMm * customHeightMm) / 1_000_000;
             return {
                 ...defaultSpec,
                 width_mm: customWidthMm,
                 height_mm: customHeightMm,
                 bleed_mm: typeof customBleedMm === "number" ? customBleedMm : defaultSpec.bleed_mm,
                 safe_area_mm: typeof customSafeMm === "number" ? customSafeMm : defaultSpec.safe_area_mm,
-                dpi: areaM2 >= 1 ? 150 : defaultSpec.dpi
+                dpi: recommendedPrintDpi({ designerMode, pricingModel, widthMm: customWidthMm, heightMm: customHeightMm })
             };
         }
 
@@ -891,6 +891,9 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
 
         return defaultSpec;
     });
+    const [printProductContext, setPrintProductContext] = useState<{ category?: string; pricingType?: string }>({});
+    const printDpiRecommendation = recommendedPrintDpi({ designerMode, pricingModel, ...printProductContext,
+        widthMm: documentSpec.width_mm, heightMm: documentSpec.height_mm });
     const [canvasAreaSize, setCanvasAreaSize] = useState({ width: 0, height: 0 });
     const [selectedTool, setSelectedTool] = useState<string>("select");
     const [activeTab, setActiveTab] = useState<DesignerPanelTab>(() => (
@@ -1475,11 +1478,12 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                             ? { data: localRollLabelProduct(localRollPreview.packet, resolvedProductId), error: null }
                             : await supabase
                             .from('products')
-                            .select('id, name, technical_specs')
+                            .select('id, name, category, pricing_type, technical_specs')
                             .eq('id', resolvedProductId)
                             .single();
 
                         if (product && !error) {
+                            setPrintProductContext({ category: (product as { category?: string }).category, pricingType: (product as { pricing_type?: string }).pricing_type });
                             productName = apparelConfig
                                 ? `${product.name} - ${apparelConfig.printAreaLabel} printfelt`
                                 : `Design til ${product.name}`;
@@ -1488,11 +1492,9 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                         }
                     }
 
-                    const areaM2 = (widthMm * heightMm) / 1_000_000;
                     const fallbackBleed = typeof specs?.bleed_mm === "number" ? specs.bleed_mm : 3;
                     const fallbackSafeArea = typeof specs?.safe_area_mm === "number" ? specs.safe_area_mm : 3;
-                    const baseDpi = typeof specs?.min_dpi === "number" ? specs.min_dpi : 300;
-                    const resolvedDpi = areaM2 >= 1 ? 150 : baseDpi;
+                    const resolvedDpi = recommendedPrintDpi({ designerMode, pricingModel, widthMm, heightMm });
 
                     setDocumentSpec(prev => ({
                         ...prev,
@@ -1610,11 +1612,12 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                     const pid = productDbId || variantDbId;
                     const { data: product, error } = await supabase
                         .from('products')
-                        .select('id, name, technical_specs')
+                        .select('id, name, category, pricing_type, technical_specs')
                         .eq('id', pid)
                         .single();
 
                     if (product && !error) {
+                        setPrintProductContext({ category: product.category || undefined, pricingType: product.pricing_type || undefined });
                         const specs = product.technical_specs as any || {};
                         const dimensions = productArtworkDimensions(product, { width: specs.width_mm || 210, height: specs.height_mm || 297 });
                         setDocumentSpec(prev => ({
@@ -1695,7 +1698,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
         };
 
         loadSpec();
-    }, [variantId, productId, productDbId, variantDbId, templateId, designId, format, savedDesignId, customWidthMm, customHeightMm, customBleedMm, customSafeMm, directTemplatePdfName, apparelConfig,localRollPreview.requested,localRollPreview.loading,localRollPreview.packet]);
+    }, [variantId, productId, productDbId, variantDbId, templateId, designId, format, savedDesignId, customWidthMm, customHeightMm, customBleedMm, customSafeMm, directTemplatePdfName, apparelConfig, designerMode, pricingModel,localRollPreview.requested,localRollPreview.loading,localRollPreview.packet]);
 
     useEffect(() => {
         const hasBaseSpecContext = Boolean(
@@ -2258,6 +2261,17 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                 return;
             }
 
+            const orderPrintWarnings: string[] = [];
+            const collectPrintWarnings = (canvas: fabric.Canvas) => {
+                const checked = runPreflightChecks(canvas, {
+                    documentWidth: documentSpec.width_mm, documentHeight: documentSpec.height_mm,
+                    bleed: documentSpec.bleed_mm, safeArea: documentSpec.safe_area_mm || 3,
+                    minDPI: printDpiRecommendation, targetDPI: printDpiRecommendation, optimalDPI: printDpiRecommendation,
+                    mmToPx: displayMmToPx,
+                });
+                for (const item of checked.warnings) orderPrintWarnings.push([item.message, item.details].filter(Boolean).join(': '));
+            };
+            collectPrintWarnings(fabricCanvas);
             setReturningToOrder(true);
             try {
                 const productRef = documentSpec.product_id || productId || "designer";
@@ -2395,6 +2409,8 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                             productionFiles,
                             apparelSide: primaryPngUpload.apparelSide,
                             apparelSides: apparelConfig.sides,
+                            printWarnings: [...new Set(orderPrintWarnings)].slice(0, 15),
+                            recommendedDpi: printDpiRecommendation,
                             generatedAt: new Date().toISOString(),
                         },
                     });
@@ -2403,6 +2419,16 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                     return;
                 }
 
+                for (let index = 0; index < linkedTemplatePages.length; index++) {
+                    if (index === activeTemplatePageIndex) continue;
+                    const draft = templatePageDraftsRef.current.get(index);
+                    if (!draft) continue;
+                    const copy = new fabric.Canvas(document.createElement('canvas'), { renderOnAddRemove: false });
+                    try {
+                        await new Promise<void>(resolve => copy.loadFromJSON(draft, () => resolve()));
+                        collectPrintWarnings(copy);
+                    } finally { copy.dispose(); }
+                }
                 const linkedTemplateProductionFile = await buildLinkedTemplateOrderPdfBlob();
                 const productionFile = {
                     ...(linkedTemplateProductionFile || await buildCanvasOrderPdfBlob(fabricCanvas)),
@@ -2429,6 +2455,8 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
                         productionFiles: [
                             { format: "pdf", ...pdfUpload },
                         ],
+                        printWarnings: [...new Set(orderPrintWarnings)].slice(0, 15),
+                        recommendedDpi: printDpiRecommendation,
                         generatedAt: new Date().toISOString(),
                     },
                 });
@@ -2443,7 +2471,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
         };
 
         void prepareDesignerOrderFile();
-    }, [queryTenantId, designShopSettings.data?.id, apparelConfig, buildCanvasOrderArtworkDataUrl, buildCanvasOrderPdfBlob, buildCanvasOrderPngBlob, buildLinkedTemplateOrderPdfBlob, documentSpec, linkedTemplatePages.length, markDesignReady, navigate, orderMode, productId, returningToOrder, safeReturnTo, saveApparelSideDraft, requiresCutContour, presetContourTemplate]);
+    }, [queryTenantId, designShopSettings.data?.id, apparelConfig, buildCanvasOrderArtworkDataUrl, buildCanvasOrderPdfBlob, buildCanvasOrderPngBlob, buildLinkedTemplateOrderPdfBlob, documentSpec, linkedTemplatePages.length, markDesignReady, navigate, orderMode, productId, returningToOrder, safeReturnTo, saveApparelSideDraft, requiresCutContour, presetContourTemplate, displayMmToPx, activeTemplatePageIndex, printDpiRecommendation]);
 
     // Save and then navigate back
     const handleSaveAndLeave = async () => {
@@ -2476,9 +2504,9 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             documentHeight: documentSpec.height_mm,
             bleed: documentSpec.bleed_mm,
             safeArea: documentSpec.safe_area_mm || 3,
-            minDPI: 96,
-            targetDPI: 150,
-            optimalDPI: 300,
+            minDPI: printDpiRecommendation,
+            targetDPI: printDpiRecommendation,
+            optimalDPI: printDpiRecommendation,
             mmToPx: displayMmToPx,
         });
 
@@ -2507,7 +2535,7 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             toast.warning(`Preflight fandt ${result.warnings.length} advarsler`);
         }
         return result;
-    }, [documentSpec, displayMmToPx, requiresCutContour, presetContourTemplate]);
+    }, [documentSpec, displayMmToPx, requiresCutContour, presetContourTemplate, printDpiRecommendation]);
 
     // Handle selection changes
     const handleSelectionChange = useCallback((hasSel: boolean, props?: SelectedObjectProps) => {
@@ -3446,6 +3474,8 @@ function DesignerWorkspace({ embedded = false }: { embedded?: boolean }) {
             setActiveTab('preflight');
             return;
         }
+
+        if (checked?.warnings.length && !window.confirm(`${PRINT_QUALITY_RESPONSIBILITY}\n\n${checked.warnings.map(item => [item.message, item.details].filter(Boolean).join(': ')).join('\n\n')}`)) return;
 
         try {
             setSaving(true);

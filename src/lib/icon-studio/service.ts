@@ -1,6 +1,14 @@
+import { selectProductLibraryReference } from '../../../supabase/functions/_shared/iconStudioProductLibrary.ts';
+import { getStudioCapabilities } from './connection';
+import { attachStudioPreviewUrls } from './previewUrls';
+import { selectStudioPackReference } from '../../../supabase/functions/_shared/iconStudioOnlinetryksager.ts';
+import { sameStudioConnection, type StudioConnectionBinding } from '../../../supabase/functions/_shared/iconStudioConnection.ts';
+import type { Json } from "@/integrations/supabase/types";
+import { parseStudioPayload } from "../../../supabase/functions/_shared/iconStudioValidation.ts";
+import { type StudioRecipe, type StudioCollection } from "../../../supabase/functions/_shared/iconStudioRecipe.ts";
 import { supabase } from "@/integrations/supabase/client";
 
-import { generateIconStudioDraftsViaEdge } from "./aiProviderClient";
+import { generateIconStudioDraftsViaEdge, resolveStudioProvider } from "./aiProviderClient";
 import {
   mockIconStudioProvider,
   type IconStudioProviderDraft,
@@ -19,7 +27,7 @@ import type {
 
 const ICON_STUDIO_BUCKET = "icon-studio";
 const PRODUCT_IMAGE_BUCKET = "product-images";
-const ICON_STUDIO_JOB_PAGE_SIZE = 30;
+const ICON_STUDIO_JOB_PAGE_SIZE = 300;
 
 function sanitizeFileName(fileName: string) {
   const cleaned = fileName
@@ -28,19 +36,6 @@ function sanitizeFileName(fileName: string) {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
   return cleaned || "asset";
-}
-
-async function getSignedUrl(storagePath: string, expiresIn = 3600) {
-  const { data, error } = await supabase.storage
-    .from(ICON_STUDIO_BUCKET)
-    .createSignedUrl(storagePath, expiresIn);
-
-  if (error) {
-    console.warn("[icon-studio] failed to create signed URL", error);
-    return null;
-  }
-
-  return data?.signedUrl ?? null;
 }
 
 async function blobToDataUrl(blob: Blob) {
@@ -129,30 +124,32 @@ async function getPreparedReferenceImage(asset: IconStudioReferenceAssetRow, siz
   };
 }
 
-async function attachPreviewUrl<T extends { storage_path: string }>(row: T): Promise<T & { preview_url: string | null }> {
-  const previewUrl = await getSignedUrl(row.storage_path);
-  return {
-    ...row,
-    preview_url: previewUrl,
-  };
+function attachPreviewUrls<T extends { storage_path: string }>(rows:T[]) {
+  return attachStudioPreviewUrls(rows,async paths=>{
+    const result=await supabase.storage.from(ICON_STUDIO_BUCKET).createSignedUrls(paths,3600);
+    if(result.error)console.warn('[icon-studio] preview batch unavailable');
+    return result;
+  });
 }
 
+async function attachPreviewUrl<T extends {storage_path:string}>(row:T) { return (await attachPreviewUrls([row]))[0]; }
+
 export async function listIconStudioReferenceAssets(tenantId: string) {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("icon_studio_reference_assets")
     .select("*")
     .eq("tenant_id", tenantId)
     .order("priority", { ascending: false })
     .order("created_at", { ascending: false })
-    .limit(100);
+    .limit(1000);
 
   if (error) throw error;
 
-  return Promise.all(((data as IconStudioReferenceAssetRow[] | null) || []).map(attachPreviewUrl));
+  return attachPreviewUrls((data as IconStudioReferenceAssetRow[] | null) || []);
 }
 
 export async function listIconStudioBrandAssets(tenantId: string) {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("icon_studio_brand_assets")
     .select("*")
     .eq("tenant_id", tenantId)
@@ -162,11 +159,11 @@ export async function listIconStudioBrandAssets(tenantId: string) {
 
   if (error) throw error;
 
-  return Promise.all(((data as IconStudioBrandAssetRow[] | null) || []).map(attachPreviewUrl));
+  return attachPreviewUrls((data as IconStudioBrandAssetRow[] | null) || []);
 }
 
 export async function listIconStudioJobs(tenantId: string): Promise<IconStudioJobWithOutputs[]> {
-  const { data: jobsData, error: jobsError } = await (supabase as any)
+  const { data: jobsData, error: jobsError } = await supabase
     .from("icon_studio_jobs")
     .select("*")
     .eq("tenant_id", tenantId)
@@ -174,10 +171,10 @@ export async function listIconStudioJobs(tenantId: string): Promise<IconStudioJo
     .limit(ICON_STUDIO_JOB_PAGE_SIZE);
 
   if (jobsError) throw jobsError;
-  const jobs = (jobsData as IconStudioJobRow[] | null) || [];
+  const jobs = (jobsData as unknown as IconStudioJobRow[] | null) || [];
   if (jobs.length === 0) return [];
 
-  const { data: outputsData, error: outputsError } = await (supabase as any)
+  const { data: outputsData, error: outputsError } = await supabase
     .from("icon_studio_job_outputs")
     .select("*")
     .eq("tenant_id", tenantId)
@@ -186,7 +183,7 @@ export async function listIconStudioJobs(tenantId: string): Promise<IconStudioJo
 
   if (outputsError) throw outputsError;
 
-  const hydratedOutputs = await Promise.all(((outputsData as IconStudioJobOutputRow[] | null) || []).map(attachPreviewUrl));
+  const hydratedOutputs = await attachPreviewUrls((outputsData as IconStudioJobOutputRow[] | null) || []);
   const outputsByJob = new Map<string, IconStudioJobOutputRow[]>();
 
   hydratedOutputs.forEach((output) => {
@@ -242,6 +239,26 @@ export async function downloadIconStudioOutput(output: IconStudioJobOutputRow) {
   }
 }
 
+export async function downloadIconStudioCollection(tenantId: string, name: string, jobs: IconStudioJobWithOutputs[]) {
+  const outputs = jobs.map(job => job.outputs.find(output => output.id === job.approved_output_id && output.status === 'approved' && output.tenant_id === tenantId));
+  if (!outputs.length || outputs.some(output => !output)) throw new Error('Godkend alle billeder, før du downloader samlingen.');
+  const { zipSync, strToU8 } = await import('fflate');
+  const files: Record<string, Uint8Array> = {};
+  for (const [index, output] of outputs.entries()) {
+    const blob = await downloadStorageBlob(output!.storage_path);
+    if (!blob) throw new Error('Et billede kunne ikke hentes. Prøv igen.');
+    const job = jobs[index];
+    const filename = `${String(index + 1).padStart(2,'0')}-${job.product_key}-${job.payload.recipe?.viewId || job.variant_key}.${getProductImageExtension(output!.mime_type) || 'svg'}`;
+    files[filename] = new Uint8Array(await blob.arrayBuffer());
+  }
+  files['opskrift.json'] = strToU8(JSON.stringify({ name, items:jobs.map(job=>({ product:job.product_key, recipe:job.payload.recipe, provider:job.provider_key, output:job.payload.output })) },null,2));
+  const packed = zipSync(files,{level:0});
+  const url = URL.createObjectURL(new Blob([packed as BlobPart],{type:'application/zip'}));
+  try {
+    const link = document.createElement('a');link.href=url;link.download=`${sanitizeFileName(name)}.zip`;document.body.appendChild(link);link.click();link.remove();
+  } finally { URL.revokeObjectURL(url); }
+}
+
 export async function applyIconStudioOutputToProduct(params: {
   tenantId: string;
   output: IconStudioJobOutputRow;
@@ -251,7 +268,7 @@ export async function applyIconStudioOutputToProduct(params: {
     throw new Error("Kun et godkendt billede fra den aktuelle shop kan bruges.");
   }
 
-  const { data: storedOutput, error: outputError } = await (supabase as any)
+  const { data: storedOutput, error: outputError } = await supabase
     .from("icon_studio_job_outputs")
     .select("storage_path, mime_type, status")
     .eq("id", params.output.id)
@@ -323,6 +340,7 @@ export async function uploadIconStudioReferenceAsset(params: {
   usageTags: string[];
   priority: number;
   isActive: boolean;
+  metadata?: Record<string, unknown>;
 }) {
   const assetId = crypto.randomUUID();
   const safeName = sanitizeFileName(params.file.name);
@@ -338,7 +356,7 @@ export async function uploadIconStudioReferenceAsset(params: {
 
   if (uploadError) throw uploadError;
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("icon_studio_reference_assets")
     .insert({
       id: assetId,
@@ -355,6 +373,7 @@ export async function uploadIconStudioReferenceAsset(params: {
       mime_type: params.file.type || null,
       file_size_bytes: params.file.size,
       is_active: params.isActive,
+      metadata: JSON.parse(JSON.stringify(params.metadata || {})) as Json,
     })
     .select("*")
     .single();
@@ -385,7 +404,7 @@ export async function uploadIconStudioBrandAsset(params: {
   if (uploadError) throw uploadError;
 
   if (params.isDefault) {
-    const { error: resetError } = await (supabase as any)
+    const { error: resetError } = await supabase
       .from("icon_studio_brand_assets")
       .update({ is_default: false })
       .eq("tenant_id", params.tenantId);
@@ -393,7 +412,7 @@ export async function uploadIconStudioBrandAsset(params: {
     if (resetError) throw resetError;
   }
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("icon_studio_brand_assets")
     .insert({
       id: assetId,
@@ -420,7 +439,7 @@ export async function deleteIconStudioReferenceAsset(asset: Pick<IconStudioRefer
 
   if (removeError) throw removeError;
 
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from("icon_studio_reference_assets")
     .delete()
     .eq("id", asset.id);
@@ -435,7 +454,7 @@ export async function deleteIconStudioBrandAsset(asset: Pick<IconStudioBrandAsse
 
   if (removeError) throw removeError;
 
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from("icon_studio_brand_assets")
     .delete()
     .eq("id", asset.id);
@@ -465,7 +484,7 @@ function getReferenceScore(asset: IconStudioReferenceAssetRow, payload: IconStud
 }
 
 function getReferenceCandidatePool(assets: IconStudioReferenceAssetRow[], payload: IconStudioGenerationPayload) {
-  const productAssets = assets.filter((asset) => asset.is_active && asset.product_key === payload.productKey);
+  const productAssets = assets.filter((asset) => asset.is_active && asset.product_key === payload.productKey && !asset.metadata?.productImageLibrary && !asset.metadata?.referencePackId);
   const styleBankAssets = productAssets.filter((asset) => asset.style_key === payload.styleKey);
 
   return styleBankAssets.length > 0 ? styleBankAssets : productAssets;
@@ -475,6 +494,13 @@ export function resolveBestMatchingReferenceAssets(params: {
   assets: IconStudioReferenceAssetRow[];
   payload: IconStudioGenerationPayload;
 }) {
+  const library = selectProductLibraryReference(params.assets, params.payload.tenantId, params.payload.productKey, params.payload.recipe);
+  if (library) return [library];
+  if (params.payload.recipe?.referencePackId) {
+    const match = selectStudioPackReference(params.assets,params.payload.productKey,params.payload.recipe.productReferenceId);
+    if (!match) throw new Error('Importér en produktreference fra Onlinetryksager-pakken til det valgte produkt først.');
+    return [match];
+  }
   return getReferenceCandidatePool(params.assets, params.payload)
     .map((asset) => ({
       asset,
@@ -486,7 +512,8 @@ export function resolveBestMatchingReferenceAssets(params: {
     .slice(0, params.payload.references.maxAssets);
 }
 
-export async function createIconStudioJob(params: {
+export interface CreateIconStudioJobInput {
+  expectedConnection?: StudioConnectionBinding;
   tenantId: string;
   productKey: IconStudioProductKey;
   styleKey: IconStudioStyleKey;
@@ -500,166 +527,120 @@ export async function createIconStudioJob(params: {
   size: IconStudioOutputSize;
   referenceAssets: IconStudioReferenceAssetRow[];
   brandAssets: IconStudioBrandAssetRow[];
-}) {
-  const payload = buildIconStudioPayload({
-    tenantId: params.tenantId,
-    productKey: params.productKey,
-    styleKey: params.styleKey,
-    variantKey: params.variantKey,
-    brandOverlayEnabled: params.brandOverlayEnabled,
-    brandAssetId: params.brandAssetId ?? null,
-    placementPreset: params.placementPreset as any,
-    finishKey: params.finishKey,
-    format: params.format,
-    size: params.size,
-  });
+  recipe?: StudioRecipe;
+  collection?: StudioCollection;
+  sampleCount?: 1 | 3;
+}
 
-  const matchingReferences = resolveBestMatchingReferenceAssets({
-    assets: params.referenceAssets,
-    payload,
-  });
-
-  const brandAsset = payload.brandOverlay.assetId
-    ? params.brandAssets.find((asset) => asset.id === payload.brandOverlay.assetId) || null
-    : null;
-
-  const { data: authData } = await supabase.auth.getUser();
-  const createdBy = authData.user?.id || null;
-
-  const { data: createdJob, error: createError } = await (supabase as any)
-    .from("icon_studio_jobs")
-    .insert({
+/** Persist the entire plan before starting any provider work. Existing jobs stay intact. */
+export async function prepareIconStudioJobs(inputs: CreateIconStudioJobInput[]): Promise<IconStudioJobRow[]> {
+  if (!inputs.length || inputs.length > 30 || inputs.some(p => p.tenantId !== inputs[0].tenantId)) throw new Error("Ugyldig billedsamling.");
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) throw new Error("Log ind igen for at oprette billeder.");
+  const {provider,connection} = await resolveStudioProvider(inputs[0].tenantId, inputs[0].providerPreference, inputs.some(p=>Boolean(p.recipe?.referencePackId)), inputs.some(p=>Boolean(p.recipe?.compositionVersion)));
+  if (inputs.some(p => p.providerPreference !== inputs[0].providerPreference)) throw new Error("Samlingen skal bruge én billedmotor.");
+  if (inputs.some(p => p.expectedConnection && !sameStudioConnection(p.expectedConnection,connection))) throw new Error("OpenAI-forbindelsen er ændret. Godkend en ny stilprøve før samlingen.");
+  const rows = inputs.map(params => {
+    const payload = buildIconStudioPayload({ ...params, placementPreset: params.placementPreset as never });
+    if (connection) payload.connection = connection;
+    const refs = resolveBestMatchingReferenceAssets({ assets: params.referenceAssets.filter(a => a.tenant_id === params.tenantId), payload });
+    payload.references.referenceAssetIds = refs.map(a => a.id);
+    if (payload.brandOverlay.enabled && !params.brandAssets.some(a => a.id === payload.brandOverlay.assetId && a.tenant_id === params.tenantId)) throw new Error("Logoet findes ikke i denne shop.");
+    return {
       tenant_id: params.tenantId,
-      job_name: `${params.productKey}-${params.styleKey}-${params.variantKey}`,
-      product_key: params.productKey,
-      style_key: params.styleKey,
-      variant_key: params.variantKey,
-      status: "processing",
-      provider_key: params.providerPreference === "auto"
-        ? "auto"
-        : params.providerPreference === "mock"
-          ? mockIconStudioProvider.key
-          : `${params.providerPreference}-requested`,
-      payload,
-      resolved_reference_asset_ids: matchingReferences.map((asset) => asset.id),
-      selected_brand_asset_id: payload.brandOverlay.assetId,
-      created_by: createdBy,
-    })
-    .select("*")
-    .single();
-
-  if (createError) throw createError;
-
-  const job = createdJob as IconStudioJobRow;
-
-  try {
-    const brandAssetDataUrl = brandAsset?.storage_path
-      ? await getDataUrl(brandAsset.storage_path)
-      : null;
-    const referenceImages = (
-      await Promise.all(
-        matchingReferences.map((asset) =>
-          getPreparedReferenceImage(asset, Math.min(payload.output.size, 512)),
-        ),
-      )
-    ).filter((entry): entry is IconStudioReferenceImageInput => Boolean(entry));
-
-    if (params.providerPreference !== "mock" && payload.output.format === "svg") {
-      throw new Error("SVG output understøttes kun af Mock provider i V1. Vælg PNG for OpenAI eller Gemini.");
-    }
-
-    const generationInput = {
-      payload,
-      brandAsset,
-      brandAssetDataUrl,
-      referenceAssets: matchingReferences,
-      referenceImages,
+      job_name: params.collection?.name || `${params.productKey}-${params.styleKey}-${params.variantKey}`,
+      product_key: params.productKey, style_key: params.styleKey, variant_key: params.variantKey,
+      status: "draft", provider_key: provider,
+      payload: JSON.parse(JSON.stringify(payload)) as Json, resolved_reference_asset_ids: refs.map(a => a.id),
+      selected_brand_asset_id: payload.brandOverlay.assetId, created_by: authData.user.id,
     };
+  });
+  if (inputs.some(p => p.recipe?.libraryReferenceId) && (await getStudioCapabilities(inputs[0].tenantId)).productLibraryVersion !== 1) throw new Error("Billedmotoren skal opdateres, før biblioteksbilleder kan bruges. Ingen billedopgave er oprettet.");
+  const { data, error } = await supabase.from("icon_studio_jobs").insert(rows).select("*");
+  if (error || !data || data.length !== rows.length) throw error || new Error("Billedplanen kunne ikke gemmes.");
+  return data as unknown as IconStudioJobRow[];
+}
 
-    let providerKey = mockIconStudioProvider.key;
+/** A queued item is claimed once. Interrupted processing is never blindly resumed. */
+export async function runIconStudioJob(jobId: string, tenantId: string, references: IconStudioReferenceAssetRow[], brandAssets: IconStudioBrandAssetRow[]) {
+  const { data, error } = await supabase.from("icon_studio_jobs").select("*").eq("tenant_id", tenantId).eq("id", jobId).single();
+  if (error || !data) throw error || new Error("Billedopgaven findes ikke.");
+  const job = data as unknown as IconStudioJobRow;
+  if (job.status !== "draft") throw new Error("Opgaven er allerede startet. Opdater status før et nyt forsøg.");
+  const payload = parseStudioPayload(job.payload, tenantId);
+  const preference = job.provider_key as IconStudioProviderPreference;
+  if (!["auto","mock","openai","gemini"].includes(preference)) throw new Error("Ukendt billedmotor.");
+  let claimed = false;
+  try {
+    const matchingReferences = payload.references.referenceAssetIds.map(id => {
+      const asset = references.find(a => a.id === id && a.tenant_id === tenantId);
+      if (!asset) throw new Error("En gemt stilreference mangler. Opret en ny opgave med de aktuelle referencer.");
+      return asset;
+    });
+    const brandAsset = brandAssets.find(a => a.id === payload.brandOverlay.assetId && a.tenant_id === tenantId) || null;
+    const brandAssetDataUrl = brandAsset ? await getDataUrl(brandAsset.storage_path) : null;
+    if (payload.brandOverlay.enabled && !brandAssetDataUrl) throw new Error("Det valgte logo kunne ikke hentes.");
+    const referenceImages = await Promise.all(matchingReferences.map(a => getPreparedReferenceImage(a, 512)));
+    if (referenceImages.some(image => !image)) throw new Error("En stilreference kunne ikke hentes.");
+    const generationInput = { jobId, payload, brandAsset, brandAssetDataUrl, referenceAssets: matchingReferences, referenceImages: referenceImages as IconStudioReferenceImageInput[] };
+    let providerKey: string;
     let drafts: IconStudioProviderDraft[];
-
-    if (params.providerPreference === "mock") {
+    if (preference === "mock") {
+      const claim = await supabase.from("icon_studio_jobs").update({status:"processing"}).eq("tenant_id",tenantId).eq("id",jobId).eq("status","draft").select("id").single();
+      if (claim.error || !claim.data) throw new Error("En anden session har allerede startet opgaven.");
+      claimed = true;
+      providerKey = mockIconStudioProvider.key;
       drafts = await mockIconStudioProvider.generateDrafts(generationInput);
     } else {
-      try {
-        const edgeResult = await generateIconStudioDraftsViaEdge({
-          ...generationInput,
-          providerPreference: params.providerPreference,
-        });
-        providerKey = edgeResult.providerKey;
-        drafts = edgeResult.drafts;
-      } catch (error: any) {
-        if (params.providerPreference !== "auto") {
-          throw error;
-        }
-
-        providerKey = mockIconStudioProvider.key;
-        drafts = await mockIconStudioProvider.generateDrafts(generationInput);
-      }
+      if (payload.output.format !== "png") throw new Error("Billedmotoren understøtter PNG. Vælg PNG og prøv igen.");
+      // The Edge handler claims the persisted job before making a paid request.
+      const result = await generateIconStudioDraftsViaEdge({ ...generationInput, providerPreference: preference });
+      claimed = true;
+      providerKey = result.providerKey;
+      drafts = result.drafts;
     }
-
-    const outputRows = await Promise.all(
-      drafts.map(async (draft) => {
-        const outputId = crypto.randomUUID();
-        const storagePath = `tenant/${params.tenantId}/jobs/${job.id}/${outputId}.${draft.extension}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from(ICON_STUDIO_BUCKET)
-          .upload(storagePath, draft.blob, {
-            cacheControl: "3600",
-            upsert: false,
-            contentType: draft.contentType,
-          });
-
-        if (uploadError) throw uploadError;
-
-        return {
-          id: outputId,
-          tenant_id: params.tenantId,
-          job_id: job.id,
-          label: draft.label,
-          kind: "draft",
-          status: "active",
-          storage_path: storagePath,
-          mime_type: draft.contentType,
-          width_px: draft.width,
-          height_px: draft.height,
-          metadata: draft.metadata,
-        };
-      }),
-    );
-
-    const { error: outputInsertError } = await (supabase as any)
-      .from("icon_studio_job_outputs")
-      .insert(outputRows);
-
-    if (outputInsertError) throw outputInsertError;
-
-    const { error: jobUpdateError } = await (supabase as any)
-      .from("icon_studio_jobs")
-      .update({
-        status: "ready_for_review",
-        provider_key: providerKey,
-        resolved_reference_asset_ids: matchingReferences.map((asset) => asset.id),
-        error_message: null,
-      })
-      .eq("id", job.id);
-
-    if (jobUpdateError) throw jobUpdateError;
-
-    return job.id;
-  } catch (error: any) {
-    await (supabase as any)
-      .from("icon_studio_jobs")
-      .update({
-        status: "failed",
-        error_message: error?.message || "Mock generation failed.",
-      })
-      .eq("id", job.id);
-
+    // Store items individually: a later storage error must not erase earlier results.
+    for (const draft of drafts) {
+      const outputId = crypto.randomUUID();
+      const storagePath = `tenant/${tenantId}/jobs/${jobId}/${outputId}.${draft.extension}`;
+      const upload = await supabase.storage.from(ICON_STUDIO_BUCKET).upload(storagePath, draft.blob, { cacheControl:"3600", upsert:false, contentType:draft.contentType });
+      if (upload.error) throw upload.error;
+      const insert = await supabase.from("icon_studio_job_outputs").insert({ id:outputId, tenant_id:tenantId, job_id:jobId, label:draft.label, kind:"draft", status:"active", storage_path:storagePath, mime_type:draft.contentType, width_px:draft.width, height_px:draft.height, metadata:JSON.parse(JSON.stringify(draft.metadata)) as Json });
+      if (insert.error) throw insert.error;
+    }
+    const saved = await supabase.from("icon_studio_jobs").update({ status:"ready_for_review", provider_key:providerKey, error_message:null }).eq("tenant_id",tenantId).eq("id",jobId).select("id").single();
+    if (saved.error || !saved.data) throw saved.error || new Error("Resultatet kunne ikke afsluttes.");
+    return jobId;
+  } catch (error) {
+    // An unknown Edge outcome stays processing. It may already have incurred cost.
+    if (claimed) {
+      await supabase.from("icon_studio_jobs").update({ status:"failed", error_message:error instanceof Error ? error.message : "Billedet kunne ikke oprettes." }).eq("tenant_id",tenantId).eq("id",jobId);
+    }
     throw error;
   }
+}
+
+export async function createIconStudioJob(params: CreateIconStudioJobInput) {
+  const [job] = await prepareIconStudioJobs([params]);
+  return runIconStudioJob(job.id, params.tenantId, params.referenceAssets, params.brandAssets);
+}
+
+export async function retryIconStudioJob(job: IconStudioJobWithOutputs, newDraft = false) {
+  const expectedStatus = newDraft ? "ready_for_review" : "failed";
+  if (job.status !== expectedStatus || (newDraft ? !job.outputs.length : Boolean(job.outputs.length))) throw new Error(newDraft ? "Kun udkast til gennemsyn kan få et nyt forslag." : "Kun fejlede opgaver uden gemte billeder kan forsøges igen.");
+  const original = await supabase.from("icon_studio_jobs").select("*").eq("id",job.id).eq("tenant_id",job.tenant_id).eq("status",expectedStatus).single();
+  if (original.error || !original.data) throw new Error("Opdater opgaven før et nyt forsøg.");
+  const existing = await supabase.from("icon_studio_job_outputs").select("id").eq("job_id",job.id).eq("tenant_id",job.tenant_id).limit(1);
+  if (existing.error || (newDraft ? !existing.data?.length : Boolean(existing.data?.length))) throw new Error("Billedopgavens status er ændret. Opdater før et nyt forsøg.");
+  const payload = parseStudioPayload(original.data.payload, job.tenant_id);
+  const {data: auth,error: authError} = await supabase.auth.getUser();
+  if (authError || !auth.user) throw new Error("Log ind igen for at prøve igen.");
+  const previousProvider = original.data.provider_key;
+  const provider = previousProvider === 'openai-image-v1' ? 'openai' : previousProvider === 'gemini-image-v1' ? 'gemini' : previousProvider === 'mock-icon-studio-v1' ? 'mock' : previousProvider;
+  if (!["openai","gemini","mock"].includes(provider)) throw new Error("Vælg en billedmotor og opret en ny opgave.");
+  const result = await supabase.from("icon_studio_jobs").insert({ tenant_id:job.tenant_id, job_name:original.data.job_name, product_key:payload.productKey, style_key:payload.styleKey, variant_key:payload.variantKey, status:"draft", provider_key:provider, payload:JSON.parse(JSON.stringify(payload)) as Json, resolved_reference_asset_ids:payload.references.referenceAssetIds, selected_brand_asset_id:payload.brandOverlay.assetId, created_by:auth.user.id }).select("*").single();
+  if (result.error || !result.data) throw result.error || new Error("Nyt forsøg kunne ikke gemmes.");
+  return result.data as unknown as IconStudioJobRow;
 }
 
 export async function approveIconStudioOutput(params: {
@@ -667,7 +648,7 @@ export async function approveIconStudioOutput(params: {
   jobId: string;
   outputId: string;
 }) {
-  const archiveResult = await (supabase as any)
+  const archiveResult = await supabase
     .from("icon_studio_job_outputs")
     .update({ status: "archived" })
     .eq("tenant_id", params.tenantId)
@@ -676,7 +657,7 @@ export async function approveIconStudioOutput(params: {
 
   if (archiveResult.error) throw archiveResult.error;
 
-  const approveResult = await (supabase as any)
+  const approveResult = await supabase
     .from("icon_studio_job_outputs")
     .update({
       kind: "final",
@@ -688,7 +669,7 @@ export async function approveIconStudioOutput(params: {
 
   if (approveResult.error) throw approveResult.error;
 
-  const jobResult = await (supabase as any)
+  const jobResult = await supabase
     .from("icon_studio_jobs")
     .update({
       status: "approved",

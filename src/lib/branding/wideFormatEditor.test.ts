@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import type { BrandingData } from '@/hooks/useBrandingDraft';
+import { WIDE_FORMAT_DESIGNS } from './wideFormatDesigns';
+import { signalSettings } from './pvcbannerSettings';
+import { resolveWideFormatEditorBranding as resolve, wideFormatEditorPatch as patch, withWideFormatSection, wideFormatSectionIsShared } from './wideFormatEditor';
+const original = () => ({themeId:'print-nordic',themeSettings:{shopFamily:'wide-format',untouched:'keep',sharedButtons:{version:1,bank:[],overrides:{}}},shop_name:'Our Shop',fonts:{heading:'Inter',body:'Inter',pricing:'Inter'},colors:{primary:'#123456',background:'#ffffff'},header:{logoText:'Our Shop'},hero:{images:[],overlay:{title:'Conventional hero'}},forside:{contentBlocks:[],lowerInfo:{enabled:false},productsSection:{enabled:true}},seoContent:{enabled:false,items:[]},productPage:{matrix:{priceData:'protected'}}}) as unknown as BrandingData;
+const apply = (base:BrandingData, change:Partial<BrandingData>) => ({...base,...patch(base,change)});
+for (const design of WIDE_FORMAT_DESIGNS) test(`${design.id}: full editor fields persist across reload and family switch`, () => {
+ let base=original();base.themeSettings.wideFormatDesign=design.id;
+ const before=JSON.stringify(base);
+ const effective=resolve(base);
+ base=apply(base,{hero:{...effective.hero,overlay:{...effective.hero.overlay,title:`${design.id} banner`}},footer:{copyrightText:'Saved footer'} as BrandingData['footer'],forside:{...effective.forside,contentBlocks:[{id:'block',enabled:true,heading:'Extra section'} as BrandingData['forside']['contentBlocks'][number]]},favicon:{type:'preset',presetId:'printer',presetColor:'#123456',customUrl:null}});
+ base=apply(base,withWideFormatSection(resolve(base),'banner',true));
+ const restored=JSON.parse(JSON.stringify(base));
+ assert.equal(resolve(restored).hero.overlay.title,`${design.id} banner`);
+ assert.equal(resolve(restored).forside.contentBlocks[0].heading,'Extra section');
+ assert.equal(wideFormatSectionIsShared(restored,'banner'),true);
+ const other={...restored,themeSettings:{...restored.themeSettings,wideFormatDesign:design.id==='signal'?'fieldwork':'signal'}};
+ assert.notEqual(resolve(other).hero.overlay.title,`${design.id} banner`);
+ assert.equal(wideFormatSectionIsShared(other,'banner'),false);
+ const conventional={...restored,themeSettings:{...restored.themeSettings,shopFamily:'webprinter'}};
+ assert.equal(resolve(conventional).hero.overlay.title,'Conventional hero');
+ assert.equal(resolve(conventional).themeId,'print-nordic');
+ assert.equal(base.hero.overlay.title,JSON.parse(before).hero.overlay.title);
+ assert.deepEqual(base.productPage,JSON.parse(before).productPage);
+});
+test('palette, fonts and shared button bank use the active recipe only',()=>{
+ let base=original();base.themeSettings.wideFormatDesign='nordic-atelier';
+ const b=resolve(base);
+ base=apply(base,{colors:{...b.colors,primary:'#aa1122'},fonts:{...b.fonts,heading:'Lora'},themeSettings:{...b.themeSettings,sharedButtons:{version:1,bank:[{id:'my-button'}],overrides:{}}}});
+ assert.equal(signalSettings(base).primary,'#aa1122');assert.equal(signalSettings(base).headingFont,'Lora');
+ assert.deepEqual((resolve(base).themeSettings.sharedButtons as {bank:unknown[]}).bank,[{id:'my-button'}]);
+ assert.deepEqual((base.themeSettings.sharedButtons as {bank:unknown[]}).bank,[]);
+ assert.equal(base.themeSettings.untouched,'keep');
+ const other={...base,themeSettings:{...base.themeSettings,wideFormatDesign:'fieldwork'}};
+ assert.notEqual(resolve(other).colors.primary,'#aa1122');
+ assert.equal(resolve(resolve(base)).hero.overlay.title,resolve(base).hero.overlay.title);
+});
+test('conventional updates stay on their original path and legacy PVC opts in only in its tenant',()=>{
+ const base=original();base.themeSettings.shopFamily='webprinter';
+ const change={colors:{...base.colors,primary:'#112233'}};
+ assert.equal(patch(base,change),change);assert.equal(resolve(base),base);
+ delete base.themeSettings.shopFamily;
+ assert.equal(resolve(base),base);
+ assert.equal(resolve(base,'cd3c7d7b-2220-46b8-93cf-096de23e93d8').themeSettings.shopFamily,'wide-format');
+});

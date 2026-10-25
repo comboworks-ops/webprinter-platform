@@ -1,0 +1,12 @@
+{
+  "pullRequest": "https://github.com/comboworks-ops/webprinter-platform/pull/19",
+  "branch": "codex/rea-records-and-release-2026-10-25",
+  "sourceRecordCommit": "6b930e1efa285938fc6514d6b5ea362781c8050b",
+  "liveScopeAuthorized": true,
+  "allTenShopAliasesLive": true,
+  "mainMerged": false,
+  "globalPromotionUsed": false,
+  "sourceFilesVerified": 8337,
+  "backendOrTenantStateChanged": false,
+  "localPilotsActivated": false
+}

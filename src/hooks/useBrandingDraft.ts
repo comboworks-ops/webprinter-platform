@@ -727,6 +727,8 @@ export interface ForsideProductsSection {
     presentationMotion?: boolean;
     presentationTitle?: string;
     presentationSubtitle?: string;
+    /** Background of Printstudio's product table, saved with this design. */
+    studioBackgroundImageUrl?: string;
     enabled: boolean;
     columns: 3 | 4 | 5;
     layoutStyle: 'cards' | 'flat' | 'grouped' | 'slim';

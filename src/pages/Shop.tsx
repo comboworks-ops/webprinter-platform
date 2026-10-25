@@ -1,3 +1,5 @@
+import { usesWideFormat } from '@/lib/branding/wideFormatDesigns';
+import { PvcbannerStorefront, PVCBANNER_TENANT_ID } from '@/components/sites/PvcbannerStorefront';
 import { selectPrintDesignPreset, PRINT_HOME_DESIGN_CHOICES } from "@/lib/branding/printDesignPresets";
 import { mergeBrandingWithDefaults } from "@/lib/branding";
 import { useSearchParams } from "react-router-dom";
@@ -139,6 +141,8 @@ const Shop = () => {
       window.removeEventListener("message", handleMessage);
     };
   }, [editMode]);
+
+  if (usesWideFormat(branding, settings?.id)) return <PvcbannerStorefront branding={branding} />;
 
   if (shouldRenderActiveSite && activeSiteId) {
     return (

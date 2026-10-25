@@ -14,10 +14,11 @@ import { FolderUploadLogin } from './FolderUploadLogin';
 interface ArtworkContext { model: ApprovedPrintModel; templateHash: string; tenantId: string; productId: string }
 
 /** Reuses the product gallery slot above the price matrix. Does not own order state. */
-export function ProductPrintMedia({ gallery, preview, color, artworkContext, onArtworkUploaded }: {
+export function ProductPrintMedia({ gallery, preview, color, artworkContext, onArtworkUploaded, stablePhotoFrame = false }: {
   gallery: ReactNode;
   preview: ApprovedPrintModel | null;
   color?: string;
+  stablePhotoFrame?: boolean;
   artworkContext?: ArtworkContext;
   onArtworkUploaded?: (draft: ProductFolderUpload | null) => void;
 }) {
@@ -84,7 +85,7 @@ export function ProductPrintMedia({ gallery, preview, color, artworkContext, onA
   return <Tabs className="product-folder-media product-print-media" value={activeView} onValueChange={setView}>
     <TabsList aria-label="Produktvisning" className="product-folder-media-switch">
       <TabsTrigger value="photo"><ImageIcon size={16} /> Produktbillede</TabsTrigger>
-      <TabsTrigger value="3d" disabled={!preview}><Box size={16} /> Se produktet i 3D</TabsTrigger>
+      <TabsTrigger value="3d" disabled={!preview} title={!preview ? '3D-visning er endnu ikke klar til denne variant.' : undefined}><Box size={16} /> Se produktet i 3D</TabsTrigger>
     </TabsList>
     <TabsContent value="photo">{gallery}</TabsContent>
     <TabsContent value="3d">
@@ -110,6 +111,6 @@ export function ProductPrintMedia({ gallery, preview, color, artworkContext, onA
         </>}
       </div>}
     </TabsContent>
-    {!preview && <p className="product-folder-unavailable">3D-visning er endnu ikke klar til denne variant.</p>}
+    {!preview && !stablePhotoFrame && <p className="product-folder-unavailable">3D-visning er endnu ikke klar til denne variant.</p>}
   </Tabs>;
 }

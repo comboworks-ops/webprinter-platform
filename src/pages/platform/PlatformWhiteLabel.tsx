@@ -45,7 +45,7 @@ const PlatformWhiteLabel = () => {
                         </p>
                         <Link to="/opret-shop">
                             <Button size="lg" className="gap-2">
-                                Start gratis prøveperiode <ArrowRight className="w-4 h-4" />
+                                Opret din shop <ArrowRight className="w-4 h-4" />
                             </Button>
                         </Link>
                     </div>
@@ -118,11 +118,14 @@ const PlatformWhiteLabel = () => {
                 <div className="container px-4 mx-auto text-center">
                     <h2 className="text-3xl font-bold mb-4">Klar til at starte?</h2>
                     <p className="text-lg opacity-90 mb-8 max-w-xl mx-auto">
-                        Prøv Webprinter Platform gratis i 14 dage. Ingen kreditkort nødvendigt.
+                        Opret først din konto, og vælg derefter abonnement i administrationen.
+                        Prøveperioden starter, når du har gennemført abonnementets checkout.
+                        Se priser, produktgrænser og funktioner på{' '}
+                        <Link to="/priser" className="no-link-color text-inherit underline underline-offset-4">prissiden</Link>.
                     </p>
                     <Link to="/opret-shop">
                         <Button size="lg" variant="secondary" className="gap-2">
-                            Start gratis prøveperiode <ArrowRight className="w-4 h-4" />
+                            Opret din shop <ArrowRight className="w-4 h-4" />
                         </Button>
                     </Link>
                 </div>

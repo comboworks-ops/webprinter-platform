@@ -1,3 +1,6 @@
+import { resolveWideElementSelection } from '@/lib/branding/wideFormatElements';
+import { usesWideFormat } from '@/lib/branding/wideFormatDesigns';
+import { PvcbannerStorefront, PVCBANNER_TENANT_ID } from '@/components/sites/PvcbannerStorefront';
 import { WorkspacePreviewEditor } from '@/components/product-price-page/WorkspacePreviewEditor';
 import ProductPrice from '@/pages/ProductPrice';
 import { useOrderFlowDesign } from "@/hooks/useOrderFlowDesign";
@@ -141,6 +144,10 @@ function getUSPItemClassName(settings?: { mode?: string }) {
 }
 
 function resolveSiteDesignPreviewElement(target: HTMLElement | null): HTMLElement | null {
+    const wideTarget = resolveWideElementSelection(target);
+    if (wideTarget) return wideTarget.element as HTMLElement;
+    const signalTarget = target?.closest?.('[data-signal-section]') as HTMLElement | null;
+    if (signalTarget) return signalTarget;
     const directSiteDesignTarget = target?.closest?.('[data-site-design-target]') as HTMLElement | null;
     if (directSiteDesignTarget) {
         return directSiteDesignTarget;
@@ -219,7 +226,19 @@ function PreviewNavigationGuard({ children }: { children: React.ReactNode }) {
  * Uses the same themed storefront frame as live routes while still supporting
  * virtual page switching inside the preview iframe.
  */
-function PreviewShopContent({ currentPage, onNavigate }: { currentPage: string; onNavigate: (path: string) => void }) {
+export function PreviewShopContent({ currentPage, onNavigate, editMode }: { currentPage: string; onNavigate: (path: string) => void; editMode: boolean }) {
+    useEffect(() => {
+        const navigate = (event: Event) => {
+            const requested = (event as CustomEvent).detail;
+            const path = typeof requested === 'string' && requested.startsWith('/checkout') ? '/checkout' : requested;
+            if (typeof path === 'string' && /^\/(?:$|produkter(?:\?|$)|produkt\/|checkout(?:\/|$)|kontakt(?:\?|$)|om-os(?:\?|$)|grafisk-vejledning(?:\?|$)|vilkaar(?:\?|$)|privatliv(?:\?|$)|cookies(?:\?|$))/.test(path)) {
+                onNavigate(path); window.scrollTo(0, 0);
+            }
+        };
+        window.addEventListener('pvc-native-navigate', navigate);
+        return () => window.removeEventListener('pvc-native-navigate', navigate);
+    }, [onNavigate]);
+
     const { branding, tenantName } = usePreviewBranding();
     const [workspaceParams] = useSearchParams();
     const workspaceMode = workspaceParams.get("productWorkspace");
@@ -312,6 +331,10 @@ function PreviewShopContent({ currentPage, onNavigate }: { currentPage: string; 
         );
     };
 
+    if (usesWideFormat(resolvedBranding,workspaceParams.get('tenantId') || workspaceParams.get('tenant_id')) && ['/', '/shop', '/produkter'].includes(currentPathname)) {
+        return <PvcbannerStorefront branding={resolvedBranding} previewPath={currentPage === '/shop' ? '/' : currentPage} editMode={editMode} onNavigate={onNavigate} />;
+    }
+
     if (currentPathname.startsWith('/produkt/')) {
         return <ProductPrice workspacePreview={Boolean(workspaceMode)} previewSlug={getSiteDesignPreviewProductSlug(currentPage) || undefined} cardPreview={workspaceMode === 'card'} />;
     }
@@ -319,7 +342,7 @@ function PreviewShopContent({ currentPage, onNavigate }: { currentPage: string; 
     // The customer designer and proof/payment/receipt surfaces occupy the screen.
     // Keep the same presentation here, without a second shop header or footer.
     if (orderPage && orderPage !== 'calculator' && orderPage !== 'checkout') {
-        if (!resolvePrintJourney(resolvedBranding)) return renderPageContent();
+        if (!resolvePrintJourney(resolvedBranding) && !usesWideFormat(resolvedBranding,workspaceParams.get('tenantId') || workspaceParams.get('tenant_id'))) return renderPageContent();
         return <StorefrontThemeFrame branding={resolvedBranding} orderDesign={orderDesign}
             tenantName={resolvedTenantName} contentOnly isPreviewMode>{renderPageContent()}</StorefrontThemeFrame>;
     }
@@ -340,7 +363,7 @@ function PreviewShopContent({ currentPage, onNavigate }: { currentPage: string; 
 /**
  * Preview Shop Page - Renders the REAL shop page with draft branding for admin preview.
  * Protected route - requires admin access.
- *
+ * 
  * Key Features:
  * - Shows actual ProductGrid with real tenant products and their icons
  * - Applies draft branding (fonts, colors) via CSS variables
@@ -594,7 +617,8 @@ export default function PreviewShop() {
                         e.preventDefault();
                         e.stopPropagation();
                     }
-                    const sectionId = brandingElement.getAttribute('data-site-design-target')
+                    const wideSelection = resolveWideElementSelection(target);
+                    const sectionId = (wideSelection ? `wide-element:${wideSelection.id}` : null) || brandingElement.getAttribute('data-signal-section') || brandingElement.getAttribute('data-site-design-target')
                         || brandingElement.getAttribute('data-branding-id')
                         || brandingElement.getAttribute('data-click-to-edit');
 
@@ -747,7 +771,7 @@ export default function PreviewShop() {
                 initialTenantName={tenantName}
                 previewPath={currentPage}
             >
-                <WorkspacePreviewEditor enabled={editMode && searchParams.has("productWorkspace")}><PreviewShopContent currentPage={currentPage} onNavigate={setCurrentPage} /></WorkspacePreviewEditor>
+                <WorkspacePreviewEditor enabled={editMode && searchParams.has("productWorkspace")}><PreviewShopContent currentPage={currentPage} onNavigate={setCurrentPage} editMode={editMode} /></WorkspacePreviewEditor>
             </PreviewBrandingProvider>
 
             {editMode && !searchParams.has("productWorkspace") && (

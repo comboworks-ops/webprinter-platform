@@ -12,7 +12,10 @@ export type ProductPresentationSettings = {
   presentationMotion?: boolean;
   presentationTitle?: string;
   presentationSubtitle?: string;
+  studioBackgroundImageUrl?: string;
 };
+
+export const DEFAULT_PRINT_STUDIO_BACKGROUND = '/product-presentations/studio-surface.png';
 
 export function resolveProductPresentation(value: unknown): ProductPresentationId {
   return PRODUCT_PRESENTATIONS.some(item => item.id === value) ? value as ProductPresentationId : 'standard';

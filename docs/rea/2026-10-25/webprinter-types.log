@@ -1,0 +1,5 @@
+src/lib/products/rollLabelSpecialShapeProposal.test.ts(9,44): error TS2307: Cannot find module '../../../scripts/product-import/shared/load-roll-label-contour-metadata.js' or its corresponding type declarations.
+src/lib/products/rollLabelSpecialShapeProposal.test.ts(10,48): error TS2307: Cannot find module '../../../scripts/product-import/shared/load-roll-label-motif-page-dimensions.js' or its corresponding type declarations.
+src/lib/products/rollLabelSpecialShapeProposal.test.ts(11,51): error TS2307: Cannot find module '../../../scripts/product-import/shared/load-roll-label-motif-rectangle-geometry.js' or its corresponding type declarations.
+src/lib/products/rollLabelSpecialShapeProposal.test.ts(12,42): error TS2307: Cannot find module '../../../scripts/product-import/shared/load-roll-label-coding-options.js' or its corresponding type declarations.
+src/lib/products/rollLabelStockDisplay.test.ts(5,42): error TS2307: Cannot find module '../../../scripts/product-import/shared/roll-label-stock-display.js' or its corresponding type declarations.

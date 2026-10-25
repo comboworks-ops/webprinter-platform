@@ -1,0 +1,10 @@
+{
+  "group": "pvc-sales",
+  "focusedTestsPass": true,
+  "testCount": 35,
+  "typecheckMatchesBaseline": true,
+  "baselineTypeDiagnostics": 5,
+  "lintMessagesBefore": 106,
+  "lintMessagesAfter": 106,
+  "newLintMessages": 0
+}

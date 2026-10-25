@@ -1,0 +1,15 @@
+{
+  "group": "pvc-sales",
+  "deployment": "dpl_3ZWANcUtqFzxy4raha4Eu7bV3KL9",
+  "url": "printmaker-web-craft-main-m48x4jqwk-thomas-projects-d80b9ddd.vercel.app",
+  "readyState": "READY",
+  "verifiedSourceFiles": 1870,
+  "exactScopedChangeOnly": true,
+  "entry": "/assets/index-DpupaniJ.js",
+  "entrySha256": "edf1921153e1d3425309f9b9129eb44f00a0d0c1f9791bba62a927f045e3c7c7",
+  "verifiedChunks": [
+    "/assets/index-DpupaniJ.js"
+  ],
+  "compiledGuidanceAndApprovalPolicyVerified": true,
+  "httpStatus": 200
+}

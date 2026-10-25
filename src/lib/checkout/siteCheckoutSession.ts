@@ -1,3 +1,4 @@
+import type { PrintWarningApproval } from './printQualityPolicy';
 import type { BrochureFreeSelection } from '../pricing/brochureFreePricing';
 import type { RollLabelSelection } from '../products/rollLabelConfiguration';
 const SITE_CHECKOUT_SESSION_KEY = "wp_site_checkout_session";
@@ -24,6 +25,8 @@ export interface SiteCheckoutUpload {
 }
 
 export interface SiteCheckoutDesignerExport {
+  printWarnings?: string[];
+  recommendedDpi?: number;
   sha256?: string | null;
   name?: string | null;
   mimeType?: string | null;
@@ -97,6 +100,8 @@ export interface SiteCheckoutCustomerDraft {
 }
 
 export interface SiteCheckoutState {
+  printWarningApproval?: PrintWarningApproval | null;
+  checkoutTenantId?: string | null;
   proofApprovalRequired?: boolean;
   checkoutInstanceId?: string | null;
   companyId?: string | null;

@@ -1,0 +1,62 @@
+[
+  {
+    "group": "webprinter",
+    "deployment": "dpl_Edtv5bbmTabSpaJ6DYBjyz9n9oB5",
+    "url": "printmaker-web-craft-main-a4trlhawk-thomas-projects-d80b9ddd.vercel.app",
+    "readyState": "READY",
+    "verifiedSourceFiles": 1873,
+    "exactScopedChangeOnly": true,
+    "entry": "/assets/index-DeLtk_J1.js",
+    "entrySha256": "6ec1478d7cb4af3f1c7dc89985e3b51e0f289be2d3b4787c0b1e6a76832fb19d",
+    "verifiedChunks": [
+      "/assets/index-DeLtk_J1.js"
+    ],
+    "compiledGuidanceAndApprovalPolicyVerified": true,
+    "httpStatus": 200
+  },
+  {
+    "group": "online",
+    "deployment": "dpl_BCmPZcEAH2bjB1nTkPqcmh5n7WAC",
+    "url": "printmaker-web-craft-main-m7g6us86y-thomas-projects-d80b9ddd.vercel.app",
+    "readyState": "READY",
+    "verifiedSourceFiles": 1866,
+    "exactScopedChangeOnly": true,
+    "entry": "/assets/index-DSqLF6-M.js",
+    "entrySha256": "e26229acb4b95bd303ccd38f904f22701b6f151a96123f7ffb1bf875c3697841",
+    "verifiedChunks": [
+      "/assets/index-DSqLF6-M.js"
+    ],
+    "compiledGuidanceAndApprovalPolicyVerified": true,
+    "httpStatus": 200
+  },
+  {
+    "group": "pvc-sales",
+    "deployment": "dpl_3ZWANcUtqFzxy4raha4Eu7bV3KL9",
+    "url": "printmaker-web-craft-main-m48x4jqwk-thomas-projects-d80b9ddd.vercel.app",
+    "readyState": "READY",
+    "verifiedSourceFiles": 1870,
+    "exactScopedChangeOnly": true,
+    "entry": "/assets/index-DpupaniJ.js",
+    "entrySha256": "edf1921153e1d3425309f9b9129eb44f00a0d0c1f9791bba62a927f045e3c7c7",
+    "verifiedChunks": [
+      "/assets/index-DpupaniJ.js"
+    ],
+    "compiledGuidanceAndApprovalPolicyVerified": true,
+    "httpStatus": 200
+  },
+  {
+    "group": "general",
+    "deployment": "dpl_9vjfMCTx65gcbh2m5vFZXuDjTeSw",
+    "url": "printmaker-web-craft-main-h7a4fkvhf-thomas-projects-d80b9ddd.vercel.app",
+    "readyState": "READY",
+    "verifiedSourceFiles": 2728,
+    "exactScopedChangeOnly": true,
+    "entry": "/assets/index-DXQvhvSv.js",
+    "entrySha256": "8167ea5fa5e76aa2a317706c960016df2f4958ba884bd9ec343378f6c1e00f57",
+    "verifiedChunks": [
+      "/assets/index-DXQvhvSv.js"
+    ],
+    "compiledGuidanceAndApprovalPolicyVerified": true,
+    "httpStatus": 200
+  }
+]

@@ -1,3 +1,4 @@
+import { wideFormatDesign } from './wideFormatDesigns.ts';
 /** The displayed option numbers approved by Thomas on 8 September 2026. */
 export const ORDER_FLOW_DESIGNS = [
   { page: 'calculator', label: 'Produkt & pris', default: 2, alternative: 1, names: ['Nordic Product Studio', 'Precise Matrix'] },
@@ -18,9 +19,16 @@ export function getOrderFlowOptions(page: OrderFlowPage): { id: number; name: st
 
 type BrandingWithSettings = { themeSettings?: Record<string, unknown> } | null | undefined;
 
+function wideFlowKey(branding: BrandingWithSettings) {
+  const settings=branding?.themeSettings;
+  return settings?.shopFamily !== 'webprinter' && (settings?.shopFamily === 'wide-format' || settings?.wideFormatDesign) ? wideFormatDesign(settings.wideFormatDesign).id : null;
+}
+
 export function resolveOrderFlowDesign(page: OrderFlowPage, branding?: BrandingWithSettings, preview?: string | null): number {
   const definition = ORDER_FLOW_DESIGNS.find(item => item.page === page)!;
-  const settings = branding?.themeSettings?.orderFlowDesigns as OrderFlowSettings | undefined;
+  const key=wideFlowKey(branding);
+  const bank=branding?.themeSettings?.wideFormatOrderFlows as Record<string,OrderFlowSettings> | undefined;
+  const settings = key ? {...branding?.themeSettings?.orderFlowDesigns as OrderFlowSettings,...bank?.[key]} : branding?.themeSettings?.orderFlowDesigns as OrderFlowSettings | undefined;
   const valid = (value: unknown) => getOrderFlowOptions(page).some(option => option.id === value);
   const requested = preview ? Number(preview) : undefined;
   if (valid(requested)) return requested!;
@@ -32,6 +40,11 @@ export function applyOrderFlowDesign(branding: BrandingWithSettings, page: Order
   themeSettings: Record<string, unknown> & { orderFlowDesigns: OrderFlowSettings };
 } {
   const existing = branding?.themeSettings || {};
+  const key=wideFlowKey(branding);
+  if(key) {
+    const bank=existing.wideFormatOrderFlows as Record<string,OrderFlowSettings> || {};
+    return {themeSettings:{...existing,orderFlowDesigns:existing.orderFlowDesigns as OrderFlowSettings || {},wideFormatOrderFlows:{...bank,[key]:{...bank[key],[page]:resolveOrderFlowDesign(page,undefined,String(design))}}}};
+  }
   return { themeSettings: { ...existing, orderFlowDesigns: {
     ...(existing.orderFlowDesigns as OrderFlowSettings || {}),
     [page]: resolveOrderFlowDesign(page, undefined, String(design)),

@@ -28,3 +28,10 @@
 
 /* Natural content height lets the parent extend its frame without a vh feedback loop. */
 .product-workspace-customer-preview{min-height:0}
+
+/* Variant photos reserve the same frame and footer before/after loading.
+ * A long caption or a different thumbnail count must not move the matrix. */
+.workspace-product-gallery[data-variant-gallery] .workspace-product-media{aspect-ratio:2080/2048;background:#fff}
+.workspace-product-gallery[data-variant-gallery] .workspace-product-media-empty{height:100%;min-height:0}
+.workspace-product-gallery[data-variant-gallery] .workspace-product-caption{height:20px;line-height:20px;margin:8px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.workspace-product-gallery[data-variant-gallery] .workspace-product-thumbnails{height:64px;min-height:64px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;align-items:flex-start;margin-top:8px;padding:2px}

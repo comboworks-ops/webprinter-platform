@@ -1,3 +1,7 @@
+import { usesWideFormat } from '@/lib/branding/wideFormatDesigns';
+import { usePreviewBranding } from '@/contexts/PreviewBrandingContext';
+import { PvcbannerNativeFrame } from '@/components/sites/PvcbannerNativeFrame';
+import { useShopSettings } from '@/hooks/useShopSettings';
 import { IconPackProvider } from "@/components/icons/IconFamily";
 import { SharedButtonContext } from './SharedButtonContext';
 import "@/styles/orderFlowDesigns.css";
@@ -136,6 +140,9 @@ function StorefrontThemeFrameInner({
   orderDesign,
 }: StorefrontThemeFrameInnerProps) {
   const { components: Theme } = useTheme();
+  const shop = useShopSettings();
+  const preview = usePreviewBranding();
+  const signal = usesWideFormat(branding, (isPreviewMode || preview.isPreviewMode) ? new URLSearchParams(window.location.search).get('tenantId') || new URLSearchParams(window.location.search).get('tenant_id') : shop.data?.id);
   const fontSignature = extractStorefrontFonts(branding).join("|");
   const resolvedTenantName = String(
     branding.shop_name || tenantName || "Din Shop",
@@ -169,6 +176,7 @@ function StorefrontThemeFrameInner({
       {...journey}
       style={{ ...cssVariables, ...journey.style }}
       data-order-design={orderDesign}
+      data-pvc-native-frame={signal || undefined}
       data-shop-template={shopLayout.templateId}
       data-shop-template-version={shopLayout.version}
       data-shop-content-width={shopLayout.contentWidth}
@@ -187,7 +195,7 @@ function StorefrontThemeFrameInner({
       data-shop-footer={shopRecipe.footer}
       data-shop-motion={shopRecipe.motion}
     >
-      <Theme.ShopLayout
+      {signal ? <PvcbannerNativeFrame branding={branding} contentOnly={contentOnly}>{topSlot}{children}</PvcbannerNativeFrame> : <Theme.ShopLayout
         branding={branding}
         tenantName={resolvedTenantName}
         isPreviewMode={isPreviewMode}
@@ -205,7 +213,7 @@ function StorefrontThemeFrameInner({
           tenantName={resolvedTenantName}
           isPreviewMode={isPreviewMode}
         />}
-      </Theme.ShopLayout>
+      </Theme.ShopLayout>}
     </div></SharedButtonContext.Provider></IconPackProvider>
   );
 }

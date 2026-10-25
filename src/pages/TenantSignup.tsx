@@ -275,7 +275,7 @@ export default function TenantSignup() {
                             <div className="bg-muted/50 rounded-lg p-3 text-sm text-muted-foreground">
                                 <p className="font-medium text-foreground mb-1">Dette får du:</p>
                                 <ul className="space-y-1">
-                                    <li>✓ Komplet webshop med alle produkter</li>
+                                    <li>✓ Webshop med produktkatalog efter din valgte plan</li>
                                     <li>✓ Færdige priser du kan tilpasse</li>
                                     <li>✓ Admin panel til ordrehåndtering</li>
                                     <li>✓ Automatiske opdateringer fra os</li>

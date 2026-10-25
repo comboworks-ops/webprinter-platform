@@ -1,3 +1,5 @@
+import { usePvcbannerPageSettings } from '@/components/sites/PvcbannerNativeFrame';
+import { DimensionSlider } from '@/components/sites/WideFormatDimensions';
 import { resolveWideFormatShape, proportionalSize, type WideFormatShape, type WideFormatShapeBinding } from "@/lib/designer/wideFormatGeometry";
 import type { SiteCheckoutState } from "@/lib/checkout/siteCheckoutSession";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -163,6 +165,7 @@ export function StorformatConfigurator({
   fastProductionDayOffset = 2,
   onSelectionChange
 }: StorformatConfiguratorProps) {
+  const widePresentation = usePvcbannerPageSettings();
   const materialTooltips = useProductTooltipConfigs(productId);
   const { language } = useLanguage();
   const noneFinishValue = "__none__";
@@ -1442,7 +1445,7 @@ export function StorformatConfigurator({
     <span className="text-sm font-semibold">{language === 'en' ? 'Production time' : 'Produktionstid'}</span>
     {productionSections.map(section => <div key={section.id}>{renderValueSelector(section, getSectionValues(section))}</div>)}
   </div> : null;
-  const controls = <div className="order-calculator-controls space-y-4">
+  const controls = <div className="order-calculator-controls space-y-4" data-configuration-style={widePresentation?.configurationStyle}>
       <div className="order-calculator-controls-heading flex items-center justify-between">
         <h3 className="font-semibold">{layout ? "Beregn din pris" : "Storformat"}</h3>
         <div className="order-calculator-controls-meta flex items-center gap-3 text-xs text-muted-foreground">
@@ -1481,6 +1484,8 @@ export function StorformatConfigurator({
         </div>
       </div>
 
+      {widePresentation?.configurationStyle === 'sliders' && <div className="wide-dimension-sliders"><DimensionSlider label="Længde" value={effectiveWidthCm} onCommit={value=>editDimension('width',value)}/><DimensionSlider label="Højde" value={effectiveHeightCm} onCommit={value=>editDimension('height',value)}/></div>}
+      {widePresentation?.configurationStyle === 'buttons' && !templateShape?.ratio && <div className="wide-size-buttons" aria-label="Hurtigt valg af størrelse">{[[100,100],[200,100],[300,100]].map(([width,height])=><button type="button" key={width} aria-pressed={effectiveWidthCm===width && effectiveHeightCm===height} onClick={()=>{const next=proportionalSize(templateShape,width,height);setWidthCm(next.width);setHeightCm(next.height);}}>{width} × {height} cm</button>)}<span>Du kan altid indtaste egne mål ovenfor.</span></div>}
       {templateShape?.ratio ? <p className="text-sm text-muted-foreground">Formens proportioner bevares. Ændrer du ét mål, følger det andet med. Skabelonen har 3 mm udfald omkring skærelinjen.</p> : templateShape?.kind === 'freeform' ? <p className="text-sm text-muted-foreground">Fri form har ingen standardskabelon. Upload PDF i designeren, og tilføj én sammenhængende, lukket skærelinje fra motivet eller en SVG-fil. Har du EPS, gem først filen som PDF eller SVG.</p> : null}
       <div className={cn("grid grid-cols-1 gap-4 items-end", hasUsableLayout ? "md:grid-cols-1" : "md:grid-cols-4")}>
         {!hasUsableLayout && (
@@ -1691,7 +1696,7 @@ export function StorformatConfigurator({
     const summary = <aside className="order-calculator-summary" aria-label="Din bestilling" aria-busy={loading}>
       {loading ? <div className="py-6 text-sm text-muted-foreground" role="status">Indlæser priser…</div> : typeof layout.summary === 'function' ? layout.summary(productionControls) : <>{productionControls}{layout.summary}</>}
     </aside>;
-    return <div className="order-calculator-layout" data-calculator-design={layout.design} data-adhesive-product={isAdhesive ? 'true' : undefined}>
+    return <div className="order-calculator-layout" data-wide-configuration={widePresentation?.configurationStyle} data-calculator-design={layout.design} data-adhesive-product={isAdhesive ? 'true' : undefined}>
       <div className="order-calculator-left">{intro}{layout.design === 1 && controls}{matrix}{layout.details && <div className="order-calculator-details">{layout.details}</div>}{layout.design === 1 && extras}</div>
       <div className="order-calculator-right">{layout.design === 2 && controls}{layout.design === 2 && extras}{summary}</div>
     </div>;

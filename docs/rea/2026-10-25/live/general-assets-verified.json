@@ -1,0 +1,15 @@
+{
+  "group": "general",
+  "deployment": "dpl_9vjfMCTx65gcbh2m5vFZXuDjTeSw",
+  "url": "printmaker-web-craft-main-h7a4fkvhf-thomas-projects-d80b9ddd.vercel.app",
+  "readyState": "READY",
+  "verifiedSourceFiles": 2728,
+  "exactScopedChangeOnly": true,
+  "entry": "/assets/index-DXQvhvSv.js",
+  "entrySha256": "8167ea5fa5e76aa2a317706c960016df2f4958ba884bd9ec343378f6c1e00f57",
+  "verifiedChunks": [
+    "/assets/index-DXQvhvSv.js"
+  ],
+  "compiledGuidanceAndApprovalPolicyVerified": true,
+  "httpStatus": 200
+}

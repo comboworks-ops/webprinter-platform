@@ -42,9 +42,16 @@ export function HeroQuickControls({ draft, updateDraft }: Props) {
   return <div className="sd-quick-controls">
     <label className="sd-control-toggle"><input type="checkbox" checked={show} onChange={e => updateDraft({ forside: { ...draft.forside, showBanner: e.target.checked }, themeSettings: { ...draft.themeSettings, printHeroEnabled: e.target.checked } })} /><span>Vis banner på forsiden</span></label>
     {!show && <p className="sd-control-note">Banneret er skjult. Slå det til for at se ændringerne.</p>}
+    {hero.mediaType !== 'video' && <>
+      <Field label="Billedtilpasning"><select value={hero.fitMode || 'cover'} onChange={e => change({ fitMode: e.target.value as HeroSettings['fitMode'] })}><option value="cover">Fyld bannerfladen (beskær)</option><option value="contain">Vis hele billedet (kan give luft)</option></select></Field>
+      <p className="sd-control-note">Fyld bannerfladen lader billedet nå begge sider uden at strække det. Kanterne kan blive beskåret.</p>
+    </>}
     {isPrint && <Field label="Bannertekst"><select value={hero.textSource || 'shared'} onChange={e => change({ textSource: e.target.value as HeroSettings['textSource'] })}><option value="shared">Samme tekst på alle billeder</option><option value="slides">Tekst for hvert billede</option></select></Field>}
     {isPrint && hero.textSource !== 'slides' && <SiteDesignHeroCopy hero={hero} onChange={next => change({ overlay: next.overlay })} />}
     {(!isPrint || hero.textSource === 'slides') && <p>Ret teksten for hvert billede under Billeder, video og detaljer nedenfor.</p>}
+    <Color label="Overskriftens farve" value={hero.overlay.titleColor || '#FFFFFF'} onChange={titleColor => change({ overlay: { ...hero.overlay, titleColor } })} />
+    <Color label="Undertekstens farve" value={hero.overlay.subtitleColor || 'rgba(255, 255, 255, 0.9)'} onChange={subtitleColor => change({ overlay: { ...hero.overlay, subtitleColor } })} />
+    {hero.overlay.usePerBannerStyling && (!isPrint || hero.textSource === 'slides') && <p className="sd-control-note">Billeder med egne tekstfarver beholder dem. Ret de individuelle farver under Billeder, video og detaljer.</p>}
     <label className="sd-control-toggle"><input type="checkbox" checked={hero.overlay.showButtons} onChange={e => change({ overlay: { ...hero.overlay, showButtons: e.target.checked } })} /><span>Vis bannerknapper</span></label>
     {isPrint && hero.textSource !== 'slides' && primary && <Field label="Primær knaptekst"><input value={primary.label} onChange={e => change({ overlay: { ...hero.overlay, buttons: hero.overlay.buttons.map(button => button.id === primary.id ? { ...button, label: e.target.value } : button) } })} /></Field>}
     <h3>Bevægelse</h3>

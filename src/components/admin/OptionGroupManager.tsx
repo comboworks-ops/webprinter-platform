@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,9 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trash2, Plus, GripVertical, Upload, Edit2, Save, X, Copy } from "lucide-react";
 import { toast } from "sonner";
+import { createProductOptionGroup, detachProductOptionGroup } from "@/lib/products/optionGroupSafety";
+
+// Legacy generated types omit tenant_id on these tables; runtime schema includes it.
+const optionClient = supabase as unknown as SupabaseClient;
 
 interface OptionGroup {
   id: string;
+  tenant_id: string;
   name: string;
   label: string;
   display_type: string;
@@ -42,6 +48,7 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
   const [newGroupDescription, setNewGroupDescription] = useState("");
   const [newGroupDisplayType, setNewGroupDisplayType] = useState<string>("buttons");
   const [showAddGroup, setShowAddGroup] = useState(false);
+  const [creatingGroup, setCreatingGroup] = useState(false);
   const [editingOption, setEditingOption] = useState<string | null>(null);
   const [editingOptionData, setEditingOptionData] = useState<Partial<ProductOption>>({});
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -52,16 +59,33 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
 
   useEffect(() => {
     fetchData();
-  }, [productId]);
+  }, [productId, tenantId]);
+
+  function canEditGroup(groupId: string) {
+    if (!tenantId || groups.find(group => group.id === groupId)?.tenant_id !== tenantId) {
+      toast.error("Gruppen tilhører en anden shop. Kopiér gruppen til din shop før redigering.");
+      return false;
+    }
+    return true;
+  }
 
   async function fetchData() {
     setLoading(true);
+    setEditingOption(null);
+    setEditingGroupId(null);
+    if (!tenantId) {
+      setGroups([]);
+      setOptions({});
+      setLoading(false);
+      return;
+    }
 
     // Only fetch option groups that are assigned to THIS product
-    const { data: assignments } = await supabase
+    const { data: assignments } = await optionClient
       .from('product_option_group_assignments')
       .select('option_group_id, sort_order')
       .eq('product_id', productId)
+      .eq('tenant_id', tenantId)
       .order('sort_order');
 
     if (!assignments || assignments.length === 0) {
@@ -74,14 +98,14 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
     const groupIds = assignments.map(a => a.option_group_id);
 
     // Fetch only the assigned groups
-    const { data: groupsData } = await supabase
+    const { data: groupsData } = await optionClient
       .from('product_option_groups')
       .select('*')
       .in('id', groupIds);
 
     if (groupsData) {
       // Sort by assignment order
-      const sortedGroups = groupsData.sort((a, b) => {
+      const sortedGroups = (groupsData as OptionGroup[]).sort((a, b) => {
         const aOrder = assignments.find(x => x.option_group_id === a.id)?.sort_order || 0;
         const bOrder = assignments.find(x => x.option_group_id === b.id)?.sort_order || 0;
         return aOrder - bOrder;
@@ -108,138 +132,41 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
   }
 
   async function handleCreateGroup() {
-    if (!newGroupName.trim() || !newGroupLabel.trim()) {
-      toast.error("Udfyld både navn og label");
-      return;
+    if (creatingGroup) return;
+    setCreatingGroup(true);
+    try {
+      const result = await createProductOptionGroup(supabase, {
+        productId, tenantId, name: newGroupName, label: newGroupLabel,
+        displayType: newGroupDisplayType, description: newGroupDescription,
+        sortOrder: groups.length,
+      });
+      toast.success(result.reused ? "Eksisterende gruppe tilføjet uden ændringer" : "Gruppe oprettet og tilføjet");
+      setNewGroupName("");
+      setNewGroupLabel("");
+      setNewGroupDescription("");
+      setShowAddGroup(false);
+      await fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Kunne ikke tilføje gruppen. Prøv igen.");
+    } finally {
+      setCreatingGroup(false);
     }
-
-    const normalizedName = newGroupName.toLowerCase().replace(/\s+/g, '_');
-
-    // 1. Check if group with this NAME already exists (global unique constraint)
-    const { data: existingGroup, error: findError } = await (supabase
-      .from('product_option_groups') as any)
-      .select('*')
-      .eq('name', normalizedName)
-      .maybeSingle();
-
-    if (findError) {
-      toast.error("Kunne ikke søge efter eksisterende gruppe: " + findError.message);
-      return;
-    }
-
-    let groupToAssign = existingGroup;
-
-    // 2. If it doesn't exist, CREATE it
-    if (!groupToAssign) {
-      const { data: newGroup, error: createError } = await (supabase
-        .from('product_option_groups') as any)
-        .insert({
-          name: normalizedName,
-          label: newGroupLabel,
-          display_type: newGroupDisplayType,
-          tenant_id: tenantId
-        })
-        .select()
-        .single();
-
-      if (createError) {
-        toast.error("Fejl ved oprettelse: " + createError.message);
-        return;
-      }
-      groupToAssign = newGroup;
-
-      // Update description separately if needed
-      if (newGroupDescription.trim() && groupToAssign) {
-        await (supabase.from('product_option_groups') as any)
-          .update({ description: newGroupDescription.trim() })
-          .eq('id', groupToAssign.id);
-      }
-    } else {
-      console.log("Reusing existing group:", groupToAssign.name);
-      // Optionally update label/type if they differ?
-      // User might expect the new values to take effect if they manually typed them.
-      await (supabase.from('product_option_groups') as any)
-        .update({
-          label: newGroupLabel,
-          display_type: newGroupDisplayType
-        })
-        .eq('id', groupToAssign.id);
-    }
-
-    // 3. Check if already assigned to this product
-    if (groupToAssign) {
-      const { data: existingAssignment } = await supabase
-        .from('product_option_group_assignments')
-        .select('*')
-        .eq('product_id', productId)
-        .eq('option_group_id', groupToAssign.id)
-        .maybeSingle();
-
-      if (existingAssignment) {
-        toast.error("Denne gruppe er allerede tilføjet til produktet");
-        setShowAddGroup(false);
-        setNewGroupName("");
-        setNewGroupLabel("");
-        setNewGroupDescription("");
-        return;
-      }
-
-      // 4. Assign to this product
-      const { error: assignError } = await supabase
-        .from('product_option_group_assignments')
-        .insert({
-          product_id: productId,
-          option_group_id: groupToAssign.id,
-          sort_order: groups.length
-        });
-
-      if (assignError) {
-        toast.error("Fejl ved tildeling: " + assignError.message);
-        return;
-      }
-    }
-
-
-    toast.success("Gruppe oprettet og tilføjet");
-    setNewGroupName("");
-    setNewGroupLabel("");
-    setNewGroupDescription("");
-    setShowAddGroup(false);
-    fetchData();
   }
 
   async function handleDeleteGroup(groupId: string) {
-    if (!confirm("Er du sikker på at du vil slette denne gruppe og alle dens valgmuligheder fra dette produkt?")) return;
-
-    // Remove assignment first
-    await supabase
-      .from('product_option_group_assignments')
-      .delete()
-      .eq('product_id', productId)
-      .eq('option_group_id', groupId);
-
-    // Delete all options in the group
-    await supabase
-      .from('product_options')
-      .delete()
-      .eq('group_id', groupId);
-
-    // Delete the group itself
-    const { error } = await supabase
-      .from('product_option_groups')
-      .delete()
-      .eq('id', groupId);
-
-    if (error) {
-      toast.error("Fejl ved sletning: " + error.message);
-      return;
+    if (!tenantId) return;
+    if (!confirm("Fjern gruppen fra dette produkt? Gruppen og dens valgmuligheder bevares, så andre produkter ikke ændres.")) return;
+    try {
+      await detachProductOptionGroup(supabase, tenantId, productId, groupId);
+      toast.success("Gruppe fjernet fra produktet");
+      await fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Kunne ikke fjerne gruppen.");
     }
-
-    toast.success("Gruppe slettet");
-    fetchData();
   }
 
   async function handleAddOption(groupId: string) {
+    if (!canEditGroup(groupId)) return;
     const baseOption = {
       group_id: groupId,
       name: `option_${Date.now()}`,
@@ -272,10 +199,13 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
   }
 
   async function handleDeleteOption(optionId: string, groupId: string) {
-    const { error } = await supabase
+    if (!canEditGroup(groupId)) return;
+    const { error } = await optionClient
       .from('product_options')
       .delete()
-      .eq('id', optionId);
+      .eq('id', optionId)
+      .eq('group_id', groupId)
+      .eq('tenant_id', tenantId);
 
     if (error) {
       toast.error("Fejl: " + error.message);
@@ -291,6 +221,7 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
 
   async function handleSaveOption() {
     if (!editingOption || !editingOptionData) return;
+    if (!editingOptionData.group_id || !canEditGroup(editingOptionData.group_id)) return;
 
     const updatePayload: any = {
       name: editingOptionData.name,
@@ -304,7 +235,9 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
     const { error } = await (supabase
       .from('product_options') as any)
       .update(updatePayload)
-      .eq('id', editingOption);
+      .eq('id', editingOption)
+      .eq('group_id', editingOptionData.group_id)
+      .eq('tenant_id', tenantId);
 
     if (error) {
       toast.error("Fejl: " + error.message + (error.message?.toLowerCase().includes("price_mode") ? " (kør NOTIFY pgrst, 'reload schema')" : ""));
@@ -328,6 +261,7 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
   }
 
   async function handleIconUpload(optionId: string, groupId: string, file: File) {
+    if (!canEditGroup(groupId)) return;
     const fileExt = file.name.split('.').pop();
     const fileName = `option-icons/${optionId}.${fileExt}`;
 
@@ -344,10 +278,12 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
       .from('product-images')
       .getPublicUrl(fileName);
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await optionClient
       .from('product_options')
       .update({ icon_url: publicUrl })
-      .eq('id', optionId);
+      .eq('id', optionId)
+      .eq('group_id', groupId)
+      .eq('tenant_id', tenantId);
 
     if (updateError) {
       toast.error("Fejl ved opdatering: " + updateError.message);
@@ -369,10 +305,12 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
   }
 
   async function handleUpdateDisplayType(groupId: string, displayType: string) {
-    const { error } = await supabase
+    if (!canEditGroup(groupId)) return;
+    const { error } = await optionClient
       .from('product_option_groups')
       .update({ display_type: displayType })
-      .eq('id', groupId);
+      .eq('id', groupId)
+      .eq('tenant_id', tenantId);
 
     if (error) {
       toast.error("Fejl: " + error.message);
@@ -386,6 +324,7 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
   }
 
   async function handleCopyGroup(group: OptionGroup) {
+    if (!tenantId) return;
     try {
       // Generate unique name
       const baseName = group.name + '_kopi';
@@ -423,7 +362,7 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
       // Copy all options
       const groupOptions = options[group.id] || [];
       for (const opt of groupOptions) {
-        await (supabase.from('product_options') as any)
+        const { error: optionError } = await (supabase.from('product_options') as any)
           .insert({
             group_id: newGroup.id,
             name: opt.name + '_kopi',
@@ -435,16 +374,19 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
             sort_order: opt.sort_order,
             tenant_id: tenantId
           });
+        if (optionError) throw optionError;
       }
 
       // Assign to this product
-      await supabase
+      const { error: assignmentError } = await optionClient
         .from('product_option_group_assignments')
         .insert({
           product_id: productId,
           option_group_id: newGroup.id,
-          sort_order: groups.length
+          sort_order: groups.length,
+          tenant_id: tenantId
         });
+      if (assignmentError) throw assignmentError;
 
       toast.success('Gruppe kopieret');
       fetchData();
@@ -454,6 +396,7 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
   }
 
   async function handleCopyOption(option: ProductOption, groupId: string) {
+    if (!canEditGroup(groupId)) return;
     try {
       const { data, error } = await (supabase.from('product_options') as any)
         .insert({
@@ -547,8 +490,8 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
               </Select>
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleCreateGroup}>Opret</Button>
-              <Button variant="outline" onClick={() => setShowAddGroup(false)}>Annuller</Button>
+              <Button onClick={handleCreateGroup} disabled={creatingGroup || !tenantId}>{creatingGroup ? "Tilføjer..." : "Opret"}</Button>
+              <Button variant="outline" disabled={creatingGroup} onClick={() => setShowAddGroup(false)}>Annuller</Button>
             </div>
           </CardContent>
         </Card>
@@ -590,10 +533,12 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
                         />
                         <div className="flex gap-1 mt-1">
                           <Button size="sm" variant="ghost" onClick={async () => {
+                            if (!canEditGroup(group.id)) return;
                             const { error } = await (supabase
                               .from('product_option_groups') as any)
                               .update({ description: editingGroupDescription.trim() || null })
-                              .eq('id', group.id);
+                              .eq('id', group.id)
+                              .eq('tenant_id', tenantId);
                             if (error) {
                               toast.error("Fejl: " + error.message);
                             } else {
@@ -621,6 +566,7 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
                     <Button
                       variant="ghost"
                       size="sm"
+                      disabled={group.tenant_id !== tenantId}
                       onClick={() => {
                         setEditingGroupId(group.id);
                         setEditingGroupDescription(group.description || "");
@@ -631,6 +577,7 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
                   )}
                   <Select
                     value={group.display_type}
+                    disabled={group.tenant_id !== tenantId}
                     onValueChange={(v) => handleUpdateDisplayType(group.id, v)}
                   >
                     <SelectTrigger className="w-[130px] h-8">
@@ -655,6 +602,7 @@ export function OptionGroupManager({ productId, tenantId }: OptionGroupManagerPr
                     variant="ghost"
                     size="icon"
                     onClick={() => handleDeleteGroup(group.id)}
+                    title="Fjern gruppe fra produktet"
                   >
                     <Trash2 className="w-4 h-4 text-destructive" />
                   </Button>

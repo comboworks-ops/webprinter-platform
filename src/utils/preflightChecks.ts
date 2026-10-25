@@ -150,23 +150,13 @@ export function runPreflightChecks(
                     const dpiY = (natHeight / displayHeightMm) * 25.4;
                     const effectiveDPI = Math.min(dpiX, dpiY);
 
-                    if (effectiveDPI < options.minDPI) {
-                        errors.push({
-                            id: `low-resolution-${objId}`,
-                            type: 'error',
-                            code: 'LOW_RESOLUTION',
-                            message: `Lav opløsning (${Math.round(effectiveDPI)} DPI)`,
-                            details: `Dit billede bliver printet i ${Math.round(effectiveDPI)} DPI, hvilket er for lavt (min. ${options.minDPI}). Gør billedet mindre eller skift til et bedre billede.`,
-                            objectId: objId,
-                            canIgnore: true,
-                        });
-                    } else if (effectiveDPI < options.targetDPI) {
+                    if (effectiveDPI < options.targetDPI) {
                         warnings.push({
-                            id: `medium-resolution-${objId}`,
+                            id: `low-resolution-${objId}`,
                             type: 'warning',
-                            code: 'MEDIUM_RESOLUTION',
-                            message: `Medium opløsning (${Math.round(effectiveDPI)} DPI)`,
-                            details: `Optimal kvalitet er over ${options.optimalDPI || 300} DPI. Dit billede har ${Math.round(effectiveDPI)} DPI, hvilket er over minimum (${options.minDPI}), men kan give et let sløret resultat.`,
+                            code: 'LOW_RESOLUTION',
+                            message: `Lav opløsning (${Math.floor(effectiveDPI + 0.000001)} DPI)`,
+                            details: `Anbefalet til dette produkt: ${options.targetDPI} DPI. Trykket kan blive sløret eller pixeleret. Du kan godkende den lave opløsning på eget ansvar.`,
                             objectId: objId,
                             canIgnore: true,
                         });
@@ -248,7 +238,7 @@ export function runPreflightChecks(
                 type: 'warning',
                 code: 'OUTSIDE_BLEED',
                 message: 'Objekt rækker uden for bleed',
-                details: 'Objektet rækker uden for bleed-området (rød streg). Den del, der er udenfor, bliver skåret af.',
+                details: 'Objektet rækker uden for bleed-området (rød streg). Den del, der er udenfor, bliver skåret af. Det kan være tilsigtet ved tryk til kant og CutContour; du kan godkende placeringen som vist.',
                 objectId: objId,
                 canIgnore: true,
             });

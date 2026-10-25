@@ -1,3 +1,11 @@
+import { WideFormatElementInspector } from './WideFormatElementInspector';
+import { wideElement } from '@/lib/branding/wideFormatElements';
+import { resolveWideFormatEditorBranding, wideFormatEditorPatch, wideFormatSectionIsShared, withWideFormatSection } from '@/lib/branding/wideFormatEditor';
+import { withSignalSettings } from '@/lib/branding/pvcbannerSettings';
+import { WideFormatShopPicker } from './WideFormatShopPicker';
+import { usesWideFormat } from '@/lib/branding/wideFormatDesigns';
+import { PvcbannerDesignControls, SIGNAL_SECTIONS, SIGNAL_SHARED_SECTIONS, SIGNAL_SECTION_LABELS } from './PvcbannerDesignControls';
+import { PVCBANNER_TENANT_ID } from '@/lib/branding/pvcbannerSettings';
 import { IconPackProvider } from "@/components/icons/IconFamily";
 import { applySiteColor, buildSiteColorPatch } from '@/lib/branding/siteColors';
 import { SiteColorResetControls } from './SiteColorResetControls';
@@ -10,6 +18,7 @@ import { assignDesignToShop, loadShopDesignLibrary } from '@/lib/branding/premad
 import { HeroQuickControls, HeaderQuickControls, MainButtonsControls } from './SiteDesignQuickControls';
 import { standardSiteDesign, applyMainButtonSettings } from '@/lib/branding/siteDesignControls';
 import { ProductPresentationPicker } from "@/components/admin/ProductPresentationPicker";
+import { PrintStudioBackgroundControl } from "@/components/admin/PrintStudioBackgroundControl";
 import { applyProductPresentation, PRODUCT_PRESENTATIONS, resolveProductPresentation } from "@/lib/branding/productPresentations";
 import { resolveDropdownPreset } from "@/lib/branding/dropdownPresets";
 import { menuColorsChanged } from "@/lib/branding/headerMenuSettings";
@@ -2640,10 +2649,15 @@ const BRANDING_COLOR_GROUPS: BrandingColorGroupConfig[] = [
 ];
 
 export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: SiteDesignEditorV2Props) {
-    const editor = useBrandingEditor({ adapter, capabilities });
-    const isDraftLive = brandingEquals(editor.draft, editor.published);
+    const rawEditor = useBrandingEditor({ adapter, capabilities });
+    const editor = { ...rawEditor,
+        draft: useMemo(() => resolveWideFormatEditorBranding(rawEditor.draft, rawEditor.entityId), [rawEditor.draft, rawEditor.entityId]),
+        updateDraft: (patch: Partial<BrandingData>) => rawEditor.updateDraft(wideFormatEditorPatch(rawEditor.draft, patch, rawEditor.entityId)),
+    };
+    const isDraftLive = brandingEquals(rawEditor.draft, rawEditor.published);
     const [activeSection, setActiveSection] = useState<string | null>("theme");
     const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [selectedWideElement, setSelectedWideElement] = useState<string | null>(null);
     const [sectionFocusRequest, setSectionFocusRequest] = useState<{ id: number; target: string } | null>(null);
     const [previewEditMode, setPreviewEditMode] = useState(false);
     const [clearSelectionSignal, setClearSelectionSignal] = useState(0);
@@ -3071,6 +3085,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     const openPreviewSelection = useCallback((rawSectionId?: string | null) => {
         console.log('[Editor] openPreviewSelection called with:', rawSectionId);
         if (!rawSectionId) return;
+        const element = rawSectionId.startsWith('wide-element:') ? wideElement(rawSectionId.slice(13)) : null;
+        setSelectedWideElement(element?.id || null);
+        if (element) rawSectionId = element.section;
 
         const selection = resolveSiteDesignTarget(rawSectionId);
         const contextualSelection = resolveContextualEditor(rawSectionId);
@@ -3381,7 +3398,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         || previewPathname === "/produkter"
         || previewPathname === "/prisberegner";
     const isProductPreviewPage = previewPathname === "/produkt" || previewPathname.startsWith("/produkt/");
-    const isCheckoutPreviewPage = previewPathname === "/checkout";
+    const isCheckoutPreviewPage = previewPathname === "/checkout" || (usesWideFormat(editor.draft,editor.entityId) && Boolean(getOrderFlowPreviewPage(currentPreviewPage)) && !isProductPreviewPage);
 
     const currentPreviewPageLabel = useMemo(() => {
         if (currentPreviewPage.startsWith("/produkt/") || currentPreviewPage === "/produkt") {
@@ -3403,7 +3420,17 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
             ? "Forside / katalog"
             : "Indholdsside";
 
+    const isSignal = usesWideFormat(editor.draft, editor.entityId);
+    const isSignalHome = isSignal && isHomePreviewPage;
+    const isSignalContentPage = ["/kontakt","/om-os","/grafisk-vejledning"].includes(previewPathname);
     const allowedSections = useMemo(() => {
+        if (isSignalHome) return new Set([...SIGNAL_SECTIONS, 'order-flow', 'featured-products', 'lower-info', 'seo-content', 'page-background', 'icons', 'extra-content']);
+        if (isSignal) return new Set([
+            ...SIGNAL_SHARED_SECTIONS, 'order-flow', 'page-background', 'icons',
+            ...(isProductPreviewPage ? ['product-page-matrix','produktvalgknapper','product-description'] : []),
+            ...(isCheckoutPreviewPage ? ['order-flow','product-page-matrix'] : []),
+            ...(isSignalContentPage ? ['signal-pages'] : []),
+        ]);
         const sections = new Set<string>(["shop-layout", "site-package", "theme", "products", "featured-products", "order-flow", "main-buttons"]);
         if (capabilities.sections.logo) sections.add("logo");
         if (capabilities.sections.header) sections.add("header");
@@ -3437,6 +3464,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
 
         return sections;
     }, [
+        isSignalHome,
+        isSignal,
+        isSignalContentPage,
         capabilities.sections.colors,
         capabilities.sections.footer,
         capabilities.sections.header,
@@ -3449,15 +3479,25 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         // Note: usp-strip is always shown on home preview
     ]);
 
+    // A wide-format page opens its own controls instead of unrelated homepage presets.
+    useEffect(() => {
+        if (!isSignal) return;
+        if (isProductPreviewPage || isCheckoutPreviewPage) {
+            setActiveSection(current => current === 'order-flow' ? current : isProductPreviewPage ? 'product-page-matrix' : 'order-flow');
+            setSidebarOpen(true);
+        } else if (!isHomePreviewPage) { setActiveSection(isSignalContentPage ? 'signal-pages' : 'theme'); setSidebarOpen(true); }
+    }, [isSignal, editor.entityId, isProductPreviewPage, isCheckoutPreviewPage, isHomePreviewPage, isSignalContentPage]);
+
     const allowedSectionLabels = useMemo(() => {
         return Array.from(allowedSections).map((section) => SECTION_LABELS[section] || section);
     }, [allowedSections]);
 
     useEffect(() => {
         if (activeSection && !allowedSections.has(activeSection)) {
-            closeSection();
+            if (isSignal) setActiveSection(isProductPreviewPage ? 'product-page-matrix' : isCheckoutPreviewPage ? 'order-flow' : isSignalContentPage ? 'signal-pages' : 'theme');
+            else closeSection();
         }
-    }, [activeSection, allowedSections]);
+    }, [activeSection, allowedSections, isSignal, isProductPreviewPage, isCheckoutPreviewPage, isHomePreviewPage, isSignalContentPage]);
 
     // ... existing publish/save handlers ...
 
@@ -3490,7 +3530,11 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     const saveDraftWithProductSettings = useCallback(async () => {
         const productSettingsSaved = await persistCurrentProductPricingPreview();
         if (!productSettingsSaved) return;
-        await editor.saveDraft();
+        try {
+            await editor.saveDraft();
+        } catch {
+            // The hook reports the error. Keep the draft mounted for retry.
+        }
     }, [editor, persistCurrentProductPricingPreview]);
 
     // Handle Publish - checks for pending paid items first
@@ -3505,12 +3549,16 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         const productSettingsSaved = await persistCurrentProductPricingPreview();
         if (!productSettingsSaved) return;
 
-        if (editor.hasUnsavedChanges) {
-            await editor.saveDraft();
+        try {
+            if (editor.hasUnsavedChanges) {
+                await editor.saveDraft();
+            }
+            await editor.publish(publishLabel || undefined);
+            setShowPublishDialog(false);
+            setPublishLabel("");
+        } catch {
+            // A failed draft must not publish or clear the user's version label.
         }
-        await editor.publish(publishLabel || undefined);
-        setShowPublishDialog(false);
-        setPublishLabel("");
     };
 
     // Handle publish after payment is complete
@@ -3518,6 +3566,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         const productSettingsSaved = await persistCurrentProductPricingPreview();
         if (!productSettingsSaved) return;
 
+        // PendingPurchasesDialog catches failures and must keep its retry open.
         if (editor.hasUnsavedChanges) {
             await editor.saveDraft();
         }
@@ -3533,10 +3582,14 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         }
         const productSettingsSaved = await persistCurrentProductPricingPreview();
         if (!productSettingsSaved) return;
-        await editor.saveDesign(saveDesignName);
-        setSaveDesignName("");
-        setOverwriteDesignId("none");
-        setShowSaveDesignDialog(false);
+        try {
+            await editor.saveDesign(saveDesignName);
+            setSaveDesignName("");
+            setOverwriteDesignId("none");
+            setShowSaveDesignDialog(false);
+        } catch {
+            // Preserve the entered name and draft when storage rejects the save.
+        }
     };
 
     const handleOverwriteDesign = async () => {
@@ -3551,10 +3604,14 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
         }
         const productSettingsSaved = await persistCurrentProductPricingPreview();
         if (!productSettingsSaved) return;
-        await editor.saveDesign(existingDesign.name, overwriteDesignId);
-        setSaveDesignName("");
-        setOverwriteDesignId("none");
-        setShowSaveDesignDialog(false);
+        try {
+            await editor.saveDesign(existingDesign.name, overwriteDesignId);
+            setSaveDesignName("");
+            setOverwriteDesignId("none");
+            setShowSaveDesignDialog(false);
+        } catch {
+            // Keep the selected saved design available for a deliberate retry.
+        }
     };
 
     const formatDate = (timestamp: string) => {
@@ -3574,6 +3631,10 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
     }
 
     const renderSidebarContent = () => {
+        const sharedOnly = ['colors', 'typography', 'main-buttons'];
+        if (isSignal && activeSection && !sharedOnly.includes(activeSection) && !wideFormatSectionIsShared(editor.draft, activeSection) && (SIGNAL_SECTIONS.includes(activeSection) || activeSection === 'signal-pages')) {
+            return <PvcbannerDesignControls branding={editor.draft} section={activeSection} onChange={editor.updateDraft} onUpload={editor.uploadAsset} />;
+        }
         if (!activeSection) {
             return (
                 <div className="space-y-2 p-3">
@@ -4035,10 +4096,12 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 );
             }
             case 'order-flow':
-                return <OrderFlowDesignInspector branding={editor.draft}
+                return <OrderFlowDesignInspector branding={editor.draft} wideFormat={isSignal}
+                    onWideChange={patch=>editor.updateDraft({themeSettings:withSignalSettings(editor.draft,patch).themeSettings})}
                     page={getOrderFlowPreviewPage(currentPreviewPage) || 'calculator'}
                     onPageChange={navigatePreviewToOrderStep} onChange={(page, design) => {
-                    editor.updateDraft(applyOrderFlowDesign(editor.draft, page, design));
+                    const source=isSignal ? withSignalSettings(editor.draft,page==='checkout'?{checkoutStyle:'standard'}:page==='calculator'?{sharedCalculatorLayout:true}:{}) : editor.draft;
+                    editor.updateDraft(applyOrderFlowDesign(source, page, design));
                     if (getOrderFlowPreviewPage(currentPreviewPage) !== page) navigatePreviewToOrderStep(page);
                 }} />;
             case 'theme': {
@@ -4058,6 +4121,15 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                             navigatePreviewTo('/');
                             toast.success("Shopdesign anvendt i kladden");
                         }} />
+                        {editor.draft.forside.productsSection.presentation === "print-studio" && <PrintStudioBackgroundControl
+                            imageUrl={editor.draft.forside.productsSection.studioBackgroundImageUrl}
+                            revision={editor.draft}
+                            onChange={studioBackgroundImageUrl => editor.updateDraft({ forside: {
+                                ...editor.draft.forside,
+                                productsSection: { ...editor.draft.forside.productsSection, studioBackgroundImageUrl },
+                            } })}
+                            uploadImage={file => editor.uploadAsset(file, "hero-image")}
+                        />}
                         <details className="rounded-lg border p-3">
                             <summary className="cursor-pointer text-xs font-medium">Tidligere temaer og effekter</summary>
                             <div className="mt-3 space-y-3">
@@ -4328,6 +4400,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         />
                     </div>
                 );
+            case 'extra-content':
             case 'content':
                 return (
                     <div className="space-y-3 px-3 pb-6">
@@ -4468,6 +4541,12 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                                     <div className="flex items-center justify-between gap-3"><Label htmlFor="product-presentation-enabled">Vis produkter på forsiden</Label><Switch id="product-presentation-enabled" checked={productsSection.enabled} onCheckedChange={checked => updateProductsSection({ enabled: checked })} /></div>
                                     <div className="space-y-2"><Label htmlFor="product-presentation-title">Overskrift</Label><Input id="product-presentation-title" value={productsSection.presentationTitle || ''} placeholder={PRODUCT_PRESENTATIONS.find(item => item.id === productsSection.presentation)?.title} onChange={event => updateProductsSection({ presentationTitle: event.target.value })} /></div>
                                     <div className="space-y-2"><Label htmlFor="product-presentation-subtitle">Undertekst</Label><Input id="product-presentation-subtitle" value={productsSection.presentationSubtitle || ''} placeholder="Vælg et produkt. Gør det til dit eget." onChange={event => updateProductsSection({ presentationSubtitle: event.target.value })} /></div>
+                                    {productsSection.presentation === "print-studio" && <PrintStudioBackgroundControl
+                                        imageUrl={productsSection.studioBackgroundImageUrl}
+                                        revision={editor.draft}
+                                        onChange={studioBackgroundImageUrl => updateProductsSection({ studioBackgroundImageUrl })}
+                                        uploadImage={file => editor.uploadAsset(file, "hero-image")}
+                                    />}
                                     <div className="flex items-center justify-between gap-3"><Label htmlFor="product-presentation-motion">Animation ved hover og tastaturfokus</Label><Switch id="product-presentation-motion" checked={productsSection.presentationMotion !== false} onCheckedChange={checked => updateProductsSection({ presentationMotion: checked })} /></div>
                                     <p className="text-xs leading-relaxed text-muted-foreground">Visningen bruger shoppens produktbilleder og navne. Skift billeder under Produkter eller Ikoner. Kunder med reduceret bevægelse får rolige overgange.</p>
                                     <Button variant="outline" size="sm" onClick={() => navigatePreviewTo('/produkter')}>Se produktoversigten i preview</Button>
@@ -7643,6 +7722,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                 if (focusedProductOption?.productId && focusedProductOption.sectionId && focusedProductOption.valueId) {
                     return (
                         <ProductOptionButtonEditor
+                            branding={editor.draft}
+                            onEditSharedButtons={() => setActiveSection('main-buttons')}
                             key={`${editor.entityId}:${focusedProductOption.productId}:${focusedProductOption.sectionId}:${focusedProductOption.valueId}`}
                             pricingPreview={productPricingPreview}
                             persistedStyling={persistedProductPricing}
@@ -7904,6 +7985,8 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
             return (
                 <Card className="absolute right-6 top-6 z-30 w-[360px] border-border/70 bg-background/95 shadow-2xl backdrop-blur animate-in fade-in-0 zoom-in-95 slide-in-from-right-4 duration-200 max-h-[80vh] overflow-y-auto">
                     <ProductOptionButtonEditor
+                            branding={editor.draft}
+                            onEditSharedButtons={() => setActiveSection('main-buttons')}
                         key={`${editor.entityId}:${contextualEditor.productId}:${contextualEditor.sectionId}:${contextualEditor.valueId}`}
                         pricingPreview={productPricingPreview}
                         persistedStyling={persistedProductPricing}
@@ -8048,9 +8131,11 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
 
                 </>}
                 navigation={<SiteDesignNavigation
+                    designSelector={<WideFormatShopPicker branding={editor.draft} tenantId={editor.entityId} disabled={editor.isSaving} onChange={patch=>{editor.updateDraft(patch);setActiveSection('theme');setSidebarOpen(true);navigatePreviewTo('/');}}/>}
                     currentPage={currentPreviewPage}
                     activeSection={activeSection}
-                    sections={Array.from(allowedSections).map(id => ({ id, label: id === "order-flow" ? "Bestillingsflow" : SECTION_LABELS[id] || id }))}
+                    sectionLabels={isSignal ? SIGNAL_SECTION_LABELS : undefined}
+                    sections={Array.from(allowedSections).map(id => ({ id, label: (isSignal && SIGNAL_SECTION_LABELS[id]) || (id === "order-flow" ? "Bestillingsflow" : SECTION_LABELS[id] || id) }))}
                     onNavigate={path => {
                         if (path === "/produkt") {
                             const product = currentPreviewProduct || featuredProducts.find(item => item.slug);
@@ -8071,6 +8156,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         setSidebarOpen(true);
                         const targets: Record<string, string> = { banner: 'forside.hero.media', showcase: 'forside.banner2', 'usp-strip': 'usp-strip', header: 'header', footer: 'footer', products: 'forside.products', 'featured-products': 'forside.products.featured' };
                         if (targets[section]) setSectionFocusRequest({ id: Date.now(), target: targets[section] });
+                        if (section === 'theme') navigatePreviewTo('/');
                         if (section === 'order-flow' && !getOrderFlowPreviewPage(currentPreviewPage)) navigatePreviewToOrderStep('calculator');
                         if (section === 'products' && !isHomePreviewPage) navigatePreviewTo('/produkter');
                         if (section === 'featured-products' && !['/', '/shop'].includes(previewPathname)) navigatePreviewTo('/');
@@ -8109,7 +8195,7 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
 
                     </>}
                 />}
-                inspectorTitle={activeSection === "main-buttons" ? "Fælles knapper" : activeSection === "theme" ? "Shopdesign" : activeSection === "order-flow" ? "Bestillingsflow" : SECTION_LABELS[activeSection || ""] || "Vælg en indstilling"}
+                inspectorTitle={(isSignal && SIGNAL_SECTION_LABELS[activeSection || ""]) || (activeSection === "main-buttons" ? "Fælles knapper" : activeSection === "theme" ? "Shopdesign" : activeSection === "order-flow" ? "Bestillingsflow" : SECTION_LABELS[activeSection || ""] || "Vælg en indstilling")}
                 inspectorOpen={sidebarOpen}
                 onInspectorClose={() => setSidebarOpen(false)}
                 onInspectorOpen={() => setSidebarOpen(true)}
@@ -8120,6 +8206,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                         title={activeSection === 'header' ? 'headerknapper' : activeSection === 'banner' ? 'bannerknapper' : activeSection === 'products' ? 'produktknapper' : activeSection === 'featured-products' ? 'fremhævede knapper' : 'bestillingsknapper'}
                     />}
                     {activeSection === 'product-page-matrix' && <SharedButtonLocalControls draft={editor.draft} updateDraft={editor.updateDraft} role="selection" buttonKey="matrix" title="prismatricens valgknapper" />}
+                    {isSignal && activeSection && !wideFormatSectionIsShared(editor.draft, activeSection) && <WideFormatElementInspector branding={editor.draft} section={activeSection} selected={selectedWideElement} onSelect={setSelectedWideElement} onChange={editor.updateDraft}/>}
+                    {isSignal && activeSection && ['logo','header','banner','showcase','content','usp-strip','footer','products'].includes(activeSection) && <div className="p-3 pb-0"><label className="block space-y-2 text-sm"><span>Sektionens design</span><select aria-label="Sektionens design" className="w-full min-h-10 rounded-md border bg-background p-2" value={wideFormatSectionIsShared(editor.draft, activeSection) ? 'shared' : 'recipe'} onChange={event => editor.updateDraft(withWideFormatSection(editor.draft, activeSection, event.target.value === 'shared'))}><option value="recipe">Designets egen opsætning</option><option value="shared">Alle Site Designer-funktioner</option></select></label></div>}
+                    {isSignal && ['main-buttons','typography'].includes(activeSection) && <PvcbannerDesignControls branding={editor.draft} section={activeSection === 'main-buttons' ? 'button-links' : 'text-sizes'} onChange={editor.updateDraft} onUpload={editor.uploadAsset}/>}
                     {renderSidebarContent()}</> : <p className="sd-inspector-empty">Vælg en indstilling i venstre side, eller aktivér Redigér og klik på et element i previewet.</p>}
             >
                                 <SiteDesignPreviewFrame presentation="workspace" featuredSlideId={selectedFeaturedSlideId}
@@ -8369,9 +8458,9 @@ export function SiteDesignEditorV2({ adapter, capabilities, onSwitchVersion }: S
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>Annuller</AlertDialogCancel>
-                        <AlertDialogAction onClick={handlePublish} disabled={editor.isSaving}>
+                        <Button onClick={handlePublish} disabled={editor.isSaving}>
                             Publicér nu
-                        </AlertDialogAction>
+                        </Button>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

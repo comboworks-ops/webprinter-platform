@@ -1,0 +1,15 @@
+{
+  "modified": [
+    "src/pages/platform/PlatformWhiteLabel.tsx",
+    "src/pages/TenantSignup.tsx",
+    "src/components/product-price-page/MatrixLayoutV1Renderer.tsx",
+    "src/components/product-price-page/ProductPricePanel.tsx"
+  ],
+  "added": [
+    "src/components/product-price-page/ProductChoiceGuidance.tsx",
+    "src/hooks/useAutomaticSelectionNotice.ts",
+    "src/lib/products/automaticSelectionNotice.ts",
+    "src/lib/products/automaticSelectionNotice.test.ts"
+  ],
+  "runtimeBoundary": "No local multiple-design/brochure workspace integration; no pricing/POD/backend/tenant-state changes"
+}

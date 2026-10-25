@@ -1,0 +1,30 @@
+[
+  {
+    "group": "webprinter",
+    "deployment": "dpl_Edtv5bbmTabSpaJ6DYBjyz9n9oB5",
+    "commandExit": 0,
+    "returnedErrorEntries": 0,
+    "window": "last hour, at most 20 errors"
+  },
+  {
+    "group": "online",
+    "deployment": "dpl_BCmPZcEAH2bjB1nTkPqcmh5n7WAC",
+    "commandExit": 0,
+    "returnedErrorEntries": 0,
+    "window": "last hour, at most 20 errors"
+  },
+  {
+    "group": "pvc-sales",
+    "deployment": "dpl_3ZWANcUtqFzxy4raha4Eu7bV3KL9",
+    "commandExit": 0,
+    "returnedErrorEntries": 0,
+    "window": "last hour, at most 20 errors"
+  },
+  {
+    "group": "general",
+    "deployment": "dpl_9vjfMCTx65gcbh2m5vFZXuDjTeSw",
+    "commandExit": 0,
+    "returnedErrorEntries": 0,
+    "window": "last hour, at most 20 errors"
+  }
+]

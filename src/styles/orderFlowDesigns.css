@@ -8,11 +8,11 @@
 [data-order-design] :is(h1,h2,h3,h4,button,input,select,textarea) { font-family: inherit; }
 [data-order-design] :is(input,select,textarea) { border-radius: 5px; min-height: 40px; }
 [data-order-design] button { letter-spacing: 0; }
-body [data-order-design]:not([data-print-journey], [data-print-journey] *) .storefront-order-flow, body [data-order-design]:not([data-print-journey], [data-print-journey] *) .storefront-order-flow * { font-family:Inter,system-ui,sans-serif !important; }
+body [data-order-design]:not([data-print-journey], [data-print-journey] *, [data-pvc-native-frame], [data-pvc-native-frame] *) .storefront-order-flow, body [data-order-design]:not([data-print-journey], [data-print-journey] *, [data-pvc-native-frame], [data-pvc-native-frame] *) .storefront-order-flow * { font-family:Inter,system-ui,sans-serif !important; }
 body [data-order-design] > div { --surface-shadow:none; }
-body [data-order-design]:not([data-print-journey], [data-print-journey] *) .storefront-order-flow { background:#fff !important; }
+body [data-order-design]:not([data-print-journey], [data-print-journey] *, [data-pvc-native-frame], [data-pvc-native-frame] *) .storefront-order-flow { background:#fff !important; }
 /* The shop header keeps its saved branding across all order steps. */
-body [data-order-design]:not([data-print-journey], [data-print-journey] *) .storefront-order-flow button:not(.order-primary-button):not(.storefront-primary-action):not([data-product-option-styled]):not([data-tooltip-overlay]) { box-shadow:none !important; border-radius:4px !important; }
+body [data-order-design]:not([data-print-journey], [data-print-journey] *, [data-pvc-native-frame], [data-pvc-native-frame] *) .storefront-order-flow button:not(.order-primary-button):not(.storefront-primary-action):not([data-product-option-styled]):not([data-tooltip-overlay]) { box-shadow:none !important; border-radius:4px !important; }
 body [data-order-design] .order-calculator-controls :is(input:not([type="checkbox"]):not([type="radio"]),select) { border-radius:4px !important; border:1px solid #dbe2e9 !important; background:#fff !important; min-height:44px; font-size:16px; }
 body [data-order-design] .order-calculator-controls button:not(.order-primary-button):not(.storefront-primary-action):not([data-product-option-styled]):not([data-tooltip-overlay]) { min-height:44px !important; padding:10px 14px !important; font-size:14px !important; line-height:1.4 !important; }
 body [data-order-design] .order-calculator-matrix :is([role=grid], [role=gridcell]) { box-shadow:none !important; border-radius:0 !important; font-size:12px !important; }
@@ -46,7 +46,7 @@ body [data-order-design] .order-calculator-matrix :is([role=grid], [role=gridcel
 .order-compact-offer button { min-height:40px; font-size:13px; background:transparent; border:0; box-shadow:none; color:var(--flow-blue); }
 [data-order-design] :is(button,a,input,summary):focus-visible { outline: 2px solid var(--flow-blue); outline-offset: 3px; }
 [data-order-design] .storefront-order-flow { width: 100%; max-width: 1400px; padding: var(--ui-space-8) var(--ui-page-gutter) var(--ui-space-16); margin: 0 auto; }
-[data-order-design] .storefront-order-hero h1 { font-size: var(--ui-title-product) !important; line-height: 1.15; letter-spacing: -.035em; }
+[data-order-design]:not([data-pvc-native-frame], [data-pvc-native-frame] *) .storefront-order-hero h1 { font-size: var(--ui-title-product) !important; line-height: 1.15; letter-spacing: -.035em; }
 [data-order-design] .storefront-order-hero p { font-size: 14px; line-height: 1.6; }
 [data-order-design] .storefront-order-hero { padding: 0; background: transparent; border: 0; box-shadow: none; }
 [data-order-design] .storefront-order-flow :is(.storefront-order-surface,.storefront-order-price-panel) { box-shadow: none; border-radius: 6px; }

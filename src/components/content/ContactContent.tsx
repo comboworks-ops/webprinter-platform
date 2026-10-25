@@ -1,3 +1,4 @@
+import { usePvcbannerPageSettings } from '@/components/sites/PvcbannerNativeFrame';
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ export const ContactContent = () => {
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const { toast } = useToast();
+    const signal = usePvcbannerPageSettings();
     const { data: settings } = useShopSettings();
     const company = settings?.company || {};
     const contactPhone = typeof company.phone === "string" ? company.phone.trim() : "";
@@ -105,13 +107,14 @@ export const ContactContent = () => {
     };
 
     return (
-        <div className="container mx-auto px-4">
+        <div className={`container mx-auto px-4 ${signal ? "wide-contact" : ""}`}>
             <div className="max-w-5xl mx-auto">
-                <h1 data-branding-id="typography.heading" className="text-4xl md:text-5xl font-heading font-bold mb-12 text-center">Kontakt os</h1>
+                <div className={signal ? "pvc-info-intro" : undefined} data-signal-section={signal ? "signal-pages" : undefined}><h1 data-site-design-target={signal ? "signal-pages" : undefined} data-branding-id="typography.heading" className="text-4xl md:text-5xl font-heading font-bold mb-12 text-center">{signal?.contactTitle || "Kontakt os"}</h1>{signal && <p>{signal.contactIntro}</p>}</div>
 
-                <div className="grid md:grid-cols-2 gap-12">
+                <div className="wide-contact-grid grid md:grid-cols-2 gap-12">
+                    {signal?.contactLayout === 'editorial' && <img className="wide-contact-image" src={signal.heroImage} alt={signal.heroImageAlt} loading="lazy"/>}
                     {/* Contact Info */}
-                    <div className="space-y-6">
+                    <div className="wide-contact-info space-y-6">
                         <div>
                             <h2 data-branding-id="typography.heading" className="text-2xl font-heading font-semibold mb-6">Kontaktinformation</h2>
 
@@ -184,7 +187,8 @@ export const ContactContent = () => {
 
                     {/* Contact Form */}
                     <div>
-                        <form onSubmit={handleSubmit} className="space-y-4">
+                        <form onSubmit={handleSubmit} className="wide-contact-form space-y-4">
+                            {signal && ['topics','project'].includes(signal.contactLayout) && <fieldset className="wide-contact-topics"><legend>{signal.contactLayout==='project'?'Hvad handler dit projekt om?':'Vælg emne'}</legend>{['Produkt og materiale','Design og trykfil','Ordre og levering'].map(topic=><button type="button" key={topic} aria-pressed={formData.subject===topic} onClick={()=>setFormData({...formData,subject:topic})}>{topic}</button>)}</fieldset>}
                             <div className="space-y-2">
                                 <Label htmlFor="name">Navn *</Label>
                                 <Input

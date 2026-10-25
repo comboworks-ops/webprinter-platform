@@ -1,3 +1,8 @@
+import { StudioSaveToLibrary } from '@/components/admin/icon-studio/StudioSaveToLibrary';
+import { StudioProductImageLibrary } from '@/components/admin/icon-studio/StudioProductImageLibrary';
+import { StudioReferencePackImport } from '@/components/admin/icon-studio/StudioReferencePackImport';
+import { IconStudioComposer } from "@/components/admin/icon-studio/IconStudioComposer";
+import { STUDIO_STYLES, STUDIO_VIEWS } from "../../../supabase/functions/_shared/iconStudioRecipe.ts";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import {
@@ -5,12 +10,9 @@ import {
   FolderOpen,
   ImagePlus,
   Loader2,
-  PackageOpen,
   RefreshCw,
-  ShieldCheck,
   Sparkles,
   Trash2,
-  WandSparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -21,7 +23,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,40 +31,29 @@ import { IconStudioOutputActions } from "@/components/admin/icon-studio/IconStud
 import { useIconStudioAccess } from "@/hooks/useIconStudioAccess";
 import {
   ICON_STUDIO_BRAND_FINISHES,
-  ICON_STUDIO_OUTPUT_FORMATS,
-  ICON_STUDIO_OUTPUT_SIZES,
   ICON_STUDIO_PRODUCTS,
   ICON_STUDIO_STYLES,
   ICON_STUDIO_VARIANTS,
-  getIconStudioPlacementPresets,
   getIconStudioProductLabel,
   getIconStudioStyleLabel,
   getIconStudioVariantLabel,
   type IconStudioBrandFinishKey,
-  type IconStudioOutputFormat,
-  type IconStudioOutputSize,
   type IconStudioProductKey,
   type IconStudioStyleKey,
   type IconStudioVariantKey,
 } from "@/lib/icon-studio/catalog";
 import {
-  ICON_STUDIO_PROVIDER_OPTIONS,
-  type IconStudioProviderPreference,
-} from "@/lib/icon-studio/provider";
-import {
   approveIconStudioOutput,
-  createIconStudioJob,
   deleteIconStudioBrandAsset,
   deleteIconStudioReferenceAsset,
   listIconStudioBrandAssets,
   listIconStudioJobs,
   listIconStudioProductTargets,
   listIconStudioReferenceAssets,
-  resolveBestMatchingReferenceAssets,
   uploadIconStudioBrandAsset,
   uploadIconStudioReferenceAsset,
 } from "@/lib/icon-studio/service";
-import { buildIconStudioPayload, type IconStudioBrandAssetRow, type IconStudioJobWithOutputs, type IconStudioProductTarget, type IconStudioReferenceAssetRow } from "@/lib/icon-studio/types";
+import { type IconStudioBrandAssetRow, type IconStudioJobWithOutputs, type IconStudioProductTarget, type IconStudioReferenceAssetRow } from "@/lib/icon-studio/types";
 
 type ReferenceStyleSelectValue = IconStudioStyleKey | "any";
 type ReferenceVariantSelectValue = IconStudioVariantKey | "any";
@@ -103,11 +93,13 @@ function getJobStatusLabel(status: IconStudioJobWithOutputs["status"]) {
   return labels[status];
 }
 
-export default function IconStudioPage() {
-  const access = useIconStudioAccess();
+function IconStudioWorkspace({ access }: { access: ReturnType<typeof useIconStudioAccess> }) {
   const tenantId = access.tenantId;
 
+  const [libraryOpenRequest, setLibraryOpenRequest] = useState(0);
+  const [libraryView, setLibraryView] = useState<'folders'|'generated'>('folders');
   const [activeTab, setActiveTab] = useState("generate");
+  const [librarySelection, setLibrarySelection] = useState<{id:string; nonce:number} | null>(null);
   const [referenceAssets, setReferenceAssets] = useState<IconStudioReferenceAssetRow[]>([]);
   const [brandAssets, setBrandAssets] = useState<IconStudioBrandAssetRow[]>([]);
   const [jobs, setJobs] = useState<IconStudioJobWithOutputs[]>([]);
@@ -118,17 +110,6 @@ export default function IconStudioPage() {
   const [submittingJob, setSubmittingJob] = useState(false);
   const [approvingOutputId, setApprovingOutputId] = useState<string | null>(null);
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
-
-  const [productKey, setProductKey] = useState<IconStudioProductKey>("presentation_folder");
-  const [styleKey, setStyleKey] = useState<IconStudioStyleKey>("soft_3d");
-  const [variantKey, setVariantKey] = useState<IconStudioVariantKey>("angled_front");
-  const [providerPreference, setProviderPreference] = useState<IconStudioProviderPreference>("auto");
-  const [brandOverlayEnabled, setBrandOverlayEnabled] = useState(false);
-  const [selectedBrandAssetId, setSelectedBrandAssetId] = useState<string | null>(null);
-  const [placementPreset, setPlacementPreset] = useState<string | null>(null);
-  const [finishKey, setFinishKey] = useState<IconStudioBrandFinishKey>("embossed_light");
-  const [format, setFormat] = useState<IconStudioOutputFormat>("png");
-  const [size, setSize] = useState<IconStudioOutputSize>(1024);
 
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [referenceName, setReferenceName] = useState("");
@@ -145,77 +126,8 @@ export default function IconStudioPage() {
   const [brandRole, setBrandRole] = useState<BrandAssetRole>("logo");
   const [brandIsDefault, setBrandIsDefault] = useState(true);
 
-  const availablePlacements = useMemo(
-    () => getIconStudioPlacementPresets(productKey, variantKey),
-    [productKey, variantKey],
-  );
-
-  useEffect(() => {
-    if (brandAssets.length === 0) {
-      setSelectedBrandAssetId(null);
-      return;
-    }
-
-    if (!selectedBrandAssetId || !brandAssets.some((asset) => asset.id === selectedBrandAssetId)) {
-      const preferred = brandAssets.find((asset) => asset.is_default) || brandAssets[0];
-      setSelectedBrandAssetId(preferred?.id || null);
-    }
-  }, [brandAssets, selectedBrandAssetId]);
-
-  useEffect(() => {
-    if (!availablePlacements.some((placement) => placement.key === placementPreset)) {
-      setPlacementPreset(availablePlacements[0]?.key ?? null);
-    }
-  }, [availablePlacements, placementPreset]);
-
-  useEffect(() => {
-    if (providerPreference !== "mock" && format === "svg") {
-      setFormat("png");
-    }
-  }, [format, providerPreference]);
-
-  const payloadPreview = useMemo(() => {
-    if (!tenantId) return null;
-
-    try {
-      return buildIconStudioPayload({
-        tenantId,
-        productKey,
-        styleKey,
-        variantKey,
-        brandOverlayEnabled,
-        brandAssetId: selectedBrandAssetId,
-        placementPreset: placementPreset as any,
-        finishKey,
-        format,
-        size,
-      });
-    } catch {
-      return null;
-    }
-  }, [
-    brandOverlayEnabled,
-    finishKey,
-    format,
-    placementPreset,
-    productKey,
-    selectedBrandAssetId,
-    size,
-    styleKey,
-    tenantId,
-    variantKey,
-  ]);
-
-  const matchingReferenceAssets = useMemo(() => {
-    if (!payloadPreview) return [];
-    return resolveBestMatchingReferenceAssets({
-      assets: referenceAssets,
-      payload: payloadPreview,
-    });
-  }, [payloadPreview, referenceAssets]);
-
   const referenceBankSummaries = useMemo(() => {
-    const grouped = new Map<IconStudioStyleKey | "shared", IconStudioReferenceAssetRow[]>();
+    const grouped = new Map<IconStudioStyleKey | "shared" | "onlinetryksager", IconStudioReferenceAssetRow[]>();
 
     ICON_STUDIO_STYLES.forEach((style) => {
       grouped.set(style.key, []);
@@ -223,7 +135,8 @@ export default function IconStudioPage() {
     grouped.set("shared", []);
 
     referenceAssets.forEach((asset) => {
-      const bankKey = asset.style_key ?? "shared";
+      if (asset.metadata?.productImageLibrary === true) return;
+      const bankKey = asset.metadata?.referencePackId === "onlinetryksager-v1" ? "onlinetryksager" : asset.style_key ?? "shared";
       const current = grouped.get(bankKey) || [];
       current.push(asset);
       grouped.set(bankKey, current);
@@ -233,11 +146,12 @@ export default function IconStudioPage() {
       [...assets].sort((left, right) => right.priority - left.priority || left.name.localeCompare(right.name));
 
     return [
+      {key:"onlinetryksager" as const,label:"Onlinetryksager",assets:sortAssets(grouped.get("onlinetryksager") || []),isSelected:false},
       ...ICON_STUDIO_STYLES.map((style) => ({
         key: style.key,
         label: style.label,
         assets: sortAssets(grouped.get(style.key) || []),
-        isSelected: style.key === styleKey,
+        isSelected: false,
       })),
       {
         key: "shared" as const,
@@ -246,21 +160,7 @@ export default function IconStudioPage() {
         isSelected: false,
       },
     ];
-  }, [referenceAssets, styleKey]);
-
-  const selectedBankSummary = useMemo(
-    () => referenceBankSummaries.find((entry) => entry.key === styleKey) || null,
-    [referenceBankSummaries, styleKey],
-  );
-
-  const populatedBankCount = useMemo(
-    () => referenceBankSummaries.filter((entry) => entry.key !== "shared" && entry.assets.length > 0).length,
-    [referenceBankSummaries],
-  );
-  const missingProductImageCount = useMemo(
-    () => productTargets.filter((product) => !product.image_url).length,
-    [productTargets],
-  );
+  }, [referenceAssets]);
 
   const refreshData = useCallback(async () => {
     if (!tenantId || !access.hasAccess) return;
@@ -355,7 +255,6 @@ export default function IconStudioPage() {
       });
 
       setBrandAssets((current) => [created, ...current.filter((asset) => !brandIsDefault || !asset.is_default)]);
-      setSelectedBrandAssetId(created.id);
       setBrandFile(null);
       setBrandName("");
       setBrandRole("logo");
@@ -367,38 +266,6 @@ export default function IconStudioPage() {
       toast.error("Logoet eller mærket kunne ikke uploades.");
     } finally {
       setUploadingBrandAsset(false);
-    }
-  };
-
-  const handleCreateJob = async () => {
-    if (!tenantId) return;
-
-    setSubmittingJob(true);
-    try {
-      await createIconStudioJob({
-        tenantId,
-        productKey,
-        styleKey,
-        variantKey,
-        providerPreference,
-        brandOverlayEnabled,
-        brandAssetId: selectedBrandAssetId,
-        placementPreset,
-        finishKey,
-        format,
-        size,
-        referenceAssets,
-        brandAssets,
-      });
-
-      toast.success("Icon Studio job oprettet.");
-      setActiveTab("generate");
-      await refreshData();
-    } catch (error: any) {
-      console.error(error);
-      toast.error(error?.message || "Kunne ikke oprette job.");
-    } finally {
-      setSubmittingJob(false);
     }
   };
 
@@ -437,9 +304,6 @@ export default function IconStudioPage() {
     try {
       await deleteIconStudioBrandAsset(asset);
       setBrandAssets((current) => current.filter((row) => row.id !== asset.id));
-      if (selectedBrandAssetId === asset.id) {
-        setSelectedBrandAssetId(null);
-      }
       toast.success("Logoet eller mærket er slettet.");
     } catch (error) {
       console.error(error);
@@ -449,7 +313,6 @@ export default function IconStudioPage() {
     }
   };
 
-  const currentJob = jobs.find((job) => job.product_key === productKey && job.style_key === styleKey && job.variant_key === variantKey);
   const renderJob = (job: IconStudioJobWithOutputs) => (
 
             <Card key={job.id}>
@@ -458,13 +321,13 @@ export default function IconStudioPage() {
                   <div>
                     <CardTitle>{getIconStudioProductLabel(job.product_key)}</CardTitle>
                     <CardDescription>
-                      {getIconStudioStyleLabel(job.style_key)} • {getIconStudioVariantLabel(job.variant_key)} • oprettet {formatDate(job.created_at)}
+                      {STUDIO_STYLES.find(style=>style.id===job.payload.recipe?.styleId)?.label || getIconStudioStyleLabel(job.style_key)} · {STUDIO_VIEWS.find(view=>view.id===job.payload.recipe?.viewId)?.label || getIconStudioVariantLabel(job.variant_key)}
+                      {activeTab==="jobs" && ` · ${formatDate(job.created_at)}`}
                     </CardDescription>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Badge variant={job.status === "approved" ? "default" : "secondary"}>{getJobStatusLabel(job.status)}</Badge>
-                    <Badge variant="outline">{job.provider_key}</Badge>
-                    <Badge variant="outline">{job.resolved_reference_asset_ids.length} referencer</Badge>
+                    {['mock','mock-icon-studio-v1'].includes(job.provider_key)&&<Badge variant="outline">Testbillede · ikke AI</Badge>}
                   </div>
                 </div>
               </CardHeader>
@@ -479,19 +342,14 @@ export default function IconStudioPage() {
                   {job.outputs.map((output) => (
                     <Card key={output.id} className={job.approved_output_id === output.id ? "border-emerald-300" : undefined}>
                       <CardContent className="p-4 space-y-4">
-                        <div className="aspect-square overflow-hidden rounded-lg border bg-muted/30">
+                        <div className="studio-alpha-grid aspect-square overflow-hidden rounded-lg border">
                           {output.preview_url ? (
                             <img src={output.preview_url} alt={output.label} className="h-full w-full object-contain" />
                           ) : (
                             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Ingen preview</div>
                           )}
                         </div>
-                        <div className="space-y-1">
-                          <p className="font-medium">{output.label}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {output.kind} • {output.mime_type}
-                          </p>
-                        </div>
+                        {job.outputs.length>1 && <p className="font-medium">{output.label}</p>}
                         <div className="flex flex-wrap gap-2">
                           {job.approved_output_id === output.id && (
                             <Badge className="bg-emerald-600 hover:bg-emerald-600">
@@ -513,6 +371,12 @@ export default function IconStudioPage() {
                           )}
                           Godkend billede
                         </Button>
+                        {tenantId && ['ready_for_review','approved'].includes(job.status) && ['openai-image-v1','gemini-image-v1'].includes(job.provider_key) && ['active','approved'].includes(output.status) && output.mime_type==='image/png' && <StudioSaveToLibrary
+                          tenantId={tenantId} outputId={output.id}
+                          suggestedName={`${getIconStudioProductLabel(job.product_key)} · ${STUDIO_STYLES.find(style=>style.id===job.payload.recipe?.styleId)?.label || getIconStudioStyleLabel(job.style_key)}`}
+                          saved={referenceAssets.some(asset=>asset.id===output.id && asset.metadata?.productImageLibrary===true)}
+                          onSaved={refreshData} openLibrary={()=>{setLibraryView('generated');setLibraryOpenRequest(n=>n+1);setActiveTab('jobs');}}
+                        />}
                         {job.approved_output_id === output.id && tenantId && (
                           <IconStudioOutputActions
                             tenantId={tenantId}
@@ -531,7 +395,8 @@ export default function IconStudioPage() {
                 </div>
 
                 <details className="rounded-lg border bg-muted/20 p-4">
-                  <summary className="cursor-pointer text-sm font-medium">Vis tekniske detaljer</summary>
+                  <summary className="cursor-pointer text-sm font-medium">Detaljer</summary>
+                  <p className="mt-3 text-sm text-muted-foreground">{job.provider_key} · {job.resolved_reference_asset_ids.length} referencer</p>
                   <Textarea
                     value={JSON.stringify(job.payload, null, 2)}
                     readOnly
@@ -555,423 +420,37 @@ export default function IconStudioPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
+    <div className="studio-page space-y-6">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-3xl font-bold tracking-tight">Produktbilleder</h1>
-            <Badge variant="outline">
-              <Sparkles className="mr-1 h-3.5 w-3.5" />
-              Pilot
-            </Badge>
-            {access.isMasterContext && <Badge variant="secondary">Master context</Badge>}
+
           </div>
           <p className="text-muted-foreground mt-2 max-w-3xl">
-            Opret ensartede billeder til shopprodukter, godkend det bedste forslag, og brug det direkte på et produkt.
-            Stilreferencer og logoer er valgfrie og kan tilføjes, når pilotens grundflow er afprøvet.
+            Vælg et produkt og en stil. Skab dit billede med AI.
           </p>
         </div>
 
-        <Button variant="outline" onClick={() => void refreshData()} disabled={loadingData}>
-          {loadingData ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-          Opdater
+        <Button variant="ghost" size="icon" className="shrink-0" aria-label="Opdater billeder" title="Opdater billeder" onClick={() => void refreshData()} disabled={loadingData}>
+          {loadingData ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
         </Button>
       </div>
 
-      <div className="workspace-icon-metrics">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Stilreferencer</CardTitle>
-            <CardDescription>{populatedBankCount}/5 visuelle stile har eksempler</CardDescription>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between">
-            <span className="text-3xl font-semibold">{referenceAssets.length}</span>
-            <FolderOpen className="h-5 w-5 text-muted-foreground" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Produkter uden billede</CardTitle>
-            <CardDescription>Start piloten med op til 10 produkter</CardDescription>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between">
-            <span className="text-3xl font-semibold">{missingProductImageCount}</span>
-            <PackageOpen className="h-5 w-5 text-muted-foreground" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Logoer og mærker</CardTitle>
-            <CardDescription>Shoplogoer og symboler</CardDescription>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between">
-            <span className="text-3xl font-semibold">{brandAssets.length}</span>
-            <ImagePlus className="h-5 w-5 text-muted-foreground" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Billedforslag</CardTitle>
-            <CardDescription>Seneste 30 genereringer</CardDescription>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between">
-            <span className="text-3xl font-semibold">{jobs.length}</span>
-            <WandSparkles className="h-5 w-5 text-muted-foreground" />
-          </CardContent>
-        </Card>
-      </div>
-
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4 lg:w-auto">
-          <TabsTrigger value="generate">Opret billeder</TabsTrigger>
-          <TabsTrigger value="references">Stilreferencer</TabsTrigger>
-          <TabsTrigger value="brand-assets">Logoer</TabsTrigger>
-          <TabsTrigger value="jobs">Historik</TabsTrigger>
+        <TabsList className="studio-page-tabs grid w-full grid-cols-4 lg:w-auto">
+          <TabsTrigger disabled={submittingJob} value="generate">Opret billede</TabsTrigger>
+          <TabsTrigger disabled={submittingJob} value="references">Stilreferencer</TabsTrigger>
+          <TabsTrigger disabled={submittingJob} value="brand-assets">Logoer</TabsTrigger>
+          <TabsTrigger disabled={submittingJob} value="jobs">Mine billeder</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="generate" className="space-y-6">
-          <div className="workspace-icon-studio-grid">
-            <section className="workspace-icon-inputs" aria-labelledby="icon-reference-title">
-              <h2 id="icon-reference-title">1. Reference og produkt</h2>
-              <div className="space-y-2">
-                    <LabelWithInfo
-                      label="Produkt"
-                      info="Det trykprodukt der skal vises som ikon, for eksempel præsentationsmappe, flyer, plakat eller konvolut."
-                    />
-                    <Select value={productKey} onValueChange={(value) => setProductKey(value as IconStudioProductKey)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ICON_STUDIO_PRODUCTS.map((product) => (
-                          <SelectItem key={product.key} value={product.key}>
-                            {product.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                              <div className="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/40 p-4">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                    <p className="text-sm font-medium">Valgte stilreferencer</p>
-                    <InfoTooltip content="Dette er de stilreferencer, som bruges til de næste billedforslag." />
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Stilen <span className="font-medium">{getIconStudioStyleLabel(styleKey)}</span> bruger op til fem referencebilleder.
-                    Fælles standarder bruges kun, når stilen ikke har egne referencer.
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Badge variant="secondary">
-                      {selectedBankSummary?.assets.length || 0}/5 referencer
-                    </Badge>
-                    {selectedBankSummary?.assets.length ? (
-                      <Badge variant="outline">Stilen har egne referencer</Badge>
-                    ) : (
-                      <Badge variant="outline">Bruger fælles standard</Badge>
-                    )}
-                  </div>
-                  {providerPreference !== "mock" && (
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      Billedmotorerne opretter tre PNG-forslag. Hvis <span className="font-medium">Automatisk</span> ikke finder
-                      en konfigureret billedmotor, bruges testmotoren.
-                    </p>
-                  )}
-                  <div className="workspace-icon-reference-images">
-                    {matchingReferenceAssets.length > 0 ? (
-                      matchingReferenceAssets.map((asset) => (
-                        <figure key={asset.id}>
-                          {asset.preview_url && <img src={asset.preview_url} alt={asset.name} />}
-                          <figcaption>{asset.name}</figcaption>
-                        </figure>
-                      ))
-                    ) : (
-                      <Badge variant="outline">Ingen stilreferencer matcher endnu</Badge>
-                    )}
-                  </div>
-                </div>
-              <Button variant="outline" onClick={() => setActiveTab("references")}><ImagePlus className="mr-2 h-4 w-4" />Upload stilreference</Button>
-              <div className="workspace-icon-targets">
-                <h3>Produkter uden billede</h3>
-                <p className="text-xs text-muted-foreground">Vælg produkt, når du anvender et godkendt billede.</p>
-                {productTargets.filter((product) => !product.image_url).slice(0, 10).map((product) => (
-                  <div key={product.id}><PackageOpen className="h-4 w-4" aria-hidden="true" /><span>{product.name}</span></div>
-                ))}
-                {missingProductImageCount === 0 && <p className="text-sm text-muted-foreground">Ingen produkter mangler et billede.</p>}
-                {missingProductImageCount > 10 && <p className="text-xs text-muted-foreground">Viser 10 af {missingProductImageCount} produkter.</p>}
-              </div>
-            </section>
-            <Card className="workspace-icon-settings">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                  2. Stil og indstillinger
-                </CardTitle>
-                <CardDescription>
-                  Vælg produkt, visuel stil og vinkel. Du får tre forslag, som kan godkendes og bruges på et produkt.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid gap-4 md:grid-cols-4">
-
-
-                  <div className="space-y-2">
-                    <LabelWithInfo
-                      label="Visuel stil"
-                      info="En af fem faste visuelle stile. Stilen bestemmer, hvilke eksempler der bruges til at holde samme udtryk på tværs af produkter."
-                    />
-                    <Select value={styleKey} onValueChange={(value) => setStyleKey(value as IconStudioStyleKey)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ICON_STUDIO_STYLES.map((style) => (
-                          <SelectItem key={style.key} value={style.key}>
-                            {style.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <LabelWithInfo
-                      label="Billedmotor"
-                      info="Vælg hvilken billedmotor der skal oprette forslagene. Automatisk bruger den bedst tilgængelige motor."
-                    />
-                    <Select
-                      value={providerPreference}
-                      onValueChange={(value) => setProviderPreference(value as IconStudioProviderPreference)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ICON_STUDIO_PROVIDER_OPTIONS.map((provider) => (
-                          <SelectItem key={provider.key} value={provider.key}>
-                            {provider.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <LabelWithInfo
-                      label="Visning"
-                      info="Den faste produktvinkel eller præsentation. Eksempler er front, angled front, stacked, open eller standing."
-                    />
-                    <Select value={variantKey} onValueChange={(value) => setVariantKey(value as IconStudioVariantKey)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ICON_STUDIO_VARIANTS.map((variant) => (
-                          <SelectItem key={variant.key} value={variant.key}>
-                            {variant.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between rounded-lg border p-4">
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <Label className="text-base">Tilføj shoplogo</Label>
-                        <InfoTooltip content="Når dette er aktivt, lægges tenantens eget logo eller symbol på bagefter via faste ankerpunkter. Logoet må ikke tegnes frit af AI." />
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        Logoet placeres præcist efter billedet er oprettet og bliver ikke fortolket af AI.
-                      </p>
-                    </div>
-                    <Switch checked={brandOverlayEnabled} onCheckedChange={setBrandOverlayEnabled} />
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div className="space-y-2">
-                      <LabelWithInfo
-                        label="Logo eller mærke"
-                        info="Det uploadede tenant-logo eller symbol der skal bruges som overlay på det færdige ikon."
-                      />
-                      <Select
-                        value={selectedBrandAssetId || "none"}
-                        onValueChange={(value) => setSelectedBrandAssetId(value === "none" ? null : value)}
-                        disabled={!brandOverlayEnabled}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Vælg logo eller mærke" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">Ingen valgt</SelectItem>
-                          {brandAssets.map((asset) => (
-                            <SelectItem key={asset.id} value={asset.id}>
-                              {asset.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <LabelWithInfo
-                        label="Placering"
-                        info="Et fast ankerpunkt på produktet, for eksempel front upper right eller spine center. V1 bruger kun disse faste placeringer."
-                      />
-                      <Select
-                        value={placementPreset || "none"}
-                        onValueChange={(value) => setPlacementPreset(value === "none" ? null : value)}
-                        disabled={!brandOverlayEnabled}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Vælg anker" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availablePlacements.map((placement) => (
-                            <SelectItem key={placement.key} value={placement.key}>
-                              {placement.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <LabelWithInfo
-                        label="Logooverflade"
-                        info="Det kontrollerede look for brand-overlayet, for eksempel flat, embossed light eller gloss surface."
-                      />
-                      <Select
-                        value={finishKey}
-                        onValueChange={(value) => setFinishKey(value as IconStudioBrandFinishKey)}
-                        disabled={!brandOverlayEnabled}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ICON_STUDIO_BRAND_FINISHES.map((finish) => (
-                            <SelectItem key={finish.key} value={finish.key}>
-                              {finish.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <LabelWithInfo
-                      label="Filformat"
-                      info="PNG er standardformatet. SVG er kun tilgængeligt med testmotoren."
-                    />
-                    <Select value={format} onValueChange={(value) => setFormat(value as IconStudioOutputFormat)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ICON_STUDIO_OUTPUT_FORMATS.map((outputFormat) => (
-                          <SelectItem
-                            key={outputFormat}
-                            value={outputFormat}
-                            disabled={providerPreference !== "mock" && outputFormat === "svg"}
-                          >
-                            {outputFormat.toUpperCase()}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <LabelWithInfo
-                      label="Billedstørrelse"
-                      info="Den kvadratiske billedstørrelse. Større billeder giver flere detaljer og kan koste mere at oprette."
-                    />
-                    <Select value={String(size)} onValueChange={(value) => setSize(Number(value) as IconStudioOutputSize)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ICON_STUDIO_OUTPUT_SIZES.map((outputSize) => (
-                          <SelectItem key={outputSize} value={String(outputSize)}>
-                            {outputSize}px
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-
-
-
-              </CardContent>
-            </Card>
-
-            <section className="workspace-icon-results" aria-labelledby="icon-results-title">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 id="icon-results-title">3. Genererede forslag</h2>
-                <Button onClick={() => void handleCreateJob()} disabled={submittingJob || !payloadPreview}>
-                  {submittingJob ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
-                  Opret 3 billedforslag
-                </Button>
-                <Button variant="ghost" onClick={() => setActiveTab("jobs")}>Se historik</Button>
-              </div>
-              {currentJob ? renderJob(currentJob) : (
-                <div className="workspace-icon-empty">
-                  <Sparkles className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
-                  <p>Ingen forslag til det valgte produkt og den valgte stil endnu.</p>
-                  <p className="text-xs text-muted-foreground">Opret tre billedforslag med indstillingerne til venstre.</p>
-                </div>
-              )}
-            <Card>
-              <CardHeader>
-                <CardTitle>Fra forslag til produkt</CardTitle>
-                <CardDescription>Et forslag påvirker ikke shoppen, før du aktivt vælger et produkt.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <ol className="space-y-3 text-sm text-muted-foreground">
-                  <li><span className="font-medium text-foreground">1.</span> Opret tre forslag.</li>
-                  <li><span className="font-medium text-foreground">2.</span> Godkend det bedste forslag.</li>
-                  <li><span className="font-medium text-foreground">3.</span> Download det eller brug det direkte som produktbillede.</li>
-                </ol>
-                <details className="rounded-md border p-3">
-                  <summary className="cursor-pointer text-sm font-medium">Vis tekniske detaljer</summary>
-                  <pre className="mt-3 max-h-[360px] overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-6 text-slate-50">
-                    {payloadPreview
-                      ? JSON.stringify(
-                          {
-                            ...payloadPreview,
-                            references: {
-                              ...payloadPreview.references,
-                              referenceAssetIds: matchingReferenceAssets.map((asset) => asset.id),
-                            },
-                          },
-                          null,
-                          2,
-                        )
-                      : "Vælg et logo, eller slå shoplogo fra."}
-                  </pre>
-                </details>
-              </CardContent>
-            </Card>
-            </section>
-          </div>
+        <TabsContent forceMount value="generate" className={activeTab === "generate" ? "space-y-6" : "hidden"}>
+          {tenantId && <IconStudioComposer key={tenantId} tenantId={tenantId} jobs={jobs} references={referenceAssets} brandAssets={brandAssets} refresh={refreshData} renderJob={renderJob} openReferences={() => setActiveTab("references")} onBusyChange={setSubmittingJob} librarySelection={librarySelection} openLibrary={() => {setLibraryOpenRequest(n=>n+1);setActiveTab("jobs");}} />}
         </TabsContent>
 
         <TabsContent value="references" className="space-y-6">
+          {tenantId && <StudioReferencePackImport key={tenantId} tenantId={tenantId} references={referenceAssets} refresh={refreshData} onBusyChange={setSubmittingJob} />}
           <Card>
             <CardHeader>
               <CardTitle>Upload stilreference</CardTitle>
@@ -1112,7 +591,7 @@ export default function IconStudioPage() {
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             {referenceBankSummaries
-              .filter((bank) => bank.key !== "shared")
+              .filter((bank) => bank.key !== "shared" && bank.key !== "onlinetryksager")
               .map((bank) => (
                 <Card key={bank.key} className={bank.isSelected ? "border-primary/40" : undefined}>
                   <CardContent className="space-y-3 p-4">
@@ -1138,7 +617,7 @@ export default function IconStudioPage() {
                     <div>
                       <h3 className="text-lg font-semibold">{bank.label}</h3>
                       <p className="text-sm text-muted-foreground">
-                        {bank.key === "shared"
+                        {bank.key === "onlinetryksager" ? "Bruges kun, når Onlinetryksager-pakken vælges i generatoren. Originalens logo og farver kan erstattes." : bank.key === "shared"
                           ? "Fallback references, som kun bruges når en style bank ikke har sine egne assets endnu."
                           : "Isoleret referencebank for denne style. Disse assets bruges til at holde looket konsistent på tværs af produkter."}
                       </p>
@@ -1152,7 +631,7 @@ export default function IconStudioPage() {
                         <CardContent className="space-y-4 p-4">
                           <div className="aspect-square overflow-hidden rounded-lg border bg-muted/30">
                             {asset.preview_url ? (
-                              <img src={asset.preview_url} alt={asset.name} className="h-full w-full object-cover" />
+                              <img src={asset.preview_url} alt={asset.name} loading="lazy" className="h-full w-full object-contain" />
                             ) : (
                               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Ingen preview</div>
                             )}
@@ -1308,6 +787,7 @@ export default function IconStudioPage() {
         </TabsContent>
 
         <TabsContent value="jobs" className="space-y-6">
+          <StudioProductImageLibrary openRequest={libraryOpenRequest} initialView={libraryView} assets={referenceAssets} onUseReference={asset => { setLibrarySelection({id:asset.id, nonce:Date.now()}); setActiveTab("generate"); }} />
           {jobs.map(renderJob)}
 
           {jobs.length === 0 && (
@@ -1321,20 +801,11 @@ export default function IconStudioPage() {
         </TabsContent>
       </Tabs>
 
-      <Card className="border-dashed">
-        <CardContent className="flex flex-col gap-3 p-4 text-sm text-muted-foreground lg:flex-row lg:items-center lg:justify-between">
-          <div>
-              <p className="font-medium text-foreground">Pilotstatus</p>
-              <p>
-              Godkendte billeder kan downloades eller bruges direkte på et produkt. Eksisterende produktbilleder erstattes kun efter bekræftelse.
-              </p>
-          </div>
-          <Badge variant="outline">
-            <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-            Afgrænset pilotmodul
-          </Badge>
-        </CardContent>
-      </Card>
     </div>
   );
+}
+
+export default function IconStudioPage() {
+  const access = useIconStudioAccess();
+  return <IconStudioWorkspace key={access.tenantId || "resolving"} access={access} />;
 }

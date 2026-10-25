@@ -1,0 +1,61 @@
+/* Native commerce keeps its controls and geometry; Signal supplies the site frame. */
+@font-face{font-family:PvcInter;src:url('/site-previews/pvcbanner-signal/fonts/inter-latin-400-normal.woff2') format('woff2');font-weight:400;font-display:swap}
+@font-face{font-family:PvcInter;src:url('/site-previews/pvcbanner-signal/fonts/inter-latin-600-normal.woff2') format('woff2');font-weight:600;font-display:swap}
+@font-face{font-family:PvcInter;src:url('/site-previews/pvcbanner-signal/fonts/inter-latin-700-normal.woff2') format('woff2');font-weight:700;font-display:swap}
+@font-face{font-family:PvcAnton;src:url('/site-previews/pvcbanner-signal/fonts/Anton-Regular.ttf') format('truetype');font-weight:400;font-display:swap}
+.pvc-native{min-height:100dvh;display:flex;flex-direction:column;font-size:var(--signal-body);line-height:var(--signal-leading);--font-body:var(--signal-body-font);--font-heading:var(--signal-heading)}
+.pvc-native-shell :is(button,input){font-family:inherit}
+.pvc-native-shell :is(h1,h2,h3,p){margin:0}
+.pvc-native-shell :is(a,button){color:inherit;text-decoration:none}
+.pvc-native-shell button{cursor:pointer}
+.pvc-native-shell .site-header{z-index:45}
+.pvc-native-shell .brand strong{font-size:var(--brand-size,25px)}
+.pvc-native-shell .brand>img{width:var(--logo-size,44px);height:var(--logo-size,44px)}
+.pvc-native-shell .mega-menu h2{font-family:var(--signal-heading);font-weight:400;margin:12px 0 22px}
+.pvc-native-shell :is(.mega-menu,.compact-menu)[data-open=true]{opacity:1;visibility:visible;pointer-events:auto;transform:none}
+.pvc-native-shell .menu-backdrop{opacity:0;visibility:hidden;pointer-events:none;transition:opacity var(--signal-duration),visibility var(--signal-duration)}
+.pvc-native-shell .menu-backdrop[data-open=true]{opacity:1;visibility:visible;pointer-events:auto}
+.pvc-native-shell .button{background:var(--signal-button);color:var(--signal-button-text);border-color:var(--signal-button);border-radius:var(--signal-button-radius);font-size:var(--signal-button-size)}
+.pvc-native-shell .button.secondary{background:transparent;color:var(--signal-button)}
+.pvc-native-shell .footer{width:100%;max-width:none;padding-inline:max(var(--ui-page-gutter),(100vw - var(--page))/2 + var(--ui-page-gutter))}
+.pvc-native-shell .footer :is(h3,p,a){color:inherit;font-size:var(--footer-size)}
+.pvc-native-shell .footer h3{font-weight:700;margin-bottom:18px}
+.pvc-native-shell .footer p{margin-top:14px}
+.pvc-native-shell .footer-bottom{flex-wrap:wrap;gap:16px;color:inherit}
+.pvc-native-shell .footer-bottom nav{display:flex;gap:20px;flex-wrap:wrap}
+.pvc-native-shell :is(a,button,input):focus-visible{outline:2px solid var(--blue);outline-offset:4px}
+.pvc-native-shell .dialog{margin:auto;background:white}
+.pvc-native-shell .dialog-inner{color:var(--ink)}
+.pvc-native-content{flex:1;min-width:0;animation:pvc-page-in var(--signal-duration) var(--signal-ease);font-family:var(--signal-body-font)}
+.pvc-native-content>main{max-width:var(--page);margin-inline:auto;width:100%;background:transparent}
+.pvc-native-content .font-heading{font-family:var(--signal-heading)}
+.pvc-native-content .font-body{font-family:var(--signal-body-font)}
+.pvc-native-content .pvc-info-intro{padding-block:var(--signal-page-space);max-width:880px;margin-inline:auto;text-align:left}
+.pvc-native-content .pvc-info-intro h1{font-family:var(--signal-heading);font-size:clamp(32px,5vw,var(--signal-page-title));font-weight:400;line-height:1.12;letter-spacing:-.015em;color:var(--ink);margin-bottom:24px;overflow-wrap:anywhere}
+.pvc-native-content .pvc-info-intro p{font-size:var(--signal-body);line-height:var(--signal-leading);max-width:66ch;white-space:pre-line}
+.pvc-native-content .pvc-about{background:transparent;padding-block:0 var(--signal-page-space)}
+.pvc-native-content .pvc-about [data-branding-id="colors.primary"]{background:var(--blue)}
+.pvc-native-content .pvc-about [data-branding-id="colors.primary"] :is(p,h3){color:white}
+.pvc-native-content .graphic-guide-intro{padding-inline:0}
+@keyframes pvc-page-in{from{opacity:.2;transform:translateY(4px)}to{opacity:1;transform:none}}
+.pvc-native[data-motion=none] *{animation:none!important;transition:none!important}
+@media(prefers-reduced-motion:reduce){.pvc-native *{animation:none!important;transition:none!important}}
+@media(max-width:767px){.pvc-native-shell .header-inner{--responsive-header-gap:8px}.pvc-native-shell .brand strong{font-size:min(var(--brand-size),22px)}.pvc-native-shell .brand>img{width:min(var(--logo-size),35px);height:min(var(--logo-size),35px)}.pvc-native-content input,.pvc-native-content select{font-size:16px}.pvc-native-content .pvc-info-intro{padding-block:32px}.pvc-native-shell .footer-bottom nav{gap:12px}}
+
+.pvc-native .pvc-native-shell :is(a,button){color:inherit!important}
+.pvc-native .pvc-native-shell .text-button{color:var(--blue)!important}
+.pvc-native .pvc-native-shell .button{color:var(--signal-button-text)!important}
+.pvc-native .pvc-native-shell .button.secondary{color:var(--signal-button)!important}
+.pvc-native-content .storefront-order-hero h1{font-family:var(--signal-heading);font-size:clamp(32px,4.2vw,60px);line-height:1.12}
+.pvc-native-content .order-page-heading h1{font-family:var(--signal-heading);font-size:clamp(32px,4.2vw,60px);font-weight:400}
+
+.pvc-native [data-order-design]{--flow-ink:var(--ink);--flow-blue:var(--blue);font-family:var(--signal-body-font)}
+.pvc-native .sd-order-preview{background:transparent}
+.pvc-native .sd-order-preview .storefront-order-flow{background:transparent}
+.pvc-native .pvc-native-shell .brand{color:inherit!important}
+.pvc-native .pvc-native-content .storefront-product-flow :is(.order-primary-button,.storefront-primary-action){font-family:inherit}
+.pvc-native-content>main:has(.pvc-info-intro){padding-top:0}
+.pvc-native-content .pvc-info-intro h1{text-align:inherit}
+.pvc-native-content .font-heading{font-weight:400}
+@media(max-width:767px){.pvc-native-shell .header-inner{--responsive-header-controls-width:124px}}
+@media(max-width:360px){.pvc-native-shell .brand strong{font-size:min(var(--brand-size),16px)}.pvc-native-shell .brand>img{width:28px;height:28px}.pvc-native-shell .header-inner{padding-inline:16px}}

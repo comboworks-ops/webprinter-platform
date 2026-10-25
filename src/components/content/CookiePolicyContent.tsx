@@ -1,6 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { useCookieConsent } from "@/components/consent";
 
+import { isOnlinetryksagerHost } from '@/lib/analytics/onlinetryksager';
+
 const cookieTypes = [
   {
     title: "Nødvendige",
@@ -22,6 +24,7 @@ const cookieTypes = [
 
 export const CookiePolicyContent = () => {
   const { openSettings } = useCookieConsent();
+  const usesGoogleAnalytics = isOnlinetryksagerHost(window.location.hostname);
 
   return (
     <div className="container mx-auto px-4">
@@ -86,9 +89,16 @@ export const CookiePolicyContent = () => {
             4. Oversigt over cookies
           </h2>
           <p data-branding-id="typography.body" className="text-muted-foreground leading-relaxed">
-            Vi viser en opdateret liste over cookies i vores cookie banner eller cookie indstillinger, inklusiv formål
-            og udløb.
+            {usesGoogleAnalytics
+              ? 'Google Analytics (leveret af Google) måler besøg og sidevisninger på onlinetryksager.dk, når du har accepteret statistikcookies. Cookies _ga og _ga_BKKZ1Q3ECQ genkender browseren og måler sessioner. De udløber efter op til 180 dage fra seneste opdatering. Kontosider, checkout og administration måles ikke med denne forbindelse. Google-signaler og annonceringsfunktioner er slået fra.'
+              : 'Vi viser en opdateret liste over cookies i vores cookie banner eller cookie indstillinger, inklusiv formål og udløb.'}
           </p>
+          {usesGoogleAnalytics && (
+            <p data-branding-id="typography.body" className="text-muted-foreground leading-relaxed">
+              Du kan til enhver tid slå statistik fra via cookieindstillinger. Det stopper målingen og fjerner disse Analytics-cookies.
+              {' '}<a className="underline" href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener noreferrer">Læs om Googles behandling af data</a>.
+            </p>
+          )}
         </section>
       </article>
     </div>

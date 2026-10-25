@@ -1,0 +1,71 @@
+/* PVCbanner Signal Studio identity, shared by the existing native journey.
+   Never target artwork canvas pixels or production colour/profile settings. */
+@font-face { font-family:PvcInter; src:url('/site-previews/pvcbanner-signal/fonts/inter-latin-400-normal.woff2') format('woff2'); font-weight:400; font-display:swap; }
+@font-face { font-family:PvcInter; src:url('/site-previews/pvcbanner-signal/fonts/inter-latin-600-normal.woff2') format('woff2'); font-weight:600; font-display:swap; }
+@font-face { font-family:PvcInter; src:url('/site-previews/pvcbanner-signal/fonts/inter-latin-700-normal.woff2') format('woff2'); font-weight:700; font-display:swap; }
+@font-face { font-family:PvcAnton; src:url('/site-previews/pvcbanner-signal/fonts/Anton-Regular.ttf') format('truetype'); font-weight:400; font-display:swap; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) {
+  --primary:227 100% 55%; --primary-foreground:0 0% 100%; --ring:227 100% 55%;
+  --foreground:223 36% 10%; --background:0 0% 100%; --muted:218 57% 97%;
+  --muted-foreground:215 12% 43%; --accent:218 57% 97%; --accent-foreground:227 100% 55%;
+  --pvc-blue:#1748ff; --pvc-ink:#101522; --pvc-line:#e2e6ec; --pvc-wash:#f4f7fc;
+  font-family:PvcInter,Inter,Arial,sans-serif; color:var(--pvc-ink); background:white;
+}
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) :is([data-order-design],.storefront-visual-style,[role=dialog]) {
+  --primary:227 100% 55%; --primary-foreground:0 0% 100%; --ring:227 100% 55%;
+  --flow-ink:var(--pvc-ink); --flow-muted:#606b7a; --flow-blue:var(--pvc-blue);
+  --flow-line:var(--pvc-line); --flow-tint:var(--pvc-wash);
+  --order-primary-surface:var(--pvc-blue); --order-primary-text:white; --order-primary-border:var(--pvc-blue);
+  color:var(--pvc-ink); font-family:PvcInter,Inter,Arial,sans-serif;
+}
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) [data-order-design] .storefront-order-flow,
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) [data-order-design] .storefront-order-flow * { font-family:PvcInter,Inter,Arial,sans-serif !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .storefront-order-flow h1 {
+  font-family:PvcAnton,'Arial Narrow',sans-serif !important; font-size:clamp(36px,4.2vw,60px);
+  font-weight:400; line-height:1.12; letter-spacing:-.02em; color:var(--pvc-ink);
+}
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) :is(.storefront-header,header[data-branding-id]) { background:white !important; border-bottom:1px solid var(--pvc-line); box-shadow:none !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .storefront-header-container { max-width:1440px; padding-inline:var(--ui-page-gutter); }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) [data-branding-id="header.logo"] { gap:8px; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) [data-branding-id="header.logo"]::before {
+  content:''; display:block; width:44px; height:44px; flex-shrink:0;
+  background:url('/site-previews/pvcbanner-signal/assets/signal-mark.png') center/contain no-repeat;
+}
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) [data-branding-id="header.logo"] > span { font-family:PvcInter,Inter,sans-serif !important; font-size:25px; font-weight:700; letter-spacing:-1.2px; line-height:1.05; color:var(--pvc-ink) !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) [data-branding-id="header.logo"] > span::after { content:'by Webprinter'; display:block; font-size:10px; font-weight:400; line-height:1.5; letter-spacing:0; margin-top:1px; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) [data-order-design] .order-calculator-matrix [role=gridcell][aria-selected=true],
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) :is(.order-primary-button,.storefront-primary-action,.header-cta-button) { background:var(--pvc-blue) !important; border-color:var(--pvc-blue) !important; color:white !important; border-radius:3px !important; box-shadow:none !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) :is(.order-primary-button,.storefront-primary-action,.header-cta-button):hover { background:#0935dc !important; border-color:#0935dc !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .storefront-order-flow button[aria-pressed=true] { background:var(--pvc-blue) !important; border-color:var(--pvc-blue) !important; color:white !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) :is(.storefront-order-flow,.order-designer) > [role=status] { background:#fffbd6 !important; border:1px solid #eee6a0; color:var(--pvc-ink); border-radius:3px; line-height:1.5; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer { background:var(--pvc-wash); }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer [data-designer-toolbar] { background:white !important; color:var(--pvc-ink) !important; border-color:var(--pvc-line) !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer [data-designer-toolbar] :is(h1,p,span) { color:inherit; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer [data-designer-toolbar] h1 { font-family:PvcInter,Inter,sans-serif; font-weight:700; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer [data-designer-toolbar] button { border-radius:3px; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer [data-designer-toolbar] button[aria-label="Tilbage"] { color:var(--pvc-blue) !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer [data-designer-toolbar] button[aria-label="Fortsæt til checkout"],
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer [data-designer-toolbar] button[aria-label="Forbereder produktionsfil"] { background:var(--pvc-blue) !important; color:white !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer :is(aside,nav[aria-label="Designerpaneler"]) { background:white !important; border-color:var(--pvc-line); }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer :is(button.bg-primary,button[class*="bg-sky-"],button[class*="bg-cyan-"]) { background:var(--pvc-blue) !important; color:white !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) :is([role=dialog],.order-designer) [role=switch][data-state=checked] { background:var(--pvc-blue) !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) [role=dialog] { font-family:PvcInter,Inter,sans-serif; border-color:var(--pvc-line); border-radius:8px; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) [role=dialog] :is(.order-primary-button,.storefront-primary-action) { background:var(--pvc-blue) !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) :is(button,a,input,select,textarea):focus-visible { outline-color:var(--pvc-blue); }
+@media(max-width:480px) {
+ body[data-pvcbanner-journey]:not(:has(.pvc-native)) [data-branding-id="header.logo"] > span { font-size:21px; }
+ body[data-pvcbanner-journey]:not(:has(.pvc-native)) [data-branding-id="header.logo"]::before { width:34px; height:34px; }
+ body[data-pvcbanner-journey]:not(:has(.pvc-native)) .storefront-order-flow h1 { font-size:36px; }
+ body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer > [role=status] { font-size:11px; padding:6px 12px; }
+}
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer [data-designer-toolbar] .text-muted-foreground { color:#606b7a !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer [data-designer-toolbar] h1::before { content:''; display:inline-block; width:24px; height:24px; margin-right:8px; vertical-align:middle; background:url('/site-previews/pvcbanner-signal/assets/signal-mark.png') center/contain no-repeat; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) .order-designer [data-designer-toolbar] :is(button[aria-label="Eksportér"],button[aria-label="Avanceret redigering"]) { color:var(--pvc-blue) !important; border:1px solid #6989ff; background:white !important; }
+/* Keep saved legacy header colours from overriding the white PVCbanner shell. */
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) header :is(a,button),
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) header :is(a,button) > span { color:var(--pvc-ink) !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) header .header-cta-button,
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) header .header-cta-button > span { color:white !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) footer :is(h1,h2,h3,h4,a) { color:white !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) footer :is(p,button) { color:#c7ccd7 !important; }
+body[data-pvcbanner-journey]:not(:has(.pvc-native)) [data-order-design] .storefront-order-flow h1 { font-family:PvcAnton,'Arial Narrow',sans-serif !important; }

@@ -1,5 +1,8 @@
 import { withMatrixRowSelection } from '@/lib/products/matrixRowSelection';
 import { MaterialLabel, MaterialInfoIcons } from './MaterialLabel';
+import { PrintTermsGuidance } from './ProductChoiceGuidance';
+import { useAutomaticSelectionNotice } from '@/hooks/useAutomaticSelectionNotice';
+import type { SelectionSnapshot } from '@/lib/products/automaticSelectionNotice';
 import BrochureFreeSizeMatrix from './BrochureFreeSizeMatrix';
 import type { BrochureFreeMatrixMeta, BrochureFreeSelection, BrochureFreeSizeConfig } from '@/lib/pricing/brochureFreePricing';
 import { MaterialOptionInfoContext } from './materialOptionInfoContext';
@@ -2052,6 +2055,18 @@ export function MatrixLayoutV1Renderer({
     }, [attributeValueById, pricingStructure.vertical_axis.sectionId, pricingStructure.vertical_axis.valueSettings, valueSettingsById]);
 
     const materialSource = (valueId: string, sectionId?: string) => ({name:getDisplayValueName(valueId, sectionId), sourceName:attributeValueById[valueId]?.name, meta:attributeValueById[valueId]?.meta});
+    const selectionSnapshot: SelectionSnapshot = {};
+    Object.entries(selectedSectionValues).forEach(([sectionId, valueId]) => {
+        if (!valueId || sectionTypeById[sectionId] !== 'materials' || sectionId === pricingStructure.vertical_axis.sectionId) return;
+        selectionSnapshot[sectionId] = { value: valueId, label: getDisplayValueName(valueId, sectionId), title: 'Materiale' };
+    });
+    if (selectedCell) {
+        selectionSnapshot.quantity = { value: String(selectedCell.column), label: `${selectedCell.column.toLocaleString('da-DK')} stk.`, title: 'Antal' };
+        if (pricingStructure.vertical_axis.sectionType === 'materials') {
+            selectionSnapshot.matrixMaterial = { value: selectedCell.row, label: getValueName(selectedCell.row), title: 'Materiale' };
+        }
+    }
+    const { changes: automaticChanges, beginSelection } = useAutomaticSelectionNotice(productId, selectionSnapshot);
     const presentedName = (valueId: string, sectionId?: string) => materialValueIdSet.has(valueId)
         ? materialPresentation(materialSource(valueId, sectionId)).label : getDisplayValueName(valueId, sectionId);
     const materialConfigs = (valueId: string, sectionId: string) => materialValueIdSet.has(valueId)
@@ -2620,6 +2635,7 @@ export function MatrixLayoutV1Renderer({
     // Handle section selection change
     const handleSectionSelect = (sectionId: string, valueId: string) => {
         if (!isValueSelectable(sectionId, valueId)) return;
+        beginSelection(sectionId === pricingStructure.vertical_axis.sectionId ? [sectionId, 'matrixMaterial'] : [sectionId]);
 
         if (shouldFocusSelectedValue(sectionId)) {
             pendingFocusedSelectionFocusRef.current = { sectionId, valueId };
@@ -2708,6 +2724,7 @@ export function MatrixLayoutV1Renderer({
     };
 
     const clearSectionSelection = (sectionId: string) => {
+        beginSelection([sectionId]);
         setSelectedSectionValues(prev => {
             if (!(sectionId in prev)) return prev;
             const updated = { ...prev };
@@ -2718,6 +2735,7 @@ export function MatrixLayoutV1Renderer({
 
     // Handle cell click
     const handleCellClick = (row: string, column: number, basePrice: number, displayPrice: number) => {
+        beginSelection(['matrixMaterial', 'quantity']);
         setSelectedCell({ row, column });
         if (onCellClick) {
             onCellClick(row, column, Math.round(Number(displayPrice) || 0));
@@ -3786,6 +3804,15 @@ export function MatrixLayoutV1Renderer({
     }) : undefined;
 
     const controls = (<>
+            <div role="status" aria-live="polite" aria-atomic="true">
+                {automaticChanges.length > 0 && <div className="rounded-md border bg-muted/40 p-3 text-sm leading-relaxed">
+                    <p className="font-medium">Vi har tilpasset dit valg</p>
+                    <p>Det tidligere valg findes ikke i den nye kombination. Beregneren har automatisk ændret:</p>
+                    <ul className="mt-1 list-disc pl-5">{automaticChanges.map(change => <li key={change}>{change}</li>)}</ul>
+                    <p className="mt-1">Kontrollér materialet, antallet og den opdaterede pris, før du fortsætter.</p>
+                </div>}
+            </div>
+            <PrintTermsGuidance labels={pricingStructure.layout_rows.flatMap(row => row.columns.filter(col => !isHiddenColumn(col)).flatMap(col => col.valueIds.map(id => getDisplayValueName(id, col.id))))} />
             <div className="h-4 text-xs text-muted-foreground" aria-live="polite">
                 {matrixLoading ? 'Opdaterer priser...' : '\u00A0'}
             </div>

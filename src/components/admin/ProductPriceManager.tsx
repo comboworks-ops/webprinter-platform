@@ -1,9 +1,11 @@
 import '@/styles/productEditorConsolidation.css';
+import { loadCompletePriceRows } from '@/lib/pricing/loadCompletePriceRows';
 import { requestAdminWorkspaceExit } from '@/lib/admin/workspaceExit';
 import { saveProductTooltips } from "@/lib/products/saveProductTooltips";
 import { ProductCardLivePreview } from "./ProductCardLivePreview";
 import { IMAGE_HOVER_EFFECTS, CARD_HOVER_EFFECTS, type ImageHoverEffect, type CardHoverEffect } from "@/lib/products/productPresentation";
 import { ProductWorkspace } from './ProductWorkspace';
+import { TenantPurchasePrices } from './TenantPurchasePrices';
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -1105,26 +1107,14 @@ export function ProductPriceManager() {
           return;
         }
 
-        const pageSize = 5000;
-        let offset = 0;
         const priceColumns = 'id, product_id, tenant_id, variant_name, variant_value, quantity, price_dkk, extra_data, created_at, updated_at';
-
-        while (true) {
-          const { data: pageData, error } = await supabase
-            .from(tableName as any)
+        data = await loadCompletePriceRows((from, to) => supabase
+            .from('generic_product_prices')
             .select(priceColumns)
             .eq('product_id', product.id)
             .order('quantity', { ascending: true })
             .order('id', { ascending: true })
-            .range(offset, offset + pageSize - 1);
-
-          if (error) throw error;
-          if (!pageData || pageData.length === 0) break;
-
-          data.push(...pageData);
-          if (pageData.length < pageSize) break;
-          offset += pageSize;
-        }
+            .range(from, to), totalRows);
       } else {
         const { data: singlePageData, error } = await supabase
           .from(tableName as any)
@@ -2416,6 +2406,8 @@ export function ProductPriceManager() {
 
         {/* Produkt Tab - Attribute Builder */}
         <TabsContent value="produkt" className="admin-product-pricing space-y-6" data-design-choice={activeConfigSection === 'storformat' ? 'storformat_preview' : 'matrix_context'}>
+          <TenantPurchasePrices key={product.id} productId={product.id} tenantId={product.tenant_id}
+            canSetPurchasePrices={isMasterAdmin && product.tenant_id === '00000000-0000-0000-0000-000000000000'} />
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-2xl font-bold">{product.name}</h2>

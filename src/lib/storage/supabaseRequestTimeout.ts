@@ -7,6 +7,8 @@ export const supabaseRequestTimeoutMs = (input: RequestInfo | URL, init?: Reques
 
   try {
     const pathname = new URL(rawUrl, 'https://placeholder.supabase.co').pathname;
+    // Images can take over a minute; keep the longer budget scoped to this endpoint.
+    if (pathname === '/functions/v1/icon-studio-generate' && method === 'POST') return 180_000;
     if (pathname === '/functions/v1/stripe-create-payment-intent' && method === 'POST') return 150_000;
     if (pathname.startsWith('/storage/v1/object/') && (method === 'POST' || method === 'PUT')) {
       return STORAGE_UPLOAD_TIMEOUT_MS;

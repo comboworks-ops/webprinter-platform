@@ -1,0 +1,257 @@
+[
+  {
+    "path": "prototypes/multi-design-workspace/eslint.config.mjs",
+    "bytes": 278,
+    "sha256": "92e43226e17cd481dc23c661376c159a1fef3328c12a0d8a1a012f6c72d7ef11"
+  },
+  {
+    "path": "prototypes/multi-design-workspace/files.js",
+    "bytes": 4570,
+    "sha256": "58b387ad99c1a8573d81eea6c082b15cb023db8f162cc0e49ad20c8e3760ae2e"
+  },
+  {
+    "path": "prototypes/multi-design-workspace/index.html",
+    "bytes": 450,
+    "sha256": "7a4b8f0c1a679c2ffe77074f63b291c41c419f339e99d2fd7300fb982f141e64"
+  },
+  {
+    "path": "prototypes/multi-design-workspace/main.js",
+    "bytes": 15288,
+    "sha256": "2db8ab72726fe70be30a416e802942b7545865ccf1e913845b25c6c4922db251"
+  },
+  {
+    "path": "prototypes/multi-design-workspace/model.mjs",
+    "bytes": 2631,
+    "sha256": "3b76719f359fe6145495dd7baeacc9cf0e84d0bff881c6908724043cda9676ec"
+  },
+  {
+    "path": "prototypes/multi-design-workspace/model.test.mjs",
+    "bytes": 3247,
+    "sha256": "ab6a5bcd4be01d274b8b09a8190e49bd83d71b9fcbe3495d1b50d52bffa75916"
+  },
+  {
+    "path": "prototypes/multi-design-workspace/style.css",
+    "bytes": 12082,
+    "sha256": "e600f5b99cde73dd5912283f19920a818beb5e7764642cecdfbba4888f753592"
+  },
+  {
+    "path": "prototypes/multi-design-workspace/vite.config.mjs",
+    "bytes": 452,
+    "sha256": "f236c4f002024e1d0433f0e135f6f34374c0b726270cd6eeaccf577a91347239"
+  },
+  {
+    "path": "src/App.tsx",
+    "bytes": 12672,
+    "sha256": "b7fe2e4a52d43b96a39d5cdc3e4d29815e2284210ad7e2a6d1f77ba57bd61b73"
+  },
+  {
+    "path": "src/components/checkout/LocalWorkspaceCheckout.tsx",
+    "bytes": 17280,
+    "sha256": "e2c7e3b7af5a03ff6e086252fc914539ab0724eb7f28f663f36c06c175b9a11b"
+  },
+  {
+    "path": "src/components/designer/BrochureDesigner.tsx",
+    "bytes": 41876,
+    "sha256": "4770f3ba40b034075f19e0baf48d9c9f0815dcc116425fa0a8547fec9b2980eb"
+  },
+  {
+    "path": "src/components/product-price-page/BrochureFreeSizeMatrix.tsx",
+    "bytes": 12143,
+    "sha256": "eded516acf61f66eece2ec3d82f2ca5e25c9a22fea6268527ea7b6dd8aa77df7"
+  },
+  {
+    "path": "src/components/product-price-page/ProductPricePanel.tsx",
+    "bytes": 102872,
+    "sha256": "5f57e062eca57d92dfe1a7bed82518b0cf8d9ba1d69780623513f0eb8188cf0c"
+  },
+  {
+    "path": "src/dev/brochureSavedPreview.ts",
+    "bytes": 288,
+    "sha256": "89c6474e4be35b6be7a86fdf61f65024d47c7e23f887988040c1d4b20cb69e7a"
+  },
+  {
+    "path": "src/lib/designer/brochureDocument.test.ts",
+    "bytes": 9671,
+    "sha256": "0c41a4d11d1152318dfe110b45111ccdbcc099eb05a84ae683d2010ecb7e4955"
+  },
+  {
+    "path": "src/lib/designer/brochureDocument.ts",
+    "bytes": 10707,
+    "sha256": "f7f2f8d84e979bce0b1782a5c64e94db2f2648932a512be5cc1bf78c1729a626"
+  },
+  {
+    "path": "src/lib/designer/brochureDraft.ts",
+    "bytes": 2670,
+    "sha256": "d3b3b91c5ae0ca052f6c0de66d49959f0843082e9ff080ee95b57f5c66fe635f"
+  },
+  {
+    "path": "src/lib/designer/brochureGeometry.test.ts",
+    "bytes": 2172,
+    "sha256": "31fcdd015da9dac43cf847854096880ddc4d719493705883e1257307e21fd24d"
+  },
+  {
+    "path": "src/lib/designer/brochureGeometry.ts",
+    "bytes": 1120,
+    "sha256": "73c8c0d9172438a1726b3919559cf1e998c306e550b0d0ef1fba8f3c83abf782"
+  },
+  {
+    "path": "src/lib/designer/brochurePdf.test.ts",
+    "bytes": 4713,
+    "sha256": "02fff09aa47d3f571b61b574b69a22721a401240b26e27da34ee9728e6fb30ef"
+  },
+  {
+    "path": "src/lib/designer/brochurePdf.ts",
+    "bytes": 4413,
+    "sha256": "1ee97fedbd47a2baeb8a9a1f1f8c940b24476e183dbdf76a5f94d5b54fbf1448"
+  },
+  {
+    "path": "src/lib/designer/brochureProduct.test.ts",
+    "bytes": 2748,
+    "sha256": "d3eb8a8f257a7d82edf1405a44af4ac6796fa7259cb84210edf8656f8975c707"
+  },
+  {
+    "path": "src/lib/designer/brochureProduct.ts",
+    "bytes": 1572,
+    "sha256": "c2286ed3f4e607a1fda8c7e176b2899c9f274c2103576a808d28a812983fc073"
+  },
+  {
+    "path": "src/lib/designer/brochureWorkspace.test.ts",
+    "bytes": 4107,
+    "sha256": "a9bb3735019fae6f19d517825781976e57a37e6df8524a607570e331be01f9b7"
+  },
+  {
+    "path": "src/lib/designer/designWorkspaceModel.test.ts",
+    "bytes": 4816,
+    "sha256": "f924543cf7a77b96b643042248eb54a9736bb702410ce12fb3cb9686e9ddb2e9"
+  },
+  {
+    "path": "src/lib/designer/designWorkspaceModel.ts",
+    "bytes": 4120,
+    "sha256": "f4c98b3f83d79fb4534268228664036393594037f4e9be39e14e81288e2fc0cd"
+  },
+  {
+    "path": "src/lib/designer/localCheckoutAddress.test.ts",
+    "bytes": 3675,
+    "sha256": "f68d8e465595f817bb80b9f5f54ab8869dc3b611e770127b660c3c54ea63df01"
+  },
+  {
+    "path": "src/lib/designer/localCheckoutAddress.ts",
+    "bytes": 2631,
+    "sha256": "e3456c6aa93113e19f60ea4657d0a3759c5de5ade9b88214a8dc9418ee387f4e"
+  },
+  {
+    "path": "src/lib/designer/localDesignWorkspace.ts",
+    "bytes": 6637,
+    "sha256": "88556bdfc9bcdb65df245b8b397b46f4cc6994ed462980a69896966631d0fff4"
+  },
+  {
+    "path": "src/lib/designer/localWorkspaceCheckout.ts",
+    "bytes": 5250,
+    "sha256": "da85243a080684aefddd62c7721e4502570818928224f61c8c9f8d1f41107b4b"
+  },
+  {
+    "path": "src/lib/designer/localWorkspaceTransaction.test.ts",
+    "bytes": 4487,
+    "sha256": "dbe80d846fd0a87060fd37e324ea3f39c425e56b77c62424cdd08b74f575a855"
+  },
+  {
+    "path": "src/lib/designer/localWorkspaceTransaction.ts",
+    "bytes": 4790,
+    "sha256": "8eb7cd13201c64654c7692ba7979fdb4cbd00c7b1fb466912bd58fb9584ab8ba"
+  },
+  {
+    "path": "src/lib/designer/workspaceApproval.test.ts",
+    "bytes": 5946,
+    "sha256": "4c772dfa426c93bc5d789cf06d3796034e85228b94f216d6c38d471ad511e543"
+  },
+  {
+    "path": "src/lib/designer/workspaceApprovalModel.ts",
+    "bytes": 1475,
+    "sha256": "7a3e33d4c631ffe60e1fdb3a4d6ec066d0efddd2abfd549202f7476ec59b8340"
+  },
+  {
+    "path": "src/lib/designer/workspaceCheckoutModel.test.ts",
+    "bytes": 6407,
+    "sha256": "9a98dae84a5677dd99698264aaa244a2a77b119aab929f7476b26dddb9eae955"
+  },
+  {
+    "path": "src/lib/designer/workspaceCheckoutModel.ts",
+    "bytes": 5039,
+    "sha256": "2bf90306f4fff2a2c765622040e09c37ee1c3c54316be021d2cfdf4ae99c7a47"
+  },
+  {
+    "path": "src/lib/designer/workspaceContext.ts",
+    "bytes": 870,
+    "sha256": "2d7daab11f8015baf1820ce1361debae8ab051332ff0a471210af2def41852bd"
+  },
+  {
+    "path": "src/lib/designer/workspaceDeliveryPreview.test.ts",
+    "bytes": 3421,
+    "sha256": "a73701cc7b76215c3373cd705c434a678edd9a095096ab6cd2ab7049a380f4b6"
+  },
+  {
+    "path": "src/lib/designer/workspaceDeliveryPreview.ts",
+    "bytes": 1267,
+    "sha256": "f71cfde0a60d6d128291c7f0cbfd30c683d244d857ee2408ac91e8b22f725fad"
+  },
+  {
+    "path": "src/lib/pricing/brochureFreePricing.test.ts",
+    "bytes": 1609,
+    "sha256": "b3a51c6ca9569977efb901d4c2977faee235cf4dc041c1f0bac6d719de2dbd73"
+  },
+  {
+    "path": "src/lib/pricing/brochureFreePricing.ts",
+    "bytes": 2516,
+    "sha256": "a9143827d2e48e338b613248a8143e63365e4bb93b8ce0512aa26161be98d088"
+  },
+  {
+    "path": "src/lib/storefront/brochureQuoteLoader.test.ts",
+    "bytes": 3304,
+    "sha256": "46ee25bc193972e3358606ea8695986b1d4f5b90544b6686d42aeeb6d5b8bf07"
+  },
+  {
+    "path": "src/lib/storefront/brochureQuoteLoader.ts",
+    "bytes": 3392,
+    "sha256": "af02f6b10bef943e9b1a89a0fc2ae651b37f23dc670d6ac254f8f4b6185a80d5"
+  },
+  {
+    "path": "src/pages/BrochureNativeProductPreview.tsx",
+    "bytes": 5869,
+    "sha256": "33ae7052f22ad564c156a5ee07674675f002f89fa057ee72263681f591618644"
+  },
+  {
+    "path": "src/pages/BrochureProductPreview.tsx",
+    "bytes": 17632,
+    "sha256": "46850aab7379dda65318287d32e12ca050d10d8bd6c9a708f61250af0e0b555a"
+  },
+  {
+    "path": "src/pages/BrochureShopPreview.tsx",
+    "bytes": 1355,
+    "sha256": "ed48368ea48abac2b4323ce41d362fb370b5f3222a2822b61b8c15d0796954cc"
+  },
+  {
+    "path": "src/pages/DesignWorkspace.tsx",
+    "bytes": 11320,
+    "sha256": "3e036943e5a54222c92ae9fef988c4f6a3a43bfdc6ae7d533d8d73376db33a43"
+  },
+  {
+    "path": "src/pages/Designer.tsx",
+    "bytes": 276517,
+    "sha256": "b257bb7666f0afdb27671837d5801f9632028269b58dde448ca562e776e9eca9"
+  },
+  {
+    "path": "src/pages/FileUploadConfiguration.tsx",
+    "bytes": 271609,
+    "sha256": "99ac2fdb7aaf2a42ff72f507ea5cd8f94297c85f9f93f88bb8f10fb3670a30b0"
+  },
+  {
+    "path": "src/pages/ProductPrice.tsx",
+    "bytes": 103633,
+    "sha256": "a8247063a0c49789bb5418f4d41f94def97dc9bff3d3ab59d2f207f7f1d94743"
+  },
+  {
+    "path": "src/styles/designWorkspace.css",
+    "bytes": 3425,
+    "sha256": "66873ce50988e8d3df256437fa109e09b25733c697eeb5c5f2399e324d58a10d"
+  }
+]

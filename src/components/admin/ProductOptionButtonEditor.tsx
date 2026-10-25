@@ -1,4 +1,7 @@
-import { BUTTON_EFFECTS, type ButtonEffect } from '@/lib/branding/sharedButtons';
+import { BUTTON_EFFECTS, sharedButtonAttributes, type ButtonEffect } from '@/lib/branding/sharedButtons';
+import { resolveProductOptionAppearance } from '@/lib/branding/productOptionAppearance';
+import type { BrandingData } from '@/hooks/useBrandingDraft';
+import '@/styles/sharedButtons.css';
 /**
  * ProductOptionButtonEditor - Contextual editor for a single product option button
  *
@@ -9,7 +12,7 @@ import { BUTTON_EFFECTS, type ButtonEffect } from '@/lib/branding/sharedButtons'
  * - Text color
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -30,6 +33,8 @@ import {
 } from "@/lib/pricing/thumbnailSizes";
 
 interface ProductOptionButtonEditorProps {
+    branding?: BrandingData;
+    onEditSharedButtons?: () => void;
     tenantId: string;
     pricingPreview?: ProductStylingPreview | null;
     persistedStyling?: ProductStylingChange | null;
@@ -93,6 +98,18 @@ const DEFAULT_SETTINGS: ButtonSettings = {
     imageSizePx: 48,
 };
 
+function ButtonColorField({ disabled, ...props }: ComponentProps<typeof ColorPickerWithSwatches> & { disabled?: boolean }) {
+    return <fieldset disabled={disabled} className="min-w-0 space-y-1">
+        <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-medium">{props.label}</span>
+            <div className="flex shrink-0 items-center gap-2">
+                <code className="text-[11px] text-muted-foreground">{props.value}</code>
+                <ColorPickerWithSwatches {...props} compact showFullSwatches={false} />
+            </div>
+        </div>
+    </fieldset>;
+}
+
 const buildValueSettingUpdate = (
     settings: ButtonSettings,
     includeImageSize: boolean,
@@ -118,6 +135,8 @@ const buildValueSettingUpdate = (
 });
 
 export function ProductOptionButtonEditor({
+    branding,
+    onEditSharedButtons,
     tenantId,
     pricingPreview,
     persistedStyling,
@@ -140,6 +159,11 @@ export function ProductOptionButtonEditor({
     const [previewHovered, setPreviewHovered] = useState(false);
     const [productPricingStructure, setProductPricingStructure] = useState<Record<string, unknown> | null>(null);
     const [hasImageSizeChange, setHasImageSizeChange] = useState(false);
+    const [localAppearance, setLocalAppearance] = useState<Record<string, unknown>>({});
+    const [previewState, setPreviewState] = useState<'normal' | 'hover' | 'selected'>('normal');
+    const appearance = resolveProductOptionAppearance(branding, productPricingStructure, productId, sectionId, valueId, localAppearance);
+    const effectiveSettings = { ...settings, ...appearance };
+    const inheritsShared = appearance.source === 'shared';
 
     const pricingPreviewRef = useRef(pricingPreview);
     pricingPreviewRef.current = pricingPreview;
@@ -255,6 +279,7 @@ export function ProductOptionButtonEditor({
                     imageSizePx: normalizeThumbnailCustomPx(valueSettings.imageSizePx) ?? DEFAULT_SETTINGS.imageSizePx,
                 };
                 setSettings(loadedSettings);
+                setLocalAppearance(valueSettings);
                 emittedSettingsRef.current = loadedSettings;
                 pendingPatchesRef.current = pricingPreviewRef.current?.productId === productId
                     ? pricingPreviewRef.current.patches.filter(patch => patch.sectionId === sectionId && patch.path[0] === 'valueSettings' && patch.path[1] === valueId) : [];
@@ -283,7 +308,7 @@ export function ProductOptionButtonEditor({
             productPricingStructure,
             sectionId,
             valueId,
-            buildValueSettingUpdate(nextSettings, includeImageSize),
+            changed,
         );
         if (!previewUpdate.updated) return;
 
@@ -440,7 +465,18 @@ export function ProductOptionButtonEditor({
     }, [emitPricingPreview, hasImageSizeChange, productId, sectionId, settings, valueId]);
 
     const updateSetting = <K extends keyof ButtonSettings>(key: K, value: ButtonSettings[K]) => {
-        const nextSettings = { ...settings, [key]: value };
+        // Lock the visible appearance, rather than a stale set of local defaults.
+        const captured = key === 'lockFromSharedButtons' && value === true ? {
+            backgroundColor: appearance.backgroundColor, hoverBackgroundColor: appearance.hoverBackgroundColor,
+            textColor: appearance.textColor, hoverTextColor: appearance.hoverTextColor,
+            selectedBackgroundColor: appearance.selectedBackgroundColor, selectedTextColor: appearance.selectedTextColor,
+            borderColor: appearance.borderColor, hoverBorderColor: appearance.hoverBorderColor,
+            borderRadiusPx: appearance.borderRadiusPx, borderWidthPx: appearance.borderWidthPx,
+            paddingPx: appearance.paddingPx, fontSizePx: appearance.fontSizePx,
+            buttonEffect: appearance.buttonEffect, idleMotion: appearance.idleMotion,
+        } : {};
+        const nextSettings = { ...settings, ...captured, [key]: value };
+        setLocalAppearance(previous => ({ ...previous, ...captured, [key]: value }));
         const nextHasImageSizeChange = hasImageSizeChange || key === "imageSizePx";
         setSettings(nextSettings);
         setHasImageSizeChange(nextHasImageSizeChange);
@@ -476,11 +512,13 @@ export function ProductOptionButtonEditor({
 
             <label className="flex items-start gap-3 rounded-lg border bg-slate-50 p-3 text-sm">
                 <input type="checkbox" className="mt-1" checked={settings.lockFromSharedButtons} onChange={event => updateSetting('lockFromSharedButtons', event.target.checked)} />
-                <span><strong>Lås fra Fælles knapper</strong><span className="mt-1 block text-xs text-muted-foreground">Bevar og brug denne knaps lokale farver og form. Uden lås gælder Fælles knapper, når valgknapper er aktiveret der.</span></span>
+                <span><strong>Lås fra Fælles knapper</strong><span className="mt-1 block text-xs text-muted-foreground">Lås for at bevare de viste farver og tilpasse kun denne knap. Uden lås følger den Fælles knapper, når valgknapper er aktiveret der.</span></span>
             </label>
+            <div className="space-y-2 text-xs text-muted-foreground" role="status">
+                <p>{inheritsShared ? 'Farver og form kommer fra Fælles knapper → Valgknapper og følger ændringer i farvesystemet.' : settings.lockFromSharedButtons ? 'Denne knap bruger sit eget låste design.' : 'De viste farver følger shoppens, produktets og sektionens design. Lås knappen for at ændre farverne for dette valg alene.'}</p>
+                {inheritsShared && onEditSharedButtons && <Button type="button" variant="outline" size="sm" onClick={onEditSharedButtons}>Åbn Fælles knapper</Button>}
+            </div>
             {settings.lockFromSharedButtons && <div className="grid gap-3 rounded-lg border p-3">
-                <label className="text-xs">Baggrund når valgt<input aria-label="Lokal baggrund når valgt" type="color" className="ml-3" value={settings.selectedBackgroundColor} onChange={event => updateSetting('selectedBackgroundColor', event.target.value)} /></label>
-                <label className="text-xs">Tekst når valgt<input aria-label="Lokal tekst når valgt" type="color" className="ml-3" value={settings.selectedTextColor} onChange={event => updateSetting('selectedTextColor', event.target.value)} /></label>
                 <label className="grid gap-2 text-xs">Særlig effekt<select className="h-10 rounded-md border px-2" value={settings.buttonEffect} onChange={event => updateSetting('buttonEffect', event.target.value as ButtonEffect)}>{BUTTON_EFFECTS.map(effect => <option value={effect.id} key={effect.id}>{effect.name}</option>)}</select></label>
                 <label className="flex gap-2 text-xs"><input type="checkbox" checked={settings.idleMotion} onChange={event => updateSetting('idleMotion', event.target.checked)} />Diskret bevægelse uden hover for lysstrejf, nordlys, lyskreds og åndedrag</label>
             </div>}
@@ -512,14 +550,15 @@ export function ProductOptionButtonEditor({
                 <CardHeader className="space-y-1 pb-3">
                     <CardTitle className="text-sm">Farver</CardTitle>
                     <CardDescription className="text-xs">
-                        Baggrund og tekstfarver
+                        Normal: uden markering. Hover: når musen er over knappen. Valgt: det aktive produktvalg.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                    <fieldset disabled={inheritsShared} className="space-y-4">
                     <div className="grid gap-4">
-                        <ColorPickerWithSwatches
-                            label="Baggrundsfarve"
-                            value={settings.backgroundColor}
+                        <ButtonColorField
+                            label="Baggrund · normal"
+                            value={effectiveSettings.backgroundColor}
                             onChange={(color) => updateSetting('backgroundColor', color)}
                             savedSwatches={savedSwatches}
                             onSaveSwatch={onSaveSwatch}
@@ -527,9 +566,9 @@ export function ProductOptionButtonEditor({
                             compact
                             showFullSwatches={false}
                         />
-                        <ColorPickerWithSwatches
-                            label="Hover baggrund"
-                            value={settings.hoverBackgroundColor}
+                        <ButtonColorField
+                            label="Baggrund · hover"
+                            value={effectiveSettings.hoverBackgroundColor}
                             onChange={(color) => updateSetting('hoverBackgroundColor', color)}
                             savedSwatches={savedSwatches}
                             onSaveSwatch={onSaveSwatch}
@@ -537,9 +576,9 @@ export function ProductOptionButtonEditor({
                             compact
                             showFullSwatches={false}
                         />
-                        <ColorPickerWithSwatches
-                            label="Tekstfarve"
-                            value={settings.textColor}
+                        <ButtonColorField
+                            label="Tekst · normal"
+                            value={effectiveSettings.textColor}
                             onChange={(color) => updateSetting('textColor', color)}
                             savedSwatches={savedSwatches}
                             onSaveSwatch={onSaveSwatch}
@@ -547,9 +586,9 @@ export function ProductOptionButtonEditor({
                             compact
                             showFullSwatches={false}
                         />
-                        <ColorPickerWithSwatches
-                            label="Hover tekstfarve"
-                            value={settings.hoverTextColor}
+                        <ButtonColorField
+                            label="Tekst · hover"
+                            value={effectiveSettings.hoverTextColor}
                             onChange={(color) => updateSetting('hoverTextColor', color)}
                             savedSwatches={savedSwatches}
                             onSaveSwatch={onSaveSwatch}
@@ -557,7 +596,22 @@ export function ProductOptionButtonEditor({
                             compact
                             showFullSwatches={false}
                         />
+                        <ButtonColorField
+                            label="Baggrund · valgt"
+                            value={effectiveSettings.selectedBackgroundColor}
+                            onChange={(color) => updateSetting('selectedBackgroundColor', color)}
+                            disabled={!settings.lockFromSharedButtons}
+                            savedSwatches={savedSwatches} onSaveSwatch={onSaveSwatch} onRemoveSwatch={onRemoveSwatch}
+                        />
+                        <ButtonColorField
+                            label="Tekst · valgt"
+                            value={effectiveSettings.selectedTextColor}
+                            onChange={(color) => updateSetting('selectedTextColor', color)}
+                            disabled={!settings.lockFromSharedButtons}
+                            savedSwatches={savedSwatches} onSaveSwatch={onSaveSwatch} onRemoveSwatch={onRemoveSwatch}
+                        />
                     </div>
+                </fieldset>
                 </CardContent>
             </Card>
 
@@ -567,16 +621,18 @@ export function ProductOptionButtonEditor({
                     <CardTitle className="text-sm">Form</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                    <fieldset disabled={inheritsShared} className="space-y-4">
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
                             <Label>Hjørnerunding</Label>
-                            <span className="text-xs text-muted-foreground">{settings.borderRadiusPx}px</span>
+                            <span className="text-xs text-muted-foreground">{effectiveSettings.borderRadiusPx}px</span>
                         </div>
                         <Slider
                             min={0}
-                            max={30}
+                            max={48}
                             step={1}
-                            value={[settings.borderRadiusPx]}
+                            disabled={inheritsShared}
+                            value={[effectiveSettings.borderRadiusPx]}
                             onValueChange={([value]) => updateSetting('borderRadiusPx', value)}
                         />
                     </div>
@@ -584,21 +640,23 @@ export function ProductOptionButtonEditor({
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
                             <Label>Kantbredde</Label>
-                            <span className="text-xs text-muted-foreground">{settings.borderWidthPx}px</span>
+                            <span className="text-xs text-muted-foreground">{effectiveSettings.borderWidthPx}px</span>
                         </div>
                         <Slider
                             min={0}
                             max={4}
                             step={1}
-                            value={[settings.borderWidthPx]}
+                            disabled={Boolean(appearance.sharedStyle)}
+                            value={[effectiveSettings.borderWidthPx]}
                             onValueChange={([value]) => updateSetting('borderWidthPx', value)}
                         />
                     </div>
 
+                    {appearance.sharedStyle && <p className="text-xs text-muted-foreground">Fælles og låste knapper har en kant på 1 px. Hover-kanten følger hover-baggrunden.</p>}
                     <div className="grid gap-4">
-                        <ColorPickerWithSwatches
-                            label="Kantfarve"
-                            value={settings.borderColor}
+                        <ButtonColorField
+                            label="Kant · normal"
+                            value={effectiveSettings.borderColor}
                             onChange={(color) => updateSetting('borderColor', color)}
                             savedSwatches={savedSwatches}
                             onSaveSwatch={onSaveSwatch}
@@ -606,10 +664,10 @@ export function ProductOptionButtonEditor({
                             compact
                             showFullSwatches={false}
                         />
-                        <ColorPickerWithSwatches
-                            label="Hover kantfarve"
-                            value={settings.hoverBorderColor}
-                            onChange={(color) => updateSetting('hoverBorderColor', color)}
+                        <ButtonColorField
+                            label="Kant · hover"
+                            value={effectiveSettings.hoverBorderColor}
+                            onChange={(color) => updateSetting(appearance.sharedStyle ? 'hoverBackgroundColor' : 'hoverBorderColor', color)}
                             savedSwatches={savedSwatches}
                             onSaveSwatch={onSaveSwatch}
                             onRemoveSwatch={onRemoveSwatch}
@@ -617,6 +675,7 @@ export function ProductOptionButtonEditor({
                             showFullSwatches={false}
                         />
                     </div>
+                </fieldset>
                 </CardContent>
             </Card>
 
@@ -734,31 +793,33 @@ export function ProductOptionButtonEditor({
                     <CardTitle className="text-sm">Forhåndsvisning</CardTitle>
                 </CardHeader>
                 <CardContent>
+                    <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Knappens tilstand">
+                        {(['normal', 'hover', 'selected'] as const).map(state => <Button key={state} type="button" variant={previewState === state ? 'secondary' : 'outline'} size="sm" aria-pressed={previewState === state} onClick={() => setPreviewState(state)}>{state === 'normal' ? 'Normal' : state === 'hover' ? 'Hover' : 'Valgt'}</Button>)}
+                    </div>
                     <div className="p-4 rounded-lg border bg-muted/25">
                         <button
                             className="transition-all duration-200"
+                            type="button"
+                            {...sharedButtonAttributes(appearance.sharedStyle, 'selection')}
+                            data-preview-state={previewState}
+                            aria-pressed={previewState === 'selected'}
                             style={{
-                                backgroundColor: settings.backgroundColor,
-                                color: settings.textColor,
-                                borderRadius: `${settings.borderRadiusPx}px`,
-                                borderWidth: `${settings.borderWidthPx}px`,
+                                ...sharedButtonAttributes(appearance.sharedStyle, 'selection').style,
+                                backgroundColor: previewState === 'selected' ? effectiveSettings.selectedBackgroundColor : previewState === 'hover' || previewHovered ? effectiveSettings.hoverBackgroundColor : effectiveSettings.backgroundColor,
+                                color: previewState === 'selected' ? effectiveSettings.selectedTextColor : previewState === 'hover' || previewHovered ? effectiveSettings.hoverTextColor : effectiveSettings.textColor,
+                                borderRadius: `${effectiveSettings.borderRadiusPx}px`,
+                                borderWidth: `${effectiveSettings.borderWidthPx}px`,
                                 borderStyle: 'solid',
-                                borderColor: settings.borderColor,
-                                padding: `${settings.paddingPx}px ${settings.paddingPx * 1.5}px`,
-                                fontSize: `${settings.fontSizePx}px`,
-                                minHeight: `${settings.minHeightPx}px`,
+                                borderColor: previewState === 'selected' ? effectiveSettings.selectedBackgroundColor : previewState === 'hover' || previewHovered ? effectiveSettings.hoverBorderColor : effectiveSettings.borderColor,
+                                padding: `${effectiveSettings.paddingPx}px ${effectiveSettings.paddingPx * 1.5}px`,
+                                fontSize: `${effectiveSettings.fontSizePx}px`,
+                                minHeight: `${effectiveSettings.minHeightPx}px`,
                             }}
                             onMouseEnter={(e) => {
                                 setPreviewHovered(true);
-                                e.currentTarget.style.backgroundColor = settings.hoverBackgroundColor;
-                                e.currentTarget.style.color = settings.hoverTextColor;
-                                e.currentTarget.style.borderColor = settings.hoverBorderColor;
                             }}
                             onMouseLeave={(e) => {
                                 setPreviewHovered(false);
-                                e.currentTarget.style.backgroundColor = settings.backgroundColor;
-                                e.currentTarget.style.color = settings.textColor;
-                                e.currentTarget.style.borderColor = settings.borderColor;
                             }}
                         >
                             {settings.showThumbnail && (previewHovered && settings.hoverImage ? settings.hoverImage : settings.customImage) && (
@@ -769,7 +830,7 @@ export function ProductOptionButtonEditor({
                                     style={{
                                         width: settings.imageSizePx,
                                         height: settings.imageSizePx,
-                                        borderRadius: `${Math.max(2, settings.borderRadiusPx / 2)}px`,
+                                        borderRadius: `${Math.max(2, effectiveSettings.borderRadiusPx / 2)}px`,
                                     }}
                                 />
                             )}

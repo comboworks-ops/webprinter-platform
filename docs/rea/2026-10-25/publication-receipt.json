@@ -1,0 +1,10 @@
+{
+  "repository": "comboworks-ops/webprinter-platform",
+  "branch": "codex/rea-records-and-release-2026-10-25",
+  "commit": "9669e23c1fbf371bba8310a97c4aa4420ab9ed86",
+  "pullRequest": "https://github.com/comboworks-ops/webprinter-platform/pull/19",
+  "draft": true,
+  "mainMerged": false,
+  "vercelDeployment": "dpl_Edtv5bbmTabSpaJ6DYBjyz9n9oB5",
+  "livePromotionPendingScope": true
+}

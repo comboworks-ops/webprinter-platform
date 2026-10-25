@@ -12,6 +12,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { resolveAdminTenant } from '@/lib/adminTenant';
 import { OrderStatus, WorkspaceDate, orderDate, useOrderWorkspaceLink } from './workspace/orderPresentation';
 import { markSupportConversationRead } from './workspace/supportReadReceipts';
+import { markDisplayedCustomerMessagesRead, type CustomerMessageReadClient } from './workspace/customerMessageReadReceipts';
 import { loadSupportMessages, loadSupportTenants, resolveSupportWorkspace, sendSupportConversationMessage, supportConversationTarget } from './workspace/supportWorkspace';
 import './workspace/orderWorkspace.css';
 import { Plus, Users, Globe, ChevronRight } from 'lucide-react';
@@ -21,6 +22,7 @@ import { da } from 'date-fns/locale';
 
 const MASTER_TENANT_ID = '00000000-0000-0000-0000-000000000000';
 const PLATFORM_LEAD_PREFIX = '[PLATFORM LEAD]';
+const customerMessageReadClient = supabase as unknown as CustomerMessageReadClient;
 
 interface Message {
     id: string;
@@ -113,6 +115,7 @@ function AdminMessagesWorkspace() {
     const [conversationFilter, setConversationFilter] = useState('all');
     const [loadError, setLoadError] = useState(false);
     const [supportError, setSupportError] = useState(false);
+    const [inboxVisible, setInboxVisible] = useState(() => typeof document === 'undefined' || document.visibilityState !== 'hidden');
     const [roleReady, setRoleReady] = useState(false);
     const [searchParams] = useSearchParams();
     const [supportInput, setSupportInput] = useState('');
@@ -152,7 +155,22 @@ function AdminMessagesWorkspace() {
 
     useEffect(() => { void checkRole(); }, [searchParams.get('force_domain')]);
     useEffect(() => {
-        void fetchOrdersWithMessages();
+        const updateVisibility = () => setInboxVisible(document.visibilityState !== 'hidden');
+        document.addEventListener('visibilitychange', updateVisibility);
+        return () => document.removeEventListener('visibilitychange', updateVisibility);
+    }, []);
+    useEffect(() => {
+        let active = true;
+        let refreshing = false;
+        const refresh = async () => {
+            if (!active || refreshing || !activeWorkspace.current) return;
+            refreshing = true;
+            try { await fetchOrdersWithMessages(); }
+            finally { refreshing = false; }
+        };
+        void refresh();
+        const interval = setInterval(() => { void refresh(); }, 5000);
+        return () => { active = false; clearInterval(interval); };
     }, [searchParams.get('force_domain'), searchParams.get('orderId')]);
     useEffect(() => { if (roleReady && isMaster) void fetchAllTenants(); }, [roleReady, isMaster]);
 
@@ -168,22 +186,21 @@ function AdminMessagesWorkspace() {
     useEffect(() => {
         if (!roleReady) return;
         void fetchPlatformMessages();
-        if (inboxSection === 'support') void markSupportMessagesAsRead();
         const interval = setInterval(() => {
             void fetchPlatformMessages();
-            if (inboxSection === 'support') void markSupportMessagesAsRead();
         }, 5000);
         return () => clearInterval(interval);
     }, [selectedTenantId, isMaster, myTenantId, roleReady, inboxSection]);
 
-    const markSupportMessagesAsRead = async () => {
-        if (!activeWorkspace.current) return;
-        try {
-            await markSupportConversationRead(supabase as any, { roleReady, isMaster, selectedTenantId, myTenantId });
-        } catch (e) {
-            console.error("Failed to mark support messages as read", e);
-        }
-    };
+    useEffect(() => {
+        if (!roleReady || supportError || inboxSection !== 'support' || !inboxVisible) return;
+        let active = true;
+        const isCurrent = () => active && activeWorkspace.current && document.visibilityState !== 'hidden';
+        void markSupportConversationRead(supabase as any,
+            { roleReady, isMaster, selectedTenantId, myTenantId }, platformMessages, isCurrent)
+            .catch(() => { console.debug('Could not mark displayed support messages as read'); });
+        return () => { active = false; };
+    }, [roleReady, supportError, inboxSection, inboxVisible, isMaster, selectedTenantId, myTenantId, platformMessages]);
 
     const checkRole = async () => {
         setRoleReady(false);
@@ -306,28 +323,9 @@ function AdminMessagesWorkspace() {
         }
     };
 
-    const handleSelectOrder = async (orderId: string) => {
+    const handleSelectOrder = (orderId: string) => {
         if (!roleReady || !activeWorkspace.current || !orders.some(order => order.order_id === orderId)) return;
         setSelectedOrderId(orderId);
-
-        // Mark messages as read
-        try {
-            const { error } = await supabase
-                .from('order_messages')
-                .update({ is_read: true })
-                .eq('order_id', orderId)
-                .eq('sender_type', 'customer');
-            if (error) throw error;
-
-            // Update local state
-            setOrders(prev => prev.map(o =>
-                o.order_id === orderId
-                    ? { ...o, unread_count: 0, messages: o.messages.map(m => m.sender_type === 'customer' ? { ...m, is_read: true } : m) }
-                    : o
-            ));
-        } catch (e) {
-            console.debug('Could not mark messages as read');
-        }
     };
 
     const handleSendMessage = async () => {
@@ -386,6 +384,24 @@ function AdminMessagesWorkspace() {
     };
 
     const selectedOrder = orders.find(o => o.order_id === selectedOrderId);
+
+    useEffect(() => {
+        if (!roleReady || !myTenantId || loading || loadError || inboxSection !== 'customers' || !selectedOrder) return;
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+        let active = true;
+        const isCurrent = () => active && activeWorkspace.current;
+        void markDisplayedCustomerMessagesRead(customerMessageReadClient, selectedOrder.order_id, selectedOrder.messages, isCurrent)
+            .then(ids => {
+                if (!ids.length || !isCurrent()) return;
+                const readIds = new Set(ids);
+                setOrders(previous => previous.map(order => {
+                    if (order.order_id !== selectedOrder.order_id) return order;
+                    const messages = order.messages.map(message => readIds.has(message.id) ? { ...message, is_read: true } : message);
+                    return { ...order, messages, unread_count: messages.filter(message => message.sender_type === 'customer' && !message.is_read).length };
+                }));
+            }).catch(() => { console.debug('Could not mark displayed customer messages as read'); });
+        return () => { active = false; };
+    }, [roleReady, myTenantId, loading, loadError, inboxSection, selectedOrder]);
 
     const filteredOrders = orders.filter(order => {
         const search = searchTerm.trim().toLowerCase();

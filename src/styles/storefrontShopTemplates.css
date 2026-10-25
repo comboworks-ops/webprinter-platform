@@ -48,6 +48,21 @@
   padding-block: var(--shop-section-space) !important;
 }
 
+/* Full-width banners take precedence over a print preset's split image frame. */
+.storefront-shop-template-scope[data-shop-hero-treatment="full"] .print-shop [data-shop-section="hero"] > .print-hero-connected {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  border-radius: 0;
+}
+
+.storefront-shop-template-scope[data-shop-hero-treatment="full"] .print-shop .print-hero-connected [data-hero-slide] > [data-branding-id="forside.hero.media"] {
+  left: 0;
+  right: 0;
+  width: 100%;
+  max-width: none;
+}
+
 .storefront-shop-template-scope[data-shop-hero-treatment="inset"] [data-shop-section="hero"],
 .storefront-shop-template-scope[data-shop-hero-treatment="framed"] [data-shop-section="hero"] {
   width: min(calc(100% - 2rem), var(--shop-content-max));

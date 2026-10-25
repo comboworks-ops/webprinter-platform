@@ -41,7 +41,7 @@ test("large-format dimensions and charged component identities survive checkout 
     localStorage: {value: storage(local), configurable: true},
   });
   try {
-    const state = {productId: "large-format", pricingQuote: {quantity: 3, storformat: {
+    const state = {checkoutTenantId: "tenant-a", testFlow: true, productId: "large-format", pricingQuote: {quantity: 3, storformat: {
       widthMm: 1250, heightMm: 730, materialId: "material-1", finishIds: ["laminate", "cut"],
       productIds: ["mount"], selectedSectionValues: {material: "material-1", finish: "laminate", cutting: "cut", assembly: "mount"},
     }}};

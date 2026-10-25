@@ -1,0 +1,8 @@
+{
+  "expectedSourcesAllMatch": true,
+  "unexpectedFiles": 198,
+  "unexpectedPrefix": ".vite/",
+  "rootCause": "Local QA used vite.config.ts default root .vite cacheDir before CLI uploaded candidate",
+  "remedy": "Stop owned QA listener, preserve cache outside candidate, restage identical application source",
+  "firstDeployment": "dpl_3Tgps5XTNFfqxkJrbZx29NZeiuNM"
+}

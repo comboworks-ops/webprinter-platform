@@ -1,0 +1,47 @@
+{
+  "shops": [
+    {
+      "shop": "webprinter",
+      "artworkGuidance": true,
+      "documentWidth": 1249,
+      "localPilotVisible": false,
+      "url": "https://www.webprinter.dk/produkt/gulvfolie",
+      "viewportWidth": 1249,
+      "errors": []
+    },
+    {
+      "shop": "online",
+      "artworkGuidance": true,
+      "documentWidth": 1249,
+      "localPilotVisible": false,
+      "url": "https://www.onlinetryksager.dk/produkt/flyer-demand",
+      "viewportWidth": 1249,
+      "errors": []
+    },
+    {
+      "shop": "sales",
+      "artworkGuidance": true,
+      "documentWidth": 1249,
+      "localPilotVisible": false,
+      "url": "https://www.salgsmapper.dk/produkt/salgsmapper-med-kachering",
+      "viewportWidth": 1249,
+      "errors": []
+    },
+    {
+      "shop": "pvc",
+      "artworkGuidance": true,
+      "documentWidth": 1249,
+      "localPilotVisible": false,
+      "url": "https://pvcbanner.dk/produkt/pvc-banner",
+      "viewportWidth": 1249,
+      "errors": []
+    }
+  ],
+  "webprinterWhiteLabelAndSignupCopyPass": true,
+  "onlinePrintExplanationAndManualChoicePass": true,
+  "salesPromotedOffer200Silk739Preserved": true,
+  "salesAutomaticMaterialAndQuantityNoticesPass": true,
+  "salesManualChoiceClearsNotice": true,
+  "pvcTwoItems798Plus49Delivery847": true,
+  "noSignupUploadOrderPaymentOrSupplierSubmission": true
+}

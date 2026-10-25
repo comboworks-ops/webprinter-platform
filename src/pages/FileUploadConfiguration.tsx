@@ -11,6 +11,8 @@ import { CheckoutProductValue } from '@/components/checkout/CheckoutProductValue
 import { quantityValueOptions, type QuantityTier } from '@/lib/checkout/quantityValue';
 import { FileUploadProgress } from "@/components/checkout/FileUploadProgress";
 import { FileProofActions } from "@/components/checkout/FileProofActions";
+import { PrintWarningAcknowledgement } from "@/components/checkout/PrintWarningAcknowledgement";
+import { recommendedPrintDpi, placedImageDpi, resolutionWarning, printWarningAcceptanceKey, printWarningOrderNote, PRINT_QUALITY_RESPONSIBILITY, GENERAL_PROOF_ACKNOWLEDGEMENT, type PrintWarningApproval } from "@/lib/checkout/printQualityPolicy";
 import { FolderMockupButton } from '@/components/mockup/FolderMockupButton';
 import { resolveFolderDefinition } from '@/lib/mockup/folderDefinition';
 import { composeFolderArtwork } from '@/lib/mockup/artwork';
@@ -54,6 +56,7 @@ import { getCheckoutProofAvailability } from "@/lib/checkout/proofAvailability";
 import { hashCheckoutArtifact } from "@/lib/checkout/checkoutArtifact";
 import { checkoutNotificationNotice } from "@/lib/checkout/checkoutNotification";
 import { checkoutStartMessage } from "@/lib/checkout/checkoutStartMessage";
+import { checkoutProductReturnPath, checkoutTenantConflict, readCheckoutProduct } from "@/lib/checkout/checkoutProduct";
 import { checkoutTaxPreview } from '@/lib/checkout/tax';
 import { linkCompanyOrder } from "@/lib/company-hub";
 import { readCheckoutRecovery, saveCheckoutRecovery, clearCheckoutRecovery, requireCheckoutV2Response } from "@/lib/checkout/checkoutRecovery";
@@ -683,7 +686,7 @@ const getEstimatedDeliveryDate = (method: CheckoutDeliveryMethod, now: Date) => 
     return addBusinessDays(base, leadTime);
 };
 
-const FileUploadConfiguration = () => {
+const FileUploadConfigurationContent = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const locationSearchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
@@ -758,6 +761,11 @@ const FileUploadConfiguration = () => {
 
     const [loading, setLoading] = useState(true);
     const [product, setProduct] = useState<any>(null);
+    const [productError, setProductError] = useState<string | null>(null);
+    const [productRetry, setProductRetry] = useState(0);
+    const checkoutTenantId = String(shopSettings.data?.id || '');
+    const tenantConflict = Boolean(checkoutTenantId && checkoutTenantConflict(state, { id: checkoutTenantId, domain: shopSettings.data?.domain }));
+    const productReady = Boolean(product && !loading && !productError && !tenantConflict);
     const [orderDeliveryConfig, setOrderDeliveryConfig] = useState<any>(null);
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState<FileTransferProgress>({phase: "preparing", loaded: 0, total: 0});
@@ -909,6 +917,8 @@ const FileUploadConfiguration = () => {
     const [proofingOpen, setProofingOpen] = useState(false);
     const [proofingApproved, setProofingApproved] = useState(Boolean(persistedDesignerExport?.fileUrl) && !state.proofApprovalRequired);
     const [approvedProofIdentity, setApprovedProofIdentity] = useState<string | null>(null);
+    const [acceptedPrintWarningKey, setAcceptedPrintWarningKey] = useState("");
+    const [approvedPrintWarnings, setApprovedPrintWarnings] = useState<PrintWarningApproval | null>(state.printWarningApproval || null);
     const [proofingScale, setProofingScale] = useState(100);
     const [proofingOffset, setProofingOffset] = useState({ x: 0, y: 0 });
     const [proofingDragging, setProofingDragging] = useState(false);
@@ -1402,12 +1412,14 @@ const FileUploadConfiguration = () => {
                 senderMode === "blind" ? "[BLIND_SHIPPING] Ja" : null,
                 senderMode === "custom" ? `[AFSENDER] ${senderName.trim()}` : null,
                 `[PRODUKTIONSFLOW] ${design ? "Designer online" : "Godkendt tryk-PDF"}`,
+                printWarningOrderNote(approvedPrintWarnings, uploadedFile?.sha256 || ""),
             ].filter(Boolean).join("\n"),
             files,
         };
     };
 
     const handleProceedToPayment = async () => {
+        if (!productReady) { toast.error('Kontrollér produktet og butikken, før du fortsætter.'); return; }
         if (PREVIEW_PAYMENT_DISABLED) { toast.info(PREVIEW_PAYMENT_MESSAGE); return; }
         if (finalizingPaymentRef.current) return;
         if (checkoutTaxMessage || !checkoutTax) { toast.error(checkoutTaxMessage || 'Moms kunne ikke bekræftes.'); return; }
@@ -1559,7 +1571,7 @@ const FileUploadConfiguration = () => {
 
     useEffect(() => {
         const tenantId = shopSettings.data?.id;
-        if (!tenantId) return;
+        if (!tenantId || tenantConflict) return;
         try {
             const stored = readCheckoutRecovery(localStorage, tenantId);
             const recovery = stored?.completed && stored.checkoutInstanceId !== checkoutInstanceId ? null : stored;
@@ -1568,15 +1580,15 @@ const FileUploadConfiguration = () => {
             if (recovery?.completed) void handlePaymentSuccess(recovery.paymentIntentId);
         }
         catch (error: any) { setOrderPersistWarning(error.message); }
-    }, [shopSettings.data?.id, checkoutInstanceId]);
+    }, [shopSettings.data?.id, checkoutInstanceId, tenantConflict]);
 
     useEffect(() => {
-        if (!returnedPaymentIntentId || !shopSettings.data?.id) return;
+        if (tenantConflict || !returnedPaymentIntentId || !shopSettings.data?.id) return;
         if (processedRedirectPaymentIntentRef.current === returnedPaymentIntentId) return;
         processedRedirectPaymentIntentRef.current = returnedPaymentIntentId;
         // URL redirect_status is an untrusted hint. The server verifies Stripe.
         void handlePaymentSuccess(returnedPaymentIntentId);
-    }, [returnedPaymentIntentId, shopSettings.data?.id]);
+    }, [returnedPaymentIntentId, shopSettings.data?.id, tenantConflict]);
 
     // Resolve specs: prefer explicit width/height from state or query, then standard formats, then product metadata
     const getResolvedSpecs = (): TechnicalSpecs | null => {
@@ -1632,7 +1644,20 @@ const FileUploadConfiguration = () => {
     // product direction we now keep that preflight silent (background autoFix only)
     // and rely entirely on our local preflight for customer-visible gating.
 
-    const specs = getResolvedSpecs();
+    const resolvedSpecs = getResolvedSpecs();
+    const recommendedDpi = recommendedPrintDpi({
+        designerMode: activeDesignerMode, pricingModel: state.pricingModel,
+        pricingType: product?.pricing_type, category: product?.category,
+        widthMm: resolvedSpecs?.width_mm || 0, heightMm: resolvedSpecs?.height_mm || 0,
+    });
+    const resolvedWidthMm = resolvedSpecs?.width_mm;
+    const resolvedHeightMm = resolvedSpecs?.height_mm;
+    const resolvedBleedMm = resolvedSpecs?.bleed_mm;
+    const resolvedSafeAreaMm = resolvedSpecs?.safe_area_mm;
+    const specs = useMemo(() => resolvedWidthMm && resolvedHeightMm ? {
+        width_mm: resolvedWidthMm, height_mm: resolvedHeightMm, bleed_mm: resolvedBleedMm || 0,
+        safe_area_mm: resolvedSafeAreaMm, min_dpi: recommendedDpi,
+    } : null, [resolvedWidthMm, resolvedHeightMm, resolvedBleedMm, resolvedSafeAreaMm, recommendedDpi]);
     const displayProductName = product?.name || state?.productName || "Produkt";
     const resolvedFormatLabel = useMemo(
         () => getReadableFormatLabel(
@@ -1788,14 +1813,11 @@ const FileUploadConfiguration = () => {
         return clamp(Math.ceil(requiredFillScale * 1.8), 220, 3000);
     }, [proofingPreview, targetWidth, targetHeight]);
     const proofingEffectiveDpi = useMemo(() => {
-        if (!proofingPreview || !specs?.min_dpi) return preflightResults?.dpi || null;
-
-        if (proofingPreview.fileType === "image") {
-            return Math.round(specs.min_dpi / Math.max(proofingScaleFactor, 0.01));
-        }
-
-        return null;
-    }, [proofingPreview, specs?.min_dpi, preflightResults?.dpi, proofingScaleFactor]);
+        if (proofingPreview?.fileType !== "image") return null;
+        return placedImageDpi({ widthPx: proofingPreview.sourceWidthPx, heightPx: proofingPreview.sourceHeightPx,
+            widthMm: proofingPreview.physicalWidthMm, heightMm: proofingPreview.physicalHeightMm, scalePercent: proofingScale });
+    }, [proofingPreview, proofingScale]);
+    const lowResolutionWarning = resolutionWarning(proofingEffectiveDpi, recommendedDpi);
     const proofingBaseWidthPercent = proofingPreview && targetWidth > 0
         ? (proofingPreview.physicalWidthMm / targetWidth) * 100
         : 100;
@@ -1829,10 +1851,8 @@ const FileUploadConfiguration = () => {
     );
     const proofingPlacementIssues = proofingPreview
         ? [
-            ...((proofingEffectiveDpi && specs?.min_dpi && proofingEffectiveDpi < specs.min_dpi)
-                ? [`Motivet er forstørret så den effektive opløsning falder til ca. ${proofingEffectiveDpi} DPI. Hold dig på mindst ${specs.min_dpi} DPI for trykkvalitet.`]
-                : []),
-            ...(proofingArtworkOutsideArtboard ? ["Motivet ligger delvist uden for trykfladen. Flyt eller skalér det ind, så hele motivet ligger inden for rammen."] : []),
+            ...(lowResolutionWarning ? [lowResolutionWarning] : []),
+            ...(proofingArtworkOutsideArtboard ? ["Motivet rækker uden for trykfladen. De dele, der ligger udenfor, bliver beskåret. Det kan være tilsigtet ved tryk til kant og CutContour. Du kan godkende den viste placering på eget ansvar."] : []),
         ]
         : [];
     // Only show issues from our own local preflight — CMYK/RGB, dimensions,
@@ -1855,7 +1875,8 @@ const FileUploadConfiguration = () => {
     } : null;
     const proofNeedsExport = !currentProofArtifact || requiresProofExport(currentProofArtifact);
     const currentProofIdentity = currentProofArtifact ? proofArtifactFingerprint(currentProofArtifact) : null;
-    const proofArtifactApproved = proofingApproved && !proofNeedsExport && (
+    const designerPrintWarnings = activeDesignerProductionFile ? persistedDesignerExport?.printWarnings || [] : [];
+    const proofArtifactApproved = proofingApproved && !proofNeedsExport && (!designerPrintWarnings.length || approvedProofIdentity === currentProofIdentity) && (
         approvedProofIdentity === currentProofIdentity
         || (approvedProofIdentity === null && currentProofArtifact?.designerExport === true)
     );
@@ -1869,7 +1890,7 @@ const FileUploadConfiguration = () => {
         approved: proofArtifactApproved,
         hasLocalCheck: preflightResults !== null,
         designerExport: activeDesignerProductionFile,
-        hasIssues: Boolean(originalFilePrimaryIssue || proofingPlacementPrimaryIssue),
+        hasIssues: Boolean(originalFilePrimaryIssue || proofingPlacementPrimaryIssue || designerPrintWarnings.length),
         needsExport: proofNeedsExport,
     });
     latestProofIdentityRef.current = currentProofIdentity;
@@ -1877,11 +1898,23 @@ const FileUploadConfiguration = () => {
         && /\.(png|jpe?g)$/i.test(uploadedFile?.name || '') && !professionalPdfUploadOnly
         && !requiresCutContour && activeDesignerMode !== 'apparel');
     const canApproveHere = proofAvailability.canReview && (!proofNeedsExport || canExportImageHere);
+    const retainedPrintWarnings = approvedPrintWarnings?.fileSha256 === uploadedFile?.sha256
+        && proofingPreview?.fileType === 'pdf' && !proofNeedsExport ? approvedPrintWarnings : null;
     const outsideProofIssues = [...new Set([
-        ...(preflightResults?.issues || []), ...proofingPlacementIssues,
+        ...(preflightResults?.issues || []), ...proofingPlacementIssues, ...designerPrintWarnings, ...(retainedPrintWarnings?.warnings || []),
         ...(canExportImageHere ? [PDF_COLOUR_REVIEW_NOTICE] : []),
         ...(!preflightResults && !activeDesignerProductionFile ? ['Kontrollér billedet omhyggeligt. Filens automatiske tjek er ikke tilgængeligt i denne session.'] : []),
     ])];
+    const printWarningKey = printWarningAcceptanceKey(currentProofIdentity, outsideProofIssues, recommendedDpi);
+    const printWarningsAccepted = !outsideProofIssues.length || acceptedPrintWarningKey === printWarningKey;
+    const printAcknowledgementLabel = lowResolutionWarning || proofingArtworkOutsideArtboard || designerPrintWarnings.length
+        || retainedPrintWarnings?.acknowledgement === PRINT_QUALITY_RESPONSIBILITY
+        ? PRINT_QUALITY_RESPONSIBILITY : GENERAL_PROOF_ACKNOWLEDGEMENT;
+    const acceptPrintWarnings = (accepted: boolean) => setAcceptedPrintWarningKey(accepted ? printWarningKey : "");
+    const makePrintWarningApproval = (sha256: string): PrintWarningApproval | null => outsideProofIssues.length ? {
+        version: 1, fileSha256: sha256, approvedAt: new Date().toISOString(), warnings: outsideProofIssues,
+        acknowledgement: printAcknowledgementLabel, recommendedDpi, effectiveDpi: proofingEffectiveDpi ?? retainedPrintWarnings?.effectiveDpi ?? null,
+    } : null;
     const proofingRequiresModalReview = proofAvailability.requiresModalReview;
     const quickApproveAvailable = proofAvailability.quickApproveAvailable;
     const proofingFileKindLabel = activeDesignerProductionFile
@@ -1948,13 +1981,15 @@ const FileUploadConfiguration = () => {
     ]);
 
     useEffect(() => {
-        if (!state) return;
+        if (!hasCheckoutState || !productReady) return;
         const existingSession = readSiteCheckoutSession();
         writeSiteCheckoutSession({
             ...existingSession,
             ...state,
             checkoutInstanceId,
+            checkoutTenantId,
             proofApprovalRequired: !proofArtifactApproved,
+            printWarningApproval: proofArtifactApproved ? approvedPrintWarnings : null,
             quantity: orderQuantity,
             productPrice: orderPrice,
             // Existing session totalPrice is net; keep that contract on reload
@@ -2024,7 +2059,11 @@ const FileUploadConfiguration = () => {
         });
     }, [
         state,
+        hasCheckoutState,
+        productReady,
+        checkoutTenantId,
         proofArtifactApproved,
+        approvedPrintWarnings,
         orderQuantity,
         orderPrice,
         checkoutNetTotal,
@@ -2072,6 +2111,16 @@ const FileUploadConfiguration = () => {
             return;
         }
 
+        let cancelled = false;
+        setLoading(true);
+        setProduct(null);
+        setProductError(null);
+        if (!checkoutTenantId || tenantConflict) {
+            setProductError(tenantConflict ? 'Denne bestilling tilhører en anden butik. Din gemte bestilling er bevaret.' : 'Butikken kunne ikke bekræftes.');
+            setLoading(false);
+            return;
+        }
+
         const fetchProductData = async () => {
             console.log("Fetching product data for:", {
                 productId: state.productId,
@@ -2079,28 +2128,8 @@ const FileUploadConfiguration = () => {
             });
 
             try {
-                // Use specific columns to avoid any issues with missing columns in schema
-                let query = supabase.from("products")
-                    .select("id, slug, name, description, image_url, technical_specs, banner_config, template_files, pricing_structure");
-
-                if (state.productId) {
-                    query = query.eq("id", state.productId);
-                } else if (state.productSlug) {
-                    query = query.eq("slug", state.productSlug);
-                } else {
-                    console.error("Missing both productId and productSlug in state");
-                    setLoading(false);
-                    return;
-                }
-
-                const { data, error } = await query.limit(1);
-
-                if (error) {
-                    console.error("Supabase error fetching product:", error);
-                    throw error;
-                }
-
-                const productData = data?.[0];
+                const productData = await readCheckoutProduct(supabase, checkoutTenantId, state);
+                if (cancelled) return;
 
                 if (productData) {
                     console.log("Product data fetched successfully:", productData.name);
@@ -2134,6 +2163,7 @@ const FileUploadConfiguration = () => {
                             matrixData = generic.matrixData;
                         }
 
+                        if (cancelled) return;
                         if (matrixData && matrixData.columns && matrixData.columns.length > 0 && matrixData.rows) {
                             console.log("Matrix data loaded. Columns:", matrixData.columns.length, "Rows:", matrixData.rows);
 
@@ -2159,15 +2189,17 @@ const FileUploadConfiguration = () => {
                     toast.error("Produktet kunne ikke findes i databasen.");
                 }
             } catch (err: any) {
+                if (cancelled) return;
                 console.error("Critical error in fetchProductData:", err);
-                toast.error(`Kunne ikke hente produktdata: ${err.message || "Ukendt fejl"}`);
+                setProductError(err.message || 'Produktet kunne ikke hentes. Prøv igen.');
             } finally {
-                setLoading(false);
+                if (!cancelled) setLoading(false);
             }
         };
 
         fetchProductData();
-    }, [hasCheckoutState, navigate, state]);
+        return () => { cancelled = true; };
+    }, [hasCheckoutState, navigate, state, checkoutTenantId, tenantConflict, productRetry]);
 
     useEffect(() => {
         let cancelled = false;
@@ -2376,8 +2408,8 @@ const FileUploadConfiguration = () => {
         return {
             fileType: "image",
             previewUrl: objectUrl,
-            physicalWidthMm: (img.width / specs.min_dpi) * 25.4,
-            physicalHeightMm: (img.height / specs.min_dpi) * 25.4,
+            physicalWidthMm: (img.width / recommendedDpi) * 25.4,
+            physicalHeightMm: (img.height / recommendedDpi) * 25.4,
             sourceWidthPx: img.width,
             sourceHeightPx: img.height,
         };
@@ -2676,7 +2708,24 @@ const FileUploadConfiguration = () => {
         }
     };
 
-    if (loading || !state) {
+    if (!paymentSuccess && (productError || tenantConflict)) {
+        const returnPath = checkoutProductReturnPath(state);
+        return <StorefrontThemeFrame branding={branding} orderDesign={checkoutDesign} tenantName={tenantName}>
+            <main className="container mx-auto max-w-xl px-4 py-12">
+                <Card><CardHeader><CardTitle>Bestillingen kunne ikke åbnes</CardTitle></CardHeader><CardContent className="space-y-4">
+                    <p role="alert">{productError || 'Denne bestilling tilhører en anden butik. Din gemte bestilling er bevaret.'}</p>
+                    <div className="flex flex-wrap gap-3">
+                        {returnPath && <Button onClick={() => navigate(returnPath)}>Tilbage til produktet</Button>}
+                        {!tenantConflict && <Button variant="outline" onClick={() => setProductRetry(value => value + 1)}>Prøv igen</Button>}
+                    </div>
+                    {!tenantConflict && hasCheckoutRecovery && <Button variant="outline" disabled={finalizingPayment || paymentLoading} onClick={() => void handlePaymentSuccess()}>Kontrollér betaling og ordre</Button>}
+                    {!tenantConflict && orderPersistWarning && <p role="status">{orderPersistWarning}</p>}
+                </CardContent></Card>
+            </main>
+        </StorefrontThemeFrame>;
+    }
+
+    if (loading || !hasCheckoutState) {
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -2748,6 +2797,10 @@ const FileUploadConfiguration = () => {
             toast.error("Upload filen igen, så korrekturen viser den aktuelle produktionsfil.");
             return;
         }
+        if (!printWarningsAccepted) {
+            toast.error("Acceptér bemærkningerne og ansvaret for den viste korrektur, før du godkender.");
+            return;
+        }
         if (proofNeedsExport) {
             if (!canExportImageHere || !uploadedFile || !specs) {
                 toast.error("Upload en færdig tryk-PDF i produktets mål inklusive bleed, eller ret filen i designeren.");
@@ -2774,6 +2827,7 @@ const FileUploadConfiguration = () => {
                     fileType: 'pdf', designerExport: false, physicalWidthMm: targetWidth, physicalHeightMm: targetHeight,
                     scale: 100, offsetX: 0, offsetY: 0,
                 });
+                setApprovedPrintWarnings(makePrintWarningApproval(upload.sha256));
                 setUploadedFile(upload);
                 setProofingPreview(preview);
                 setPreviewUrl(preview.previewUrl);
@@ -2792,6 +2846,7 @@ const FileUploadConfiguration = () => {
             }
             return;
         }
+        setApprovedPrintWarnings(makePrintWarningApproval(uploadedFile!.sha256));
         setApprovedProofIdentity(currentProofIdentity);
         setProofingApproved(true);
         // Let Radix finish closing before moving focus out of the Corrector.
@@ -3803,6 +3858,9 @@ const FileUploadConfiguration = () => {
                                                         canApprove={canApproveHere}
                                                         busy={exportingProof}
                                                         issues={outsideProofIssues}
+                                                        warningsAccepted={printWarningsAccepted}
+                                                        onWarningsAcceptedChange={acceptPrintWarnings}
+                                                        acknowledgementLabel={printAcknowledgementLabel}
                                                         canReview={proofAvailability.canReview}
                                                         quickApproveAvailable={quickApproveAvailable}
                                                         onApprove={handleApproveProofing}
@@ -4203,7 +4261,7 @@ const FileUploadConfiguration = () => {
                                 )}
                                 <div className={`rounded-lg border px-3 py-3 text-sm ${proofingPlacementPrimaryIssue ? "border-amber-200 bg-amber-50 text-amber-900" : "border-green-200 bg-green-50 text-green-900"}`}>
                                     <p className="font-medium">
-                                        {proofingPlacementPrimaryIssue ? "Placering: justér" : "Placering: ok"}
+                                        {proofingPlacementPrimaryIssue ? "Placering: kontrollér og godkend" : "Placering: ok"}
                                     </p>
                                     <p className="mt-1 text-xs">
                                         {proofingPlacementPrimaryIssue || "Placeringen ser korrekt ud i previewet."}
@@ -4297,7 +4355,11 @@ const FileUploadConfiguration = () => {
                                         Upload ny trykfil
                                     </Button>
                                 ) : (
-                                    <StorefrontPrimaryButton type="button" disabled={!canApproveHere || exportingProof} onClick={handleApproveProofing}>
+                                    <PrintWarningAcknowledgement issues={outsideProofIssues} accepted={printWarningsAccepted}
+                                        onChange={acceptPrintWarnings} label={printAcknowledgementLabel} />
+                                )}
+                                {!(proofNeedsExport && !canExportImageHere && proofAvailability.canReview) && (
+                                    <StorefrontPrimaryButton type="button" disabled={!canApproveHere || exportingProof || !printWarningsAccepted} onClick={handleApproveProofing}>
                                         Godkend fil og fortsæt
                                     </StorefrontPrimaryButton>
                                 )}
@@ -4356,6 +4418,15 @@ const FileUploadConfiguration = () => {
             )}
         </StorefrontThemeFrame>
     );
+};
+
+// Remount local form state when the resolved shop changes. Wait for resolution so
+// a previous shop's checkout is never rendered while a new shop is being loaded.
+const FileUploadConfiguration = () => {
+    const shop = useShopSettings();
+    if (shop.isLoading) return <div className="min-h-screen flex items-center justify-center" role="status"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
+    if (shop.isError || !shop.data?.id) return <main className="container mx-auto max-w-xl px-4 py-12"><p role="alert">Butikken kunne ikke bekræftes. Din gemte bestilling er bevaret.</p><Button className="mt-4" onClick={() => void shop.refetch()}>Prøv igen</Button></main>;
+    return <FileUploadConfigurationContent key={shop.data.id} />;
 };
 
 export default FileUploadConfiguration;

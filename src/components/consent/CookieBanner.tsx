@@ -7,6 +7,7 @@
 
 import { Button } from '@/components/ui/button';
 import { useCookieConsent } from './CookieConsentProvider';
+import { isOnlinetryksagerHost } from '@/lib/analytics/onlinetryksager';
 import { Cookie } from 'lucide-react';
 
 export function CookieBanner() {
@@ -40,7 +41,9 @@ export function CookieBanner() {
                                 Cookieindstillinger
                             </h4>
                             <p className="text-sm text-gray-600 mb-3 leading-relaxed">
-                                Vi bruger cookies til at forbedre din oplevelse på siden.
+                                {isOnlinetryksagerHost(window.location.hostname)
+                                    ? 'Vi bruger cookies til nødvendige funktioner. Google Analytics måler besøg, hvis du accepterer statistikcookies.'
+                                    : 'Vi bruger cookies til at forbedre din oplevelse på siden.'}
                             </p>
                             <div className="flex flex-wrap gap-2">
                                 <Button

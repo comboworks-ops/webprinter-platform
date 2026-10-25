@@ -9,7 +9,7 @@ import { useApprovedPrintModel } from '@/components/mockup/useApprovedPrintModel
 import { ProductPresentationCard } from '@/components/storefront/ProductPresentation';
 import { resolveProductPresentation } from '@/lib/branding/productPresentations';
 import { useStorefrontCatalog } from '@/hooks/useStorefrontCatalog';
-import { galleryMatrixSelections, gallerySelectionKey, readProductGallery } from '@/lib/products/productGallery';
+import { galleryMatrixSelections, readProductGallery } from '@/lib/products/productGallery';
 import { ProductMediaGallery } from '@/components/product-price-page/ProductMediaGallery';
 import { ProductFolderMedia, type ProductFolderUpload } from '@/components/mockup/ProductFolderMedia';
 import { resolveProductFolderPreview, hasProductFolderPreview } from '@/lib/mockup/productFolderPreview';
@@ -1533,6 +1533,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
       branding={branding}
       orderDesign={orderDesign}
       tenantName={tenantName}
+      isPreviewMode={preview.isPreviewMode || Boolean(previewSlug)}
       topSlot={topSlot}
     >
       <main
@@ -1607,14 +1608,15 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
   const matchingFolderUpload = folderArtworkPreview && folderUploadDraft?.templateHash === designerTemplateLaunch?.templatePdfSha256
     ? folderUploadDraft.upload : approvedPrintModel && folderUploadDraft?.templateHash === approvedPrintModel.definition.templateHash
       ? folderUploadDraft.upload : undefined;
-  // A configuration change releases a manually chosen thumbnail. Quantity and price updates do not.
+  // Image rules own photo changes; finish/material/price updates retain the mounted gallery.
   const productGallery = <ProductMediaGallery
-    key={`${dbProductId}:${gallerySelectionKey(gallerySelections)}`} name={product.name}
+    key={dbProductId} name={product.name}
     defaultImage={dbProduct?.image_url || getProductImage(product.slug)} images={galleryImages} selections={gallerySelections}
   />;
-  const productMedia = approvedPrintModel ? <ProductPrintMedia key={`${dbProductId}:${approvedPrintModel.definition.id}`}
+  const productMedia = approvedPrintModel || pricingStructure?.workspaceContent?.mediaFrame === 'folded-leaflet-v1' ? <ProductPrintMedia key={dbProductId}
     gallery={productGallery} preview={approvedPrintModel} color={branding?.colors?.primary}
-    artworkContext={!preview.isPreviewMode ? { model: approvedPrintModel, templateHash: approvedPrintModel.definition.templateHash,
+    stablePhotoFrame={pricingStructure?.workspaceContent?.mediaFrame === 'folded-leaflet-v1'}
+    artworkContext={approvedPrintModel && !preview.isPreviewMode ? { model: approvedPrintModel, templateHash: approvedPrintModel.definition.templateHash,
       tenantId: shopSettings.data?.id || "", productId: dbProductId! } : undefined}
     onArtworkUploaded={setFolderUploadDraft} /> : hasFolderProductMedia ? <ProductFolderMedia key={dbProductId}
     gallery={productGallery} preview={folderProductPreview} color={branding?.colors?.primary}
@@ -1751,6 +1753,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
               designBleedMm={designDimensions.bleed}
               designSafeAreaMm={designSafeAreaMm}
               designerTemplateLaunch={approvedDesignerLaunch}
+              stableArtworkLayout={pricingStructure?.workspaceContent?.mediaFrame === 'folded-leaflet-v1'}
               productFlow={productFlow}
               brochurePageCount={brochurePageCount}
               externalDeliveryEnabled={podShippingEnabled}
@@ -1822,6 +1825,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
                 designBleedMm={designDimensions.bleed}
                 designSafeAreaMm={designSafeAreaMm}
                 designerTemplateLaunch={approvedDesignerLaunch}
+              stableArtworkLayout={pricingStructure?.workspaceContent?.mediaFrame === 'folded-leaflet-v1'}
                 productFlow={productFlow}
               brochurePageCount={brochurePageCount}
                 externalDeliveryEnabled={hasRollLabelContract || podShippingEnabled}
@@ -1962,6 +1966,7 @@ const ProductPrice = ({ workspacePreview = false, previewSlug, cardPreview = fal
             designBleedMm={designDimensions.bleed}
             designSafeAreaMm={designSafeAreaMm}
             designerTemplateLaunch={approvedDesignerLaunch}
+              stableArtworkLayout={pricingStructure?.workspaceContent?.mediaFrame === 'folded-leaflet-v1'}
             productFlow={productFlow}
               brochurePageCount={brochurePageCount}
             externalDeliveryEnabled={podShippingEnabled}

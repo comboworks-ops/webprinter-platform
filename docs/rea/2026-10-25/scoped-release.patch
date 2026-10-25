@@ -1,0 +1,279 @@
+--- a/src/pages/platform/PlatformWhiteLabel.tsx
++++ b/src/pages/platform/PlatformWhiteLabel.tsx
+@@ -45,7 +45,7 @@
+                         </p>
+                         <Link to="/opret-shop">
+                             <Button size="lg" className="gap-2">
+-                                Start gratis prøveperiode <ArrowRight className="w-4 h-4" />
++                                Opret din shop <ArrowRight className="w-4 h-4" />
+                             </Button>
+                         </Link>
+                     </div>
+@@ -118,11 +118,14 @@
+                 <div className="container px-4 mx-auto text-center">
+                     <h2 className="text-3xl font-bold mb-4">Klar til at starte?</h2>
+                     <p className="text-lg opacity-90 mb-8 max-w-xl mx-auto">
+-                        Prøv Webprinter Platform gratis i 14 dage. Ingen kreditkort nødvendigt.
++                        Opret først din konto, og vælg derefter abonnement i administrationen.
++                        Prøveperioden starter, når du har gennemført abonnementets checkout.
++                        Se priser, produktgrænser og funktioner på{' '}
++                        <Link to="/priser" className="no-link-color text-inherit underline underline-offset-4">prissiden</Link>.
+                     </p>
+                     <Link to="/opret-shop">
+                         <Button size="lg" variant="secondary" className="gap-2">
+-                            Start gratis prøveperiode <ArrowRight className="w-4 h-4" />
++                            Opret din shop <ArrowRight className="w-4 h-4" />
+                         </Button>
+                     </Link>
+                 </div>
+--- a/src/pages/TenantSignup.tsx
++++ b/src/pages/TenantSignup.tsx
+@@ -275,7 +275,7 @@
+                             <div className="bg-muted/50 rounded-lg p-3 text-sm text-muted-foreground">
+                                 <p className="font-medium text-foreground mb-1">Dette får du:</p>
+                                 <ul className="space-y-1">
+-                                    <li>✓ Komplet webshop med alle produkter</li>
++                                    <li>✓ Webshop med produktkatalog efter din valgte plan</li>
+                                     <li>✓ Færdige priser du kan tilpasse</li>
+                                     <li>✓ Admin panel til ordrehåndtering</li>
+                                     <li>✓ Automatiske opdateringer fra os</li>
+--- a/src/components/product-price-page/MatrixLayoutV1Renderer.tsx
++++ b/src/components/product-price-page/MatrixLayoutV1Renderer.tsx
+@@ -1,5 +1,8 @@
+ import { withMatrixRowSelection } from '@/lib/products/matrixRowSelection';
+ import { MaterialLabel, MaterialInfoIcons } from './MaterialLabel';
++import { PrintTermsGuidance } from './ProductChoiceGuidance';
++import { useAutomaticSelectionNotice } from '@/hooks/useAutomaticSelectionNotice';
++import type { SelectionSnapshot } from '@/lib/products/automaticSelectionNotice';
+ import BrochureFreeSizeMatrix from './BrochureFreeSizeMatrix';
+ import type { BrochureFreeMatrixMeta, BrochureFreeSelection, BrochureFreeSizeConfig } from '@/lib/pricing/brochureFreePricing';
+ import { MaterialOptionInfoContext } from './materialOptionInfoContext';
+@@ -2052,6 +2055,18 @@
+     }, [attributeValueById, pricingStructure.vertical_axis.sectionId, pricingStructure.vertical_axis.valueSettings, valueSettingsById]);
+ 
+     const materialSource = (valueId: string, sectionId?: string) => ({name:getDisplayValueName(valueId, sectionId), sourceName:attributeValueById[valueId]?.name, meta:attributeValueById[valueId]?.meta});
++    const selectionSnapshot: SelectionSnapshot = {};
++    Object.entries(selectedSectionValues).forEach(([sectionId, valueId]) => {
++        if (!valueId || sectionTypeById[sectionId] !== 'materials' || sectionId === pricingStructure.vertical_axis.sectionId) return;
++        selectionSnapshot[sectionId] = { value: valueId, label: getDisplayValueName(valueId, sectionId), title: 'Materiale' };
++    });
++    if (selectedCell) {
++        selectionSnapshot.quantity = { value: String(selectedCell.column), label: `${selectedCell.column.toLocaleString('da-DK')} stk.`, title: 'Antal' };
++        if (pricingStructure.vertical_axis.sectionType === 'materials') {
++            selectionSnapshot.matrixMaterial = { value: selectedCell.row, label: getValueName(selectedCell.row), title: 'Materiale' };
++        }
++    }
++    const { changes: automaticChanges, beginSelection } = useAutomaticSelectionNotice(productId, selectionSnapshot);
+     const presentedName = (valueId: string, sectionId?: string) => materialValueIdSet.has(valueId)
+         ? materialPresentation(materialSource(valueId, sectionId)).label : getDisplayValueName(valueId, sectionId);
+     const materialConfigs = (valueId: string, sectionId: string) => materialValueIdSet.has(valueId)
+@@ -2620,6 +2635,7 @@
+     // Handle section selection change
+     const handleSectionSelect = (sectionId: string, valueId: string) => {
+         if (!isValueSelectable(sectionId, valueId)) return;
++        beginSelection(sectionId === pricingStructure.vertical_axis.sectionId ? [sectionId, 'matrixMaterial'] : [sectionId]);
+ 
+         if (shouldFocusSelectedValue(sectionId)) {
+             pendingFocusedSelectionFocusRef.current = { sectionId, valueId };
+@@ -2708,6 +2724,7 @@
+     };
+ 
+     const clearSectionSelection = (sectionId: string) => {
++        beginSelection([sectionId]);
+         setSelectedSectionValues(prev => {
+             if (!(sectionId in prev)) return prev;
+             const updated = { ...prev };
+@@ -2718,6 +2735,7 @@
+ 
+     // Handle cell click
+     const handleCellClick = (row: string, column: number, basePrice: number, displayPrice: number) => {
++        beginSelection(['matrixMaterial', 'quantity']);
+         setSelectedCell({ row, column });
+         if (onCellClick) {
+             onCellClick(row, column, Math.round(Number(displayPrice) || 0));
+@@ -3786,6 +3804,15 @@
+     }) : undefined;
+ 
+     const controls = (<>
++            <div role="status" aria-live="polite" aria-atomic="true">
++                {automaticChanges.length > 0 && <div className="rounded-md border bg-muted/40 p-3 text-sm leading-relaxed">
++                    <p className="font-medium">Vi har tilpasset dit valg</p>
++                    <p>Det tidligere valg findes ikke i den nye kombination. Beregneren har automatisk ændret:</p>
++                    <ul className="mt-1 list-disc pl-5">{automaticChanges.map(change => <li key={change}>{change}</li>)}</ul>
++                    <p className="mt-1">Kontrollér materialet, antallet og den opdaterede pris, før du fortsætter.</p>
++                </div>}
++            </div>
++            <PrintTermsGuidance labels={pricingStructure.layout_rows.flatMap(row => row.columns.filter(col => !isHiddenColumn(col)).flatMap(col => col.valueIds.map(id => getDisplayValueName(id, col.id))))} />
+             <div className="h-4 text-xs text-muted-foreground" aria-live="polite">
+                 {matrixLoading ? 'Opdaterer priser...' : '\u00A0'}
+             </div>
+--- a/src/components/product-price-page/ProductPricePanel.tsx
++++ b/src/components/product-price-page/ProductPricePanel.tsx
+@@ -1,3 +1,4 @@
++import { ArtworkChoiceGuidance } from './ProductChoiceGuidance';
+ import { applyBrochureDocumentParams } from '@/lib/designer/brochureProduct';
+ import { validBrochurePageCount } from '@/lib/designer/brochureDocument';
+ import { resolveSharedButton, sharedButtonAttributes } from '@/lib/branding/sharedButtons';
+@@ -1185,6 +1186,14 @@
+     toast.info('Denne handling er slået fra i forhåndsvisningen.');
+   };
+ 
++  const artworkGuidance = hasStableSelection ? <ArtworkChoiceGuidance
++    canDesign={activeProductFlow.showDesignerButton && !professionalPdfUploadOnly}
++    hasTemplate={!!designerTemplateLaunch?.pdfUrl}
++    canDownload={!!designerTemplateLaunch?.pdfUrl && activeProductFlow.showTemplateDownload}
++    designReady={designReady}
++    reserveChoices={stableArtworkLayout}
++  /> : null;
++
+   if (presentation === 'order-flow') return <div onClickCapture={guardPreviewAction} className="order-compact-price-panel" data-storefront-order-panel="price">
+     <details className="order-price-details"><summary>Din valgte konfiguration</summary><p>{summary}</p>
+       {optionSelections && Object.values(optionSelections).map((option, idx) => <p key={idx}>{option.name}</p>)}
+@@ -1334,6 +1343,7 @@
+         </div>
+       )}
+ 
++    {artworkGuidance}
+     {hasStableSelection && <div className="order-compact-actions">            <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto">
+               {(stableArtworkLayout || activeProductFlow.showDesignerButton) && !professionalPdfUploadOnly && (
+                 <MotionButton
+@@ -1448,7 +1458,7 @@
+                   ) : (
+                     <PenTool className="h-5 w-5" />
+                   )}
+-                  {!activeProductFlow.showDesignerButton ? "Design ikke tilgængeligt" : designReady ? "Design klar" : activeProductFlow.designerCtaLabel}
++                  {!activeProductFlow.showDesignerButton ? "Design ikke tilgængeligt" : designReady ? "Design klar" : designerTemplateLaunch?.pdfUrl ? "Design i skabelonen" : activeProductFlow.designerCtaLabel}
+                 </MotionButton>
+               )}
+               {activeProductFlow.showDesignerButton && professionalPdfUploadOnly ? (
+@@ -1784,6 +1794,8 @@
+         </div>
+       </div>
+ 
++      {artworkGuidance}
++
+       {/* Product price */}
+       <div className="space-y-3">
+         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+@@ -1911,7 +1923,7 @@
+                   ) : (
+                     <PenTool className="h-5 w-5" />
+                   )}
+-                  {!activeProductFlow.showDesignerButton ? "Design ikke tilgængeligt" : designReady ? "Design klar" : activeProductFlow.designerCtaLabel}
++                  {!activeProductFlow.showDesignerButton ? "Design ikke tilgængeligt" : designReady ? "Design klar" : designerTemplateLaunch?.pdfUrl ? "Design i skabelonen" : activeProductFlow.designerCtaLabel}
+                 </MotionButton>
+               )}
+               {activeProductFlow.showDesignerButton && professionalPdfUploadOnly ? (
+--- /dev/null
++++ b/src/components/product-price-page/ProductChoiceGuidance.tsx
+@@ -0,0 +1,30 @@
++export function PrintTermsGuidance({ labels }: { labels: string[] }) {
++  const text = labels.join(' ');
++  const hasPrintSides = /4\s*[+/]\s*[04]/.test(text);
++  const hasLamination = /ka[ch]+ering|kashering|kasjering|laminer/i.test(text);
++  if (!hasPrintSides && !hasLamination) return null;
++  return <details className="rounded-md border p-3 text-sm leading-relaxed">
++    <summary className="cursor-pointer font-medium">Hvad betyder {hasPrintSides ? hasLamination ? '4+0, 4+4 og kachering' : '4+0 og 4+4' : 'kachering'}?</summary>
++    <div className="mt-2 space-y-2 text-muted-foreground">
++      {hasPrintSides && <>
++        <p><strong>4+0:</strong> Fuldfarvetryk (CMYK) på én side. Den anden side er uden tryk.</p>
++        <p><strong>4+4:</strong> Fuldfarvetryk (CMYK) på begge sider. Tallene angiver trykfarver på hver side, ikke antal sider i filen. For en mappe er det yderside og inderside – følg den tilhørende skabelon.</p>
++      </>}
++      {hasLamination && <p><strong>Kachering (laminering):</strong> En tynd film på papiret, som beskytter overfladen. Mat giver en afdæmpet overflade, blank giver glans, og softfeel føles blød. Følg produktets beskrivelse af, hvilke sider der kacheres. Kachering er en overfladebehandling; 4+0 og 4+4 angiver, hvor der trykkes.</p>}
++    </div>
++  </details>;
++}
++
++export function ArtworkChoiceGuidance({ canDesign, hasTemplate, canDownload, designReady, reserveChoices = false }: {
++  canDesign: boolean; hasTemplate: boolean; canDownload: boolean; designReady: boolean; reserveChoices?: boolean;
++}) {
++  return <div className="price-panel-option min-w-0 rounded-md border p-3 text-sm leading-relaxed" aria-label="Sådan leverer du dit design">
++    <p className="font-medium">{designReady ? 'Dit design er klar' : 'Sådan leverer du dit design'}</p>
++    <div className="price-panel-muted mt-1 space-y-2">
++      <p><strong>Har du en færdig trykfil?</strong> Vælg upload-knappen for at gå til filupload og kontrol af din fil før bestilling.</p>
++      {(canDesign || reserveChoices) && <p style={!canDesign ? { visibility: 'hidden' } : undefined} aria-hidden={!canDesign || undefined}><strong>{hasTemplate || reserveChoices ? 'Vil du designe i skabelonen?' : 'Vil du lave dit design her?'}</strong> Vælg design-knappen for at åbne {hasTemplate || reserveChoices ? 'skabelonen til dit aktuelle produktvalg' : 'designeren med dit valgte format'}. Du vender tilbage med dit design til bestillingen.</p>}
++      {(canDownload || reserveChoices) && <p style={!canDownload ? { visibility: 'hidden' } : undefined} aria-hidden={!canDownload || undefined}><strong>Arbejder du i dit eget program?</strong> Download skabelonen, følg dens mål og hjælpelinjer, og upload den færdige trykfil bagefter. Skabelonen alene er ikke en færdig trykfil.</p>}
++      {designReady && <p>Du kan åbne dit design igen og kontrollere det, før du fortsætter.</p>}
++    </div>
++  </div>;
++}
+--- /dev/null
++++ b/src/hooks/useAutomaticSelectionNotice.ts
+@@ -0,0 +1,31 @@
++import { useEffect, useRef, useState } from 'react';
++import { automaticSelectionChanges, type SelectionSnapshot } from '@/lib/products/automaticSelectionNotice';
++
++export function useAutomaticSelectionNotice(productId: string, snapshot: SelectionSnapshot) {
++  const pending = useRef<{ productId: string; before: SelectionSnapshot; manualKeys: string[] } | null>(null);
++  const [notice, setNotice] = useState<{ productId: string; changes: string[] } | null>(null);
++  const serialized = JSON.stringify(snapshot);
++
++  useEffect(() => {
++    const action = pending.current;
++    if (!action) return;
++    if (action.productId !== productId) {
++      pending.current = null;
++      setNotice(null);
++      return;
++    }
++    const current: SelectionSnapshot = JSON.parse(serialized);
++    const changes = automaticSelectionChanges(action.before, current, action.manualKeys);
++    setNotice(changes.length ? { productId, changes } : null);
++    // Retain the action baseline while dependent effects settle, so material and
++    // quantity changes from the same click appear together. Initial load is silent.
++  }, [productId, serialized]);
++
++  return {
++    changes: notice?.productId === productId ? notice.changes : [],
++    beginSelection: (manualKeys: string[]) => {
++      pending.current = { productId, before: snapshot, manualKeys };
++      setNotice(null);
++    },
++  };
++}
+--- /dev/null
++++ b/src/lib/products/automaticSelectionNotice.ts
+@@ -0,0 +1,10 @@
++export type SelectionSnapshot = Record<string, { value: string; label: string; title: string }>;
++
++/** Presentation only: compare committed choices without resolving or changing them. */
++export function automaticSelectionChanges(before: SelectionSnapshot, after: SelectionSnapshot, manualKeys: string[]) {
++  return Object.entries(after).flatMap(([key, next]) => {
++    const previous = before[key];
++    if (!previous || previous.value === next.value || manualKeys.includes(key)) return [];
++    return [`${next.title}: ${previous.label} → ${next.label}`];
++  });
++}
+--- /dev/null
++++ b/src/lib/products/automaticSelectionNotice.test.ts
+@@ -0,0 +1,30 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { automaticSelectionChanges, type SelectionSnapshot } from './automaticSelectionNotice.ts';
++const before: SelectionSnapshot = {
++  material: { value: 'silk', label: 'Silk 300 g', title: 'Materiale' },
++  quantity: { value: '500', label: '500 stk.', title: 'Antal' },
++};
++const after: SelectionSnapshot = {
++  material: { value: 'offset', label: 'Offset 250 g', title: 'Materiale' },
++  quantity: { value: '100', label: '100 stk.', title: 'Antal' },
++};
++test('initial defaults and unchanged choices do not produce automatic warnings', () => {
++  assert.deepEqual(automaticSelectionChanges({}, after, []), []);
++  assert.deepEqual(automaticSelectionChanges(before, before, []), []);
++});
++test('automatic material and quantity changes retain both old and new labels', () => {
++  assert.deepEqual(automaticSelectionChanges(before, after, []), [
++    'Materiale: Silk 300 g → Offset 250 g', 'Antal: 500 stk. → 100 stk.',
++  ]);
++});
++test('a manual material choice still reports its dependent quantity correction', () => {
++  assert.deepEqual(automaticSelectionChanges(before, after, ['material']), ['Antal: 500 stk. → 100 stk.']);
++});
++test('manual price-cell selection is not presented as automatic', () => {
++  assert.deepEqual(automaticSelectionChanges(before, after, ['material', 'quantity']), []);
++});
++test('label-only changes and missing values do not invent a replacement', () => {
++  assert.deepEqual(automaticSelectionChanges(before, { material: { ...before.material, label: 'Min egen beskrivelse' } }, []), []);
++  assert.deepEqual(before.material.label, 'Silk 300 g');
++});
