@@ -1,3 +1,4 @@
+import { ArtworkChoiceGuidance } from './ProductChoiceGuidance';
 import { applyBrochureDocumentParams } from '@/lib/designer/brochureProduct';
 import { validBrochurePageCount } from '@/lib/designer/brochureDocument';
 import { resolveSharedButton, sharedButtonAttributes } from '@/lib/branding/sharedButtons';
@@ -1185,6 +1186,14 @@ export function ProductPricePanel({
     toast.info('Denne handling er slået fra i forhåndsvisningen.');
   };
 
+  const artworkGuidance = hasStableSelection ? <ArtworkChoiceGuidance
+    canDesign={activeProductFlow.showDesignerButton && !professionalPdfUploadOnly}
+    hasTemplate={!!designerTemplateLaunch?.pdfUrl}
+    canDownload={!!designerTemplateLaunch?.pdfUrl && activeProductFlow.showTemplateDownload}
+    designReady={designReady}
+    reserveChoices={stableArtworkLayout}
+  /> : null;
+
   if (presentation === 'order-flow') return <div onClickCapture={guardPreviewAction} className="order-compact-price-panel" data-storefront-order-panel="price">
     <details className="order-price-details"><summary>Din valgte konfiguration</summary><p>{summary}</p>
       {optionSelections && Object.values(optionSelections).map((option, idx) => <p key={idx}>{option.name}</p>)}
@@ -1334,6 +1343,7 @@ export function ProductPricePanel({
         </div>
       )}
 
+    {artworkGuidance}
     {hasStableSelection && <div className="order-compact-actions">            <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto">
               {(stableArtworkLayout || activeProductFlow.showDesignerButton) && !professionalPdfUploadOnly && (
                 <MotionButton
@@ -1448,7 +1458,7 @@ export function ProductPricePanel({
                   ) : (
                     <PenTool className="h-5 w-5" />
                   )}
-                  {!activeProductFlow.showDesignerButton ? "Design ikke tilgængeligt" : designReady ? "Design klar" : activeProductFlow.designerCtaLabel}
+                  {!activeProductFlow.showDesignerButton ? "Design ikke tilgængeligt" : designReady ? "Design klar" : designerTemplateLaunch?.pdfUrl ? "Design i skabelonen" : activeProductFlow.designerCtaLabel}
                 </MotionButton>
               )}
               {activeProductFlow.showDesignerButton && professionalPdfUploadOnly ? (
@@ -1784,6 +1794,8 @@ export function ProductPricePanel({
         </div>
       </div>
 
+      {artworkGuidance}
+
       {/* Product price */}
       <div className="space-y-3">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -1911,7 +1923,7 @@ export function ProductPricePanel({
                   ) : (
                     <PenTool className="h-5 w-5" />
                   )}
-                  {!activeProductFlow.showDesignerButton ? "Design ikke tilgængeligt" : designReady ? "Design klar" : activeProductFlow.designerCtaLabel}
+                  {!activeProductFlow.showDesignerButton ? "Design ikke tilgængeligt" : designReady ? "Design klar" : designerTemplateLaunch?.pdfUrl ? "Design i skabelonen" : activeProductFlow.designerCtaLabel}
                 </MotionButton>
               )}
               {activeProductFlow.showDesignerButton && professionalPdfUploadOnly ? (
