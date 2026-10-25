@@ -1,0 +1,16 @@
+{
+  "copyLinksAndSignupVerified": true,
+  "termsOpeningPreservedSelectedPrice1645": true,
+  "automaticMaterialNotice": true,
+  "manualCellClearedNotice": true,
+  "formatQuantityNotice": "75 → 100",
+  "matrixPriceAfterFormat1714": true,
+  "metrics": {
+    "documentWidth": 1202,
+    "guidanceVisible": true,
+    "localPilotLaunchVisible": false,
+    "viewportWidth": 1202
+  },
+  "errors": [],
+  "noSignupUploadOrderOrPaymentSubmitted": true
+}

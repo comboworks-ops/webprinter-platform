@@ -1,0 +1,8 @@
+{
+  "changedAndAddedFilesScanned": 250,
+  "secretPatternMatches": 0,
+  "environmentFilesIncluded": false,
+  "browserWorkspaceExportsIncluded": false,
+  "rawAuthenticatedEvidenceIncluded": false,
+  "limitations": "Pattern check plus explicit source/report allowlist; not a security certification."
+}

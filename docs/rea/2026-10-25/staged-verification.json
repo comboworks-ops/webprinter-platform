@@ -1,0 +1,10 @@
+{
+  "state": "READY",
+  "deployment": "dpl_Edtv5bbmTabSpaJ6DYBjyz9n9oB5",
+  "url": "https://printmaker-web-craft-main-a4trlhawk-thomas-projects-d80b9ddd.vercel.app",
+  "sourceFilesVerified": 1873,
+  "exactCandidateSource": true,
+  "allAliasesUnchanged": 36,
+  "productionDomainsAssigned": false,
+  "runtimeChanges": "4 existing files, 4 new files; live approval policy preserved"
+}

@@ -1,0 +1,19 @@
+{
+  "baselineFiles": 1869,
+  "candidateFiles": 1873,
+  "modified": [
+    "src/components/product-price-page/MatrixLayoutV1Renderer.tsx",
+    "src/components/product-price-page/ProductPricePanel.tsx",
+    "src/pages/TenantSignup.tsx",
+    "src/pages/platform/PlatformWhiteLabel.tsx"
+  ],
+  "added": [
+    "src/components/product-price-page/ProductChoiceGuidance.tsx",
+    "src/hooks/useAutomaticSelectionNotice.ts",
+    "src/lib/products/automaticSelectionNotice.ts",
+    "src/lib/products/automaticSelectionNotice.test.ts"
+  ],
+  "unchangedBaselineFiles": 1865,
+  "allOtherRuntimeBackendPricingAndConfigFilesPreserved": true,
+  "localPilotExcluded": true
+}

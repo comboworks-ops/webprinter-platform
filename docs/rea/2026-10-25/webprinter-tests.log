@@ -1,0 +1,43 @@
+✔ image approval produces full-size PDF with trim/bleed and exact preview placement (10.489333ms)
+✔ invalid geometry and non-image bytes cannot create an approved artifact (0.263666ms)
+✔ checkout image approval accepts file metadata and bakes non-A4 placement into a directly approvable PDF (1.808792ms)
+✔ every required placement field still rejects non-finite or missing values alongside metadata (0.411458ms)
+✔ small print stays at 300 DPI, independently of dimensions (1.100792ms)
+✔ wide format uses 150 DPI below 6 m² and 100 DPI from 6 m² per item (0.120459ms)
+✔ actual placed pixels determine resolution, including enlargement and unequal axes (0.083333ms)
+✔ warnings use the relevant product threshold and remain overridable even at very low DPI (0.128625ms)
+✔ acceptance resets on file, placement, warning or recommendation changes (0.193375ms)
+✔ order responsibility evidence is bound to the approved output hash (0.149458ms)
+✔ paper edit retains all production files and contact draft but requires approval (0.645625ms)
+✔ changed dimensions keep original upload without treating it as a fitting designer export (0.057333ms)
+✔ new orders and different products never inherit artwork or contact draft (0.62825ms)
+✔ checkout design signature changes when a template becomes professional-upload-only (11.641125ms)
+✔ large-format dimensions and charged component identities survive checkout and Designer transfer (2.517417ms)
+✔ roll article, options and motif allocation survive the existing Designer transfer and return storage (0.269334ms)
+✔ initial defaults and unchanged choices do not produce automatic warnings (0.709042ms)
+✔ automatic material and quantity changes retain both old and new labels (0.091083ms)
+✔ a manual material choice still reports its dependent quantity correction (0.046583ms)
+✔ manual price-cell selection is not presented as automatic (0.038042ms)
+✔ label-only changes and missing values do not invent a replacement (0.043625ms)
+✔ paper description is retained while the label shows type and grammage (1.240792ms)
+✔ coating and recycled paper identity remain distinguishable (0.34675ms)
+✔ actual letterhead names move all parenthetical specifications into help (0.151625ms)
+✔ no guessing of non-paper specifications or certification from absence (0.661583ms)
+✔ metadata descriptions generate stable editable help points and a separate certification icon (0.621666ms)
+✔ shortening labels never changes the supplied source object (1.83725ms)
+✔ a short display-name override retains the underlying supplier description (0.096959ms)
+✔ reviewed notebook and folder notes move into help without losing weight or paper identity (0.150292ms)
+✔ reviewed foil names retain finish, material, backing and brand distinctions (0.09ms)
+✔ recycling help follows explicit source language and invents no percentage or certification (0.094292ms)
+✔ grammage spacing alone does not add an empty-information help button (0.09575ms)
+✔ even very low image resolution is an explicit overridable warning, never an export error (0.581875ms)
+✔ the recommendation supplied for each product controls the resolution warning (0.118416ms)
+✔ artwork crossing bleed remains an overridable cropping warning and cut contours are not treated as artwork (0.065125ms)
+ℹ tests 35
+ℹ suites 0
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 237.272583
