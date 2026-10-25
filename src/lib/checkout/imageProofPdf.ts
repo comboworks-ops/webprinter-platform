@@ -14,7 +14,11 @@ export interface ImageProofPlacement {
 /** Bake the exact visible placement into a PDF using original image bytes.
  * The template, trim guides and safety guides are UI overlays, never artwork. */
 export async function createImageProofPdf(bytes: Uint8Array, placement: ImageProofPlacement) {
-  const values = Object.values(placement);
+  // Checkout also supplies file metadata. Validate the required geometry only,
+  // so strings/booleans in that metadata cannot reject a valid placement.
+  const values = [placement.targetWidthMm, placement.targetHeightMm,
+    placement.physicalWidthMm, placement.physicalHeightMm, placement.scale,
+    placement.offsetX, placement.offsetY, placement.bleedMm];
   if (!values.every(Number.isFinite) || placement.targetWidthMm <= 0 || placement.targetHeightMm <= 0
     || placement.physicalWidthMm <= 0 || placement.physicalHeightMm <= 0 || placement.scale <= 0
     || placement.bleedMm < 0 || placement.bleedMm * 2 >= Math.min(placement.targetWidthMm, placement.targetHeightMm)) {

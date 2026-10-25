@@ -1,3 +1,4 @@
+import { usePvcbannerPageSettings } from '@/components/sites/PvcbannerNativeFrame';
 import { StorefrontPrimaryButton } from "@/components/storefront/StorefrontPrimaryButton";
 import { type ReactNode, useId, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, FileText, User, Truck } from 'lucide-react';
@@ -23,13 +24,19 @@ export function OrderCheckoutLayout({ design, contact, file, summary, extras, on
   onBack: () => void; contactSummary?: string;
   delivery?: ReactNode; deliverySummary?: string; advanced?: ReactNode;
 }) {
+  const wide = usePvcbannerPageSettings();
   const [contactOpen, setContactOpen] = useState(!contactSummary);
   return <>
     <OrderFlowSteps current={2} onBack={onBack} />
-    <div className="order-checkout-grid">
+    <div className="order-checkout-grid" data-wide-checkout={wide?.checkoutStyle}>
       <div className="order-checkout-content">
         <div className="order-page-heading"><h1>{design === 6 ? 'Klar til næste skridt' : 'Gør din bestilling klar.'}</h1><p>Tjek din fil og vælg levering, så er du klar til at gennemføre din bestilling.</p></div>
-        {design === 6 ? <>
+        {wide && wide.checkoutStyle !== 'standard' ? <>
+          <section className="order-checkout-contact">{contact}</section>
+          <section className="order-checkout-file">{file}</section>
+          {design === 6 && delivery && <section className="order-checkout-delivery"><h2>Levering</h2>{delivery}</section>}
+          {design === 6 && advanced}
+        </> : design === 6 ? <>
           <details className="order-guided-section" open={contactOpen} onToggle={event => setContactOpen(event.currentTarget.open)}>
             <summary><User /><span><strong>Kontakt & modtager</strong>{contactSummary && <small>{contactSummary}</small>}</span><ChevronDown /></summary>
             {contact}

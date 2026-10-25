@@ -40,18 +40,22 @@ type SimulatedBrowser = {
   sessionStorage?: Map<string, string>;
 };
 type TenantResponse = { data: unknown; error: unknown };
+type TenantFilter = { column: string; value: string | string[] };
 
 function settingsHarness(options: {
   isolatedPreview?: boolean;
+  hostname?: string;
+  userId?: string;
   search?: string;
   pathname?: string;
   pin?: string;
   cachedSettings?: Record<string, unknown>;
-  tenantResponse?: TenantResponse | Promise<TenantResponse>;
+  cachedDomains?: Record<string, unknown>;
+  tenantResponse?: TenantResponse | Promise<TenantResponse> | ((filter: TenantFilter | undefined) => TenantResponse);
   browser?: SimulatedBrowser;
 }) {
   const browser = options.browser || {
-    location: { hostname: "127.0.0.1", pathname: options.pathname || "/", search: options.search || "" },
+    location: { hostname: options.hostname || "127.0.0.1", pathname: options.pathname || "/", search: options.search || "" },
     localStorage: new Map<string, string>(),
   };
   const localStorage = browser.localStorage;
@@ -60,24 +64,34 @@ function settingsHarness(options: {
   for (const [id, settings] of Object.entries(options.cachedSettings || {})) {
     sessionStorage.set(`wp_storefront_settings:tenant:${id}`, JSON.stringify(settings));
   }
-  const calls: unknown[] = [];
+  for (const [domain, settings] of Object.entries(options.cachedDomains || {})) {
+    sessionStorage.set(`wp_storefront_settings:domain:${domain}`, JSON.stringify(settings));
+  }
+  const calls: TenantFilter[] = [];
   let queryOptions: any;
+  let currentFilter: TenantFilter | undefined;
+  let stateIndex = 0;
+  const response = () => typeof options.tenantResponse === "function"
+    ? options.tenantResponse(currentFilter)
+    : options.tenantResponse || { data: null, error: null };
   const makeStorage = (data: Map<string, string>) => ({
     getItem: (key: string) => data.get(key) ?? null,
     setItem: (key: string, value: string) => data.set(key, value),
   });
   const queryChain = {
     select() { return this; },
-    eq(column: string, value: string) { calls.push({ column, value }); return this; },
-    in(column: string, value: string[]) { calls.push({ column, value }); return this; },
-    maybeSingle: async () => options.tenantResponse || { data: null, error: null },
+    eq(column: string, value: string) { currentFilter = { column, value }; calls.push(currentFilter); return this; },
+    in(column: string, value: string[]) { currentFilter = { column, value }; calls.push(currentFilter); return this; },
+    maybeSingle: async () => response(),
+    then(resolve: (value: TenantResponse) => unknown, reject: (reason: unknown) => unknown) { return Promise.resolve(response()).then(resolve, reject); },
   };
   const dependencies: Record<string, unknown> = {
     "@/lib/isolatedPreview": { IS_ISOLATED_PREVIEW: options.isolatedPreview || false },
-    "react": { useState: (initial: any) => [typeof initial === "function" ? initial() : initial, () => {}], useEffect: () => {}, useMemo: (fn: () => unknown) => fn() },
+    "react": { useState: (initial: any) => [stateIndex++ === 1 && options.userId ? options.userId : typeof initial === "function" ? initial() : initial, () => {}], useEffect: () => {}, useMemo: (fn: () => unknown) => fn() },
     "react-router-dom": { useLocation: () => ({ pathname: options.pathname || "/", search: options.search || "" }) },
     "@tanstack/react-query": { useQuery: (value: unknown) => { queryOptions = value; return {}; } },
     "@/hooks/useBrandingDraft": { mergeBrandingWithDefaults: (value: unknown) => value },
+    "@/lib/branding/wideFormatEditor": { resolveWideFormatEditorBranding: (value: unknown) => value },
     "@/integrations/supabase/client": { supabase: { from: () => queryChain } },
     "@/lib/api/featureFlags": { USE_API_TENANT_CONTEXT: false },
     "@/lib/api/tenantContext": { fetchTenantContext: () => { throw new Error("Unexpected API lookup"); } },
@@ -220,4 +234,75 @@ test("invalid or unavailable tenant subdomains never select the pinned or master
   await assert.rejects(missing.runQuery(), /domæne/);
   assert.ok(missing.calls.every((call: any) => call.column === "domain"));
   assert.equal(JSON.parse(missing.localStorage.get(PIN_KEY)!).id, MASTER_ID);
+});
+
+test("a production shop transport failure cannot select master when its cache is unavailable", async () => {
+  for (const hostname of ["salgsmapper.dk", "www.onlinetryksager.dk", "shop.webprinter.dk"]) {
+    const harness = settingsHarness({ hostname,
+      cachedSettings: { [MASTER_ID]: { id: MASTER_ID, domain: "webprinter.dk" } },
+      cachedDomains: { "other-shop.dk": { id: SHOP_ID, domain: "other-shop.dk" } },
+      tenantResponse: { data: null, error: { message: "Failed to fetch" } },
+    });
+    await assert.rejects(harness.runQuery(), /transport failure/, hostname);
+    assert.ok(harness.calls.every(call => call.column === "domain"));
+  }
+});
+
+test("a production shop transport failure can reuse its own successful domain cache", async () => {
+  const cached = { id: SHOP_ID, tenant_name: "Salgsmapper", domain: "salgsmapper.dk", branding: { color: "red" } };
+  const harness = settingsHarness({ hostname: "www.salgsmapper.dk", cachedDomains: { "salgsmapper.dk": cached },
+    tenantResponse: { data: null, error: { message: "Failed to fetch" } },
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(await harness.runQuery())), cached);
+});
+
+test("an unknown production domain never falls through to master or the signed-in owner's shop", async () => {
+  for (const hostname of ["unknown-shop.dk", "unknown.webprinter.dk", "unknown.webprinter-platform.vercel.app"]) {
+    for (const userId of [undefined, "owner-user"]) {
+      const harness = settingsHarness({ hostname, userId, tenantResponse: filter => ({
+        data: filter?.column === "owner_id" ? [{ id: SHOP_ID, name: "Owner's unrelated shop" }]
+          : filter?.column === "id" ? { id: MASTER_ID, name: "Webprinter" } : null,
+        error: null,
+      }) });
+      await assert.rejects(harness.runQuery(), /domæne/, hostname);
+      assert.ok(harness.calls.every(call => call.column === "domain"));
+    }
+  }
+});
+
+test("a valid custom domain resolves the requested tenant without a master lookup", async () => {
+  const harness = settingsHarness({ hostname: "salgsmapper.dk", tenantResponse: {
+    data: { id: SHOP_ID, name: "Salgsmapper", domain: "salgsmapper.dk" }, error: null,
+  } });
+  assert.equal((await harness.runQuery()).id, SHOP_ID);
+  assert.equal(harness.calls.length, 1);
+  assert.equal((harness.calls[0] as TenantFilter).column, "domain");
+});
+
+test("the known platform hosts retain their default master catalog", async () => {
+  for (const hostname of ["webprinter.dk", "www.webprinter.dk", "webprinter-platform.vercel.app", "127.0.0.1", "localhost"]) {
+    const harness = settingsHarness({ hostname, tenantResponse: filter => ({
+      data: filter?.column === "id" ? { id: MASTER_ID, name: "Webprinter", domain: "webprinter.dk" } : null,
+      error: null,
+    }) });
+    assert.equal((await harness.runQuery()).id, MASTER_ID, hostname);
+    assert.deepEqual(harness.calls, [{ column: "id", value: MASTER_ID }]);
+  }
+});
+
+test("an established tenant preview hostname retains its domain mapping", async () => {
+  const harness = settingsHarness({ hostname: "salgsmapper.webprinter-platform.vercel.app", tenantResponse: filter => ({
+    data: filter?.value === "salgsmapper.webprinter.dk" ? { id: SHOP_ID, name: "Salgsmapper", domain: "salgsmapper.webprinter.dk" } : null,
+    error: null,
+  }) });
+  assert.equal((await harness.runQuery()).id, SHOP_ID);
+  assert.ok(harness.calls.every(call => call.column === "domain"));
+});
+
+test("an isolated preview with no selected shop retains the default master catalog", async () => {
+  const harness = settingsHarness({ hostname: "isolated-review.vercel.app", isolatedPreview: true,
+    tenantResponse: { data: { id: MASTER_ID, name: "Webprinter" }, error: null },
+  });
+  assert.equal((await harness.runQuery()).id, MASTER_ID);
+  assert.deepEqual(harness.calls, [{ column: "id", value: MASTER_ID }]);
 });

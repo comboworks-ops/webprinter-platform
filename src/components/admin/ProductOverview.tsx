@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
 import { resolveAdminTenant } from "@/lib/adminTenant";
+import { tenantReleaseConfirmation } from "@/lib/products/optionGroupSafety";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -47,6 +48,7 @@ import "@/styles/adminProductsWorkspace.css";
 
 type Product = {
   id: string;
+  tenant_id: string;
   name: string;
   slug: string;
   description: string;
@@ -618,17 +620,12 @@ export function ProductOverview() {
 
   const toggleAvailableToTenants = async (product: Product) => {
     // LOCK LF-004: Scope every mutation by tenant_id.
-    if (!productsTenantId) return;
+    if (!productsTenantId || !canDistributeToTenants || product.tenant_id !== productsTenantId) return;
     const currentStatus = !!product.is_available_to_tenants;
     const nextStatus = !currentStatus;
     const priceHealth = getProductPriceHealth(product);
 
-    if (nextStatus && priceHealth.tone === "warning") {
-      const confirmed = window.confirm(
-        `Produktet "${product.name}" har 0 Matrix-prisrækker. Hvis du frigiver det til lejere nu, kan importerede kopier mangle pris-preview. Vil du frigive det alligevel?`
-      );
-      if (!confirmed) return;
-    }
+    if (nextStatus && !window.confirm(tenantReleaseConfirmation(product.name, priceHealth.tone === "warning"))) return;
 
     try {
       const { error } = await supabase
@@ -2258,7 +2255,7 @@ export function ProductOverview() {
                                       <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
                                         {product.is_available_to_tenants ? "Frigivet" : "Privat"}
                                       </span>
-                                      <AdminInlineHelp content="Gør masterproduktet tilgængeligt for deling til andre lejere. Det påvirker ikke om produktet vises i webshoppen." />
+                                      <AdminInlineHelp content="Frigivelse sender en besked til alle andre lejershops og gør produktet tilgængeligt for import. Du skal bekræfte først. Produktets synlighed i webshoppen styres separat." />
                                     </div>
                                     <Switch
                                       aria-label={`Frigiv ${product.name} til lejere`}

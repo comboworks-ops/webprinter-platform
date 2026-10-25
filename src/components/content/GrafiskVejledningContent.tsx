@@ -1,3 +1,4 @@
+import { usePvcbannerPageSettings } from '@/components/sites/PvcbannerNativeFrame';
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Check, ChevronDown, FileText, HelpCircle, Layers, Maximize2, X } from "lucide-react";
@@ -12,6 +13,7 @@ import "@/styles/graphicGuide.css";
 const detailAnchors = new Set(["offsettryk", "cmyk-rgb", "storformat", "efterbehandling", "spotlak", "konturskæring", "hvidt-blæk", "trykmetoder", "tekstiltryk", "pdf-eksport"]);
 
 export function GrafiskVejledningContent() {
+  const signal = usePvcbannerPageSettings();
   const { data: settings } = useShopSettings();
   const location = useLocation();
   const navigate = useNavigate();
@@ -65,10 +67,10 @@ export function GrafiskVejledningContent() {
 
   return (
     <div className="graphic-guide">
-      <header className="graphic-guide-intro">
+      <header className={signal ? "graphic-guide-intro pvc-info-intro" : "graphic-guide-intro"} data-signal-section={signal ? "signal-pages" : undefined}>
         <p className="graphic-guide-eyebrow">Grafisk vejledning</p>
-        <h1 data-branding-id="typography.heading">{guide.heading}</h1>
-        <p data-branding-id="typography.body">{guide.introduction}</p>
+        <h1 data-site-design-target={signal ? "signal-pages" : undefined} data-branding-id="typography.heading">{signal?.guideTitle || guide.heading}</h1>
+        <p data-site-design-target={signal ? "signal-pages" : undefined} data-branding-id="typography.body">{signal?.guideIntro || guide.introduction}</p>
       </header>
 
       <div className="graphic-guide-layout">

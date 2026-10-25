@@ -11,7 +11,7 @@ function deferred<T>() {
 }
 
 function supportStore(options: { pauseRead?: Promise<void>; pauseAuth?: Promise<void>; failure?: unknown; anonymous?: boolean } = {}) {
-    const rows: Row[] = [SUPPORT_MASTER_TENANT_ID, 'shop-a', 'shop-b'].flatMap(tenant_id =>
+    const rows = [SUPPORT_MASTER_TENANT_ID, 'shop-a', 'shop-b'].flatMap(tenant_id =>
         ['master', 'tenant'].map(sender_role => ({ id: `${tenant_id}:${sender_role}`, tenant_id, sender_role, content: 'Hello', is_read: false })),
     );
     const reads: Array<{ table: string; filters: Array<[string, unknown]> }> = [];
@@ -49,10 +49,12 @@ function supportStore(options: { pauseRead?: Promise<void>; pauseAuth?: Promise<
                 async insert(values: Row) { inserts.push(values); return { error: options.failure || null }; },
                 update(values: Row) {
                     const filters: Array<[string, unknown]> = [];
+                    let ids: string[] = [];
                     const query: any = {
                         eq(column: string, value: unknown) { filters.push([column, value]); return query; },
+                        in(column: string, values: string[]) { assert.equal(column, 'id'); ids = values; return query; },
                         then(resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) {
-                            for (const row of rows.filter(row => filters.every(([key, value]) => row[key] === value))) {
+                            for (const row of rows.filter(row => ids.includes(row.id) && filters.every(([key, value]) => (row as Row)[key] === value))) {
                                 Object.assign(row, values); receipts.push(row.id);
                             }
                             return Promise.resolve({ error: null }).then(resolve, reject);
@@ -86,7 +88,7 @@ for (const scenario of [
         assert.equal(supportConversationTarget(conversation), target);
         assert.equal(await sendSupportConversationMessage(store.client, conversation, '  Test draft  ', false, () => true), 'sent');
         assert.deepEqual(store.inserts, [{ tenant_id: target, sender_role: scenario.isMaster ? 'master' : 'tenant', content: 'Test draft', sender_user_id: 'operator' }]);
-        await markSupportConversationRead(store.client, conversation);
+        await markSupportConversationRead(store.client, conversation, messages || [], () => true);
         assert.deepEqual(store.receipts, [`${target}:${scenario.isMaster ? 'tenant' : 'master'}`]);
     });
 }
@@ -98,7 +100,7 @@ test('unresolved workspace cannot fetch messages or tenant controls, send or mar
     assert.equal(await loadSupportMessages(store.client, context, () => true), null);
     assert.equal(await loadSupportTenants(store.client, context, () => true), null);
     assert.equal(await sendSupportConversationMessage(store.client, context, 'Hello', false, () => true), 'cancelled');
-    await markSupportConversationRead(store.client, context);
+    await markSupportConversationRead(store.client, context, store.rows, () => true);
     assert.deepEqual([store.reads, store.inserts, store.receipts], [[], [], []]);
     assert.equal(store.authRequests, 0);
 });
@@ -107,7 +109,7 @@ test('master support requires a selected conversation before sending or marking 
     const store = supportStore();
     const context = { ...resolveSupportWorkspace({ isMasterAdmin: true, tenantId: SUPPORT_MASTER_TENANT_ID }), selectedTenantId: null };
     assert.equal(await sendSupportConversationMessage(store.client, context, 'Hello', false, () => true), 'cancelled');
-    await markSupportConversationRead(store.client, context);
+    await markSupportConversationRead(store.client, context, store.rows, () => true);
     assert.deepEqual([store.inserts, store.receipts], [[], []]);
 });
 
@@ -115,7 +117,7 @@ test('the master platform lead log preserves unread evidence and cannot send a s
     const store = supportStore();
     const context = { ...resolveSupportWorkspace({ isMasterAdmin: true, tenantId: SUPPORT_MASTER_TENANT_ID }), selectedTenantId: SUPPORT_MASTER_TENANT_ID };
     assert.equal(await sendSupportConversationMessage(store.client, context, 'Hello', true, () => true), 'cancelled');
-    await markSupportConversationRead(store.client, context);
+    await markSupportConversationRead(store.client, context, store.rows, () => true);
     assert.deepEqual([store.inserts, store.receipts], [[], []]);
     assert.equal(store.authRequests, 0);
 });

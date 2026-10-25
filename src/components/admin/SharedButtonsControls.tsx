@@ -7,21 +7,18 @@ import '@/styles/sharedButtonsEditor.css';
 type Props = { draft: BrandingData; updateDraft: (patch: Partial<BrandingData>) => void; designDefaults?: BrandingData };
 const roles = { cta: 'CTA / bestilling', selection: 'Valgknapper' };
 const colors = [
-  ['bgColor', 'Baggrund'], ['textColor', 'Tekst'], ['hoverBgColor', 'Baggrund ved hover'],
-  ['hoverTextColor', 'Tekst ved hover'], ['selectedBgColor', 'Baggrund når valgt'], ['selectedTextColor', 'Tekst når valgt'], ['borderColor', 'Kantfarve'],
+  ['bgColor', 'Baggrund · normal'], ['textColor', 'Tekstfarve · normal'], ['hoverBgColor', 'Baggrund · hover'],
+  ['hoverTextColor', 'Tekstfarve · hover'], ['selectedBgColor', 'Baggrund · valgt'], ['selectedTextColor', 'Tekstfarve · valgt'],
 ] as const;
-const colorStates = { normal: 'Normal', hover: 'Hover', selected: 'Valgt' };
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (color: string) => void }) {
   const [code, setCode] = useState(value);
   useEffect(() => setCode(value), [value]);
   return <label className="sb-color-control"><span>{label}</span><span><input type="color" aria-label={label} value={value} onChange={event => onChange(event.target.value)} /><input aria-label={`${label} farvekode`} value={code} maxLength={7} aria-invalid={!/^#[\da-f]{6}$/i.test(code)} onChange={event => { setCode(event.target.value); if (/^#[\da-f]{6}$/i.test(event.target.value)) onChange(event.target.value); }} onBlur={() => setCode(value)} onFocus={event => event.target.select()} /></span></label>;
 }
-function StyleFields({ value, onChange }: { value: SharedButtonStyle; onChange: (patch: Partial<SharedButtonStyle>) => void }) {
-  const [state, setState] = useState<keyof typeof colorStates>('normal');
-  const offset = state === 'normal' ? 0 : state === 'hover' ? 2 : 4;
+function StyleFields({ value, role, onChange }: { value: SharedButtonStyle; role: SharedButtonRole; onChange: (patch: Partial<SharedButtonStyle>) => void }) {
   return <>
-    <div className="sb-state-tabs" role="group" aria-label="Farvetilstand">{(Object.keys(colorStates) as Array<keyof typeof colorStates>).map(key => <button type="button" key={key} aria-pressed={state === key} onClick={() => setState(key)}>{colorStates[key]}</button>)}</div>
-    <div className="sb-color-grid">{colors.slice(offset, offset + 2).map(([key, label]) => <ColorField key={key} label={label} value={value[key]} onChange={color => onChange({ [key]: color })} />)}</div>
+    <p className="sd-control-note">Normal er knappens farver uden musen over. Hover bruges også ved tastaturfokus.</p>
+    <div className="sb-color-grid">{colors.slice(0, role === 'selection' ? 6 : 4).map(([key, label]) => <ColorField key={key} label={label} value={value[key]} onChange={color => onChange({ [key]: color })} />)}</div>
     <ColorField label="Kantfarve" value={value.borderColor} onChange={borderColor => onChange({ borderColor })} />
     <label className="sd-control-field"><span>Runde hjørner · {value.radiusPx} px</span><input type="range" min={0} max={48} value={value.radiusPx} onChange={event => onChange({ radiusPx: Number(event.target.value) })} /></label>
     <label className="sd-control-field"><span>Tekststørrelse · {value.fontSizePx} px</span><input type="range" min={12} max={24} value={value.fontSizePx} onChange={event => onChange({ fontSizePx: Number(event.target.value) })} /></label>
@@ -53,7 +50,7 @@ export function SharedButtonsControls({ draft, updateDraft, designDefaults }: Pr
     <p className="sd-control-note">Se ændringerne i butikkens preview.{!settings[role] && ' Første ændring aktiverer fælles design.'}</p>
     <div className="sb-panel-tabs" role="group" aria-label="Knapindstillinger">{([['appearance', 'Farver & form'], ['effects', 'Effekter'], ['bank', 'Knapbank']] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={panel === key} onClick={() => setPanel(key)}>{label}{key === 'bank' && entries.length > 0 && <small> {entries.length}</small>}</button>)}</div>
     <div className="sb-panel-content" key={role}>
-    {panel === 'appearance' && <StyleFields value={value} onChange={change} />}
+    {panel === 'appearance' && <StyleFields value={value} role={role} onChange={change} />}
     {panel === 'effects' && <EffectPicker value={value} role={role} onChange={change} />}
     {panel === 'bank' && <div className="sb-bank"><p className="sd-control-note">Gem og genbrug knappens design. Banken gemmes med kladden.</p>
       <label htmlFor={`${id}-name`}>Navn på knapdesign</label><input id={`${id}-name`} placeholder="Fx Ocean · blå vandfyld" maxLength={80} value={name} onChange={event => setName(event.target.value)} />
@@ -78,6 +75,6 @@ export function SharedButtonLocalControls({ draft, updateDraft, buttonKey, role,
   return <div className="sd-quick-controls sb-local-lock">
     <label className="sd-control-toggle"><input type="checkbox" checked={locked} onChange={event => { if (event.target.checked) change({ ...value }); else { const overrides = { ...settings.overrides }; delete overrides[key]; updateDraft(sharedButtonsPatch(draft, { ...settings, overrides })); } }} /><span>Lås {title} fra Fælles knapper</span></label>
     <p className="sd-control-note">{locked ? 'Denne knap har sit eget design. Ændringer og nulstilling under Fælles knapper påvirker den ikke.' : 'Følger Fælles knapper, når knaptypen er aktiv. Lås for at bevare og tilpasse et særligt design.'}</p>
-    {locked && <details><summary>Tilpas den låste knap</summary><div className="sb-local-fields"><span aria-hidden="true" {...sharedButtonAttributes(value, role)} style={buttonStyleVariables(value)}>Prøv knappen</span><StyleFields value={value} onChange={patch => change({ ...value, ...patch })} /><EffectPicker value={value} role={role} onChange={patch => change({ ...value, ...patch })} /></div></details>}
+    {locked && <details><summary>Tilpas den låste knap</summary><div className="sb-local-fields"><span aria-hidden="true" {...sharedButtonAttributes(value, role)} style={buttonStyleVariables(value)}>Prøv knappen</span><StyleFields value={value} role={role} onChange={patch => change({ ...value, ...patch })} /><EffectPicker value={value} role={role} onChange={patch => change({ ...value, ...patch })} /></div></details>}
   </div>;
 }

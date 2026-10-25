@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLocation, useNavigate } from "react-router-dom";
 import { withAdminWorkspaceContext } from "@/lib/admin/workspaceNavigation";
+import { useIconStudioAccess } from "@/hooks/useIconStudioAccess";
 import {
     Paintbrush,
     Calculator,
@@ -44,6 +45,7 @@ interface ShopModule {
     previewImage?: string;
     previewVideo?: string;
     price?: string;
+    studioAccess?: 'loading' | 'included' | 'unavailable';
 }
 
 const SHOP_MODULES: ShopModule[] = [
@@ -96,14 +98,15 @@ const SHOP_MODULES: ShopModule[] = [
         route: '/admin/icon-studio',
         features: [
             'Faste typer af trykprodukter',
-            '5 visuelle stile',
+            'Visuelle stile og kameravinkler',
+            'Automatiske farver fra dit gemte shopdesign',
             'Stilreferencer',
             'Præcis placering af logo',
             'Godkendelse og direkte produkttilknytning'
         ],
         color: 'from-fuchsia-500 to-rose-500',
         previewImage: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&h=450&fit=crop',
-        price: 'Pilot',
+        price: 'Inkluderet i Pro',
     },
     {
         id: 'machine-pricing',
@@ -169,7 +172,14 @@ const SHOP_MODULES: ShopModule[] = [
 export function ShopModules() {
     const navigate = useNavigate();
     const location = useLocation();
-    const [previewModule, setPreviewModule] = useState<ShopModule | null>(null);
+    const studioAccess = useIconStudioAccess();
+    const [previewModuleId, setPreviewModuleId] = useState<string | null>(null);
+    const modules: ShopModule[] = SHOP_MODULES.map(module => module.id === 'icon-studio' ? {
+        ...module,
+        status: studioAccess.hasAccess ? 'active' : 'inactive',
+        studioAccess: studioAccess.isLoading ? 'loading' : studioAccess.hasAccess ? 'included' : 'unavailable',
+    } : module);
+    const previewModule = modules.find(module => module.id === previewModuleId);
 
     const getStatusBadge = (status: ShopModule['status']) => {
         switch (status) {
@@ -197,12 +207,12 @@ export function ShopModules() {
         }
     };
 
-    const getTierBadge = (tier: ShopModule['tier']) => {
-        if (tier === 'free') {
+    const getTierBadge = (tier: ShopModule['tier'], included = false) => {
+        if (tier === 'free' || included) {
             return (
                 <Badge variant="outline" className="border-green-500 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20">
                     <Gift className="h-3 w-3 mr-1" />
-                    Gratis
+                    {included ? 'Inkluderet' : 'Gratis'}
                 </Badge>
             );
         }
@@ -233,11 +243,11 @@ export function ShopModules() {
             <WorkspaceCollection
                 label="Shop moduler"
                 className="workspace-modules"
-                items={SHOP_MODULES.map(module => ({ id: module.id, title: module.name, subtitle: module.description, icon: module.icon, group: module.tier === 'free' ? 'Inkluderet i dit abonnement' : 'Premium moduler' }))}
+                items={modules.map(module => ({ id: module.id, title: module.name, subtitle: module.description, icon: module.icon, group: module.tier === 'free' || module.studioAccess === 'included' ? 'Inkluderet i dit abonnement' : 'Premium moduler' }))}
             >
-                {SHOP_MODULES.map(module => (
+                {modules.map(module => (
                     <ModuleCard key={module.id} module={module}
-                        onPreview={() => setPreviewModule(module)}
+                        onPreview={() => setPreviewModuleId(module.id)}
                         onNavigate={() => module.route && navigate(withAdminWorkspaceContext(module.route, location.search))}
                         getStatusBadge={getStatusBadge} getTierBadge={getTierBadge} />
                 ))}
@@ -264,7 +274,7 @@ export function ShopModules() {
             </Card>
 
             {/* Preview Dialog */}
-            <Dialog open={!!previewModule} onOpenChange={() => setPreviewModule(null)}>
+            <Dialog open={!!previewModule} onOpenChange={() => setPreviewModuleId(null)}>
                 <DialogContent className="max-w-4xl">
                     {previewModule && (
                         <>
@@ -274,7 +284,7 @@ export function ShopModules() {
                                         {previewModule.icon}
                                     </div>
                                     {previewModule.name}
-                                    {getTierBadge(previewModule.tier)}
+                                    {getTierBadge(previewModule.tier, previewModule.studioAccess === 'included')}
                                 </DialogTitle>
                                 <DialogDescription>
                                     {previewModule.description}
@@ -326,15 +336,15 @@ export function ShopModules() {
                                     </div>
                                 )}
                                 <div className="flex gap-2 ml-auto">
-                                    <Button variant="outline" onClick={() => setPreviewModule(null)}>
+                                    <Button variant="outline" onClick={() => setPreviewModuleId(null)}>
                                         Luk
                                     </Button>
                                     {previewModule.route && previewModule.status !== 'coming_soon' && (
-                                        <Button onClick={() => {
+                                        <Button disabled={!!previewModule.studioAccess && previewModule.studioAccess !== 'included'} onClick={() => {
                                             navigate(withAdminWorkspaceContext(previewModule.route!, location.search));
-                                            setPreviewModule(null);
+                                            setPreviewModuleId(null);
                                         }}>
-                                            {previewModule.tier === 'premium' ? 'Prøv nu' : 'Åbn modul'}
+                                            {moduleActionLabel(previewModule, true)}
                                             <ArrowRight className="ml-2 h-4 w-4" />
                                         </Button>
                                     )}
@@ -346,6 +356,13 @@ export function ShopModules() {
             </Dialog>
         </div>
     );
+}
+
+function moduleActionLabel(module: ShopModule, preview = false) {
+    if (module.studioAccess === 'loading') return 'Henter adgang…';
+    if (module.studioAccess === 'unavailable') return 'Adgang via Pro';
+    if (module.studioAccess === 'included') return preview ? 'Åbn modul' : 'Åbn';
+    return module.tier === 'premium' ? (preview ? 'Prøv nu' : 'Tilføj') : (preview ? 'Åbn modul' : 'Åbn');
 }
 
 // Separate card component for cleaner code
@@ -360,7 +377,7 @@ function ModuleCard({
     onPreview: () => void;
     onNavigate: () => void;
     getStatusBadge: (status: ShopModule['status']) => React.ReactNode;
-    getTierBadge: (tier: ShopModule['tier']) => React.ReactNode;
+    getTierBadge: (tier: ShopModule['tier'], included?: boolean) => React.ReactNode;
 }) {
     return (
         <Card
@@ -388,7 +405,7 @@ function ModuleCard({
                     </div>
                     {/* Tier badge on image */}
                     <div className="absolute top-3 right-3">
-                        {getTierBadge(module.tier)}
+                        {getTierBadge(module.tier, module.studioAccess === 'included')}
                     </div>
                 </div>
             )}
@@ -445,9 +462,10 @@ function ModuleCard({
                         <Button
                             size="sm"
                             className="flex-1"
+                            disabled={!!module.studioAccess && module.studioAccess !== 'included'}
                             onClick={onNavigate}
                         >
-                            {module.tier === 'premium' ? 'Tilføj' : 'Åbn'}
+                            {moduleActionLabel(module)}
                             <ArrowRight className="ml-2 h-4 w-4" />
                         </Button>
                     ) : module.status === 'coming_soon' ? (

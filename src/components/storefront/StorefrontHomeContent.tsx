@@ -177,7 +177,7 @@ function buildUSPGroundCSS(settings?: USPStripSettings): CSSProperties {
   };
 }
 
-function StorefrontContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
+export function StorefrontContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
   return (
     <>
       {blocks.map((block) => (
@@ -250,7 +250,7 @@ function StorefrontContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
   );
 }
 
-function StorefrontUSPSection({
+export function StorefrontUSPSection({
   settings,
   items,
 }: {
@@ -363,7 +363,7 @@ function StorefrontUSPSection({
   );
 }
 
-function StorefrontSEOSection({
+export function StorefrontSEOSection({
   settings,
   items,
 }: {

@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import { OnlinetryksagerAnalytics } from '@/components/consent/OnlinetryksagerAnalytics';
 import { PageTracker } from "@/hooks/usePageTracking";
 import Index from "./pages/Index";
 import SubdomainRouter from "./pages/SubdomainRouter"; // Import Router
@@ -20,6 +21,7 @@ import Admin from "./pages/Admin";
 import Auth from "./pages/Auth";
 import AdminLogin from "./pages/AdminLogin";
 import Shop from "./pages/Shop";
+import Prisberegner from "./pages/Prisberegner";
 import Profile from "./pages/Profile";
 import Sitemap from "./pages/Sitemap";
 import MyOrders from "./pages/MyOrders";
@@ -113,6 +115,8 @@ const getPageTransition = (style?: string, disabled = false) => {
   }
 };
 
+import { PvcbannerAppearance } from "@/components/sites/PvcbannerAppearance";
+
 const AnimatedRoutes = () => {
   const location = useLocation();
   const shouldReduceMotion = useReducedMotion();
@@ -124,6 +128,7 @@ const AnimatedRoutes = () => {
 
   return (
     <IconPackProvider packId={shopSettings.data?.branding?.selectedIconPackId}>
+    <PvcbannerAppearance tenantId={shopSettings.data?.id} />
     <AnimatePresence mode="wait" initial={false}>
       <motion.div
         key={location.pathname}
@@ -164,7 +169,7 @@ const AnimatedRoutes = () => {
           <Route path="/privatliv" element={<PrivacyPolicy />} />
           <Route path="/produkter" element={<Shop />} />
           <Route path="/shop" element={<Shop />} />
-          <Route path="/prisberegner" element={<Shop />} />
+          <Route path="/prisberegner" element={<Prisberegner />} />
           <Route path="/produkt/:slug" element={<ProductPrice />} />
           <Route path="/checkout/konfigurer" element={<FileUploadConfiguration />} />
           <Route path="/canva-return" element={<CanvaReturn />} />
@@ -227,6 +232,7 @@ const App = () => (
             <CookieBanner />
             <CookieSettingsDialog />
             <PageTracker />
+            <OnlinetryksagerAnalytics />
             <PlatformSeoHead />
             <AnimatedRoutes />
             <StorefrontTooltipLayer />

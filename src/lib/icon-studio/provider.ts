@@ -873,7 +873,7 @@ export async function removeUniformBackgroundFromRasterBlob(params: {
 export const mockIconStudioProvider: IconStudioProvider = {
   key: "mock-icon-studio-v1",
   async generateDrafts(input) {
-    const draftLabels = ["Udkast A", "Udkast B", "Udkast C"];
+    const draftLabels = ["Testbillede A", "Testbillede B", "Testbillede C"].slice(0, input.payload.sampleCount ?? 3);
 
     return Promise.all(
       draftLabels.map(async (label, draftIndex) => {

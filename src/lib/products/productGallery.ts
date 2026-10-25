@@ -1,5 +1,5 @@
 export type GalleryCondition = { sectionId: string; valueId: string };
-export type ProductGalleryImage = { id: string; url: string; alt: string; conditions: GalleryCondition[] };
+export type ProductGalleryImage = { id: string; url: string; alt: string; conditions: GalleryCondition[]; previewOnly?: boolean };
 
 /** Older URL galleries stay readable until the editor explicitly changes them. */
 export function readProductGallery(content: unknown): ProductGalleryImage[] {
@@ -20,7 +20,7 @@ export function usableGalleryUrl(url: string): boolean {
 export function matchProductGallery(images: ProductGalleryImage[], selections: Record<string, string | null | undefined>): ProductGalleryImage | undefined {
   let best: ProductGalleryImage | undefined;
   for (const image of images) {
-    if (!usableGalleryUrl(image.url) || !image.conditions.length) continue;
+    if (image.previewOnly || !usableGalleryUrl(image.url) || !image.conditions.length) continue;
     if (image.conditions.every(condition => !!condition.sectionId && !!condition.valueId && selections[condition.sectionId] === condition.valueId)
       && (!best || image.conditions.length > best.conditions.length)) best = image;
   }
@@ -30,6 +30,13 @@ export function matchProductGallery(images: ProductGalleryImage[], selections: R
 /** Stable across object allocation and key order; quantity is deliberately absent. */
 export function gallerySelectionKey(selections: Record<string, string | null | undefined>): string {
   return JSON.stringify(Object.entries(selections).filter(([, value]) => value != null && value !== '').sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/** Only image rules release a manually selected photo. Paper, finish and quantity
+ * changes that have no image rule must leave the preview untouched. */
+export function galleryImageSelectionKey(images: ProductGalleryImage[], selections: Record<string, string | null | undefined>): string {
+  const sections = new Set(images.flatMap(image => image.conditions.map(condition => condition.sectionId)));
+  return gallerySelectionKey(Object.fromEntries(Object.entries(selections).filter(([section]) => sections.has(section))));
 }
 
 /** Matrix row clicks are separate from selector state. Read the chosen row for

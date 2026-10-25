@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFDocument, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
 import { createImageProofPdf } from './imageProofPdf.ts';
+import { requiresProofExport, type ProofArtifactInput } from './proofArtifact.ts';
 const png = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWZkAAAAASUVORK5CYII=', 'base64'));
 const placement = {targetWidthMm:216,targetHeightMm:303,physicalWidthMm:100,physicalHeightMm:150,scale:120,offsetX:10,offsetY:-5,bleedMm:3};
 test('image approval produces full-size PDF with trim/bleed and exact preview placement', async () => {
@@ -27,4 +28,36 @@ test('invalid geometry and non-image bytes cannot create an approved artifact', 
   await assert.rejects(createImageProofPdf(png, {...placement, scale: NaN}));
   await assert.rejects(createImageProofPdf(png, {...placement, targetWidthMm: 0}));
   await assert.rejects(createImageProofPdf(new Uint8Array([1,2]), placement));
+});
+
+test('checkout image approval accepts file metadata and bakes non-A4 placement into a directly approvable PDF', async () => {
+  const artifact: ProofArtifactInput = {
+    fileUrl: 'https://storage.test/artwork.png', filePath: 'order-files/artwork.png',
+    sha256: 'a'.repeat(64), fileType: 'image', designerExport: false,
+    targetWidthMm: 154, targetHeightMm: 216, physicalWidthMm: 100, physicalHeightMm: 150,
+    scale: 100, offsetX: 5, offsetY: -3,
+  };
+  assert.equal(requiresProofExport(artifact), true);
+  // Use the same object spread as handleApproveProofing, including its metadata.
+  const bytes = await createImageProofPdf(png, { ...artifact, bleedMm: 3 });
+  const doc = await PDFDocument.load(bytes);
+  const page = doc.getPage(0), pt = 72 / 25.4;
+  assert.ok(Math.abs(page.getWidth() / pt - 154) < .0001);
+  assert.ok(Math.abs(page.getHeight() / pt - 216) < .0001);
+  assert.ok(Math.abs(page.getTrimBox().width / pt - 148) < .0001);
+  assert.ok(Math.abs(page.getTrimBox().height / pt - 210) < .0001);
+  assert.equal(requiresProofExport({
+    ...artifact, fileUrl: 'https://storage.test/proof.pdf', filePath: 'order-files/proof.pdf',
+    fileType: 'pdf', physicalWidthMm: page.getWidth() / pt, physicalHeightMm: page.getHeight() / pt,
+    scale: 100, offsetX: 0, offsetY: 0,
+  }), false);
+});
+
+test('every required placement field still rejects non-finite or missing values alongside metadata', async () => {
+  const checkoutPlacement = { ...placement, fileType: 'image', designerExport: false };
+  for (const key of Object.keys(placement)) {
+    for (const value of [NaN, Infinity, undefined]) {
+      await assert.rejects(createImageProofPdf(png, { ...checkoutPlacement, [key]: value }), /mål eller placering/);
+    }
+  }
 });

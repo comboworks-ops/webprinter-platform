@@ -30,3 +30,17 @@ test('local preview can override a saved choice without modifying it; invalid UR
   assert.equal(resolveOrderFlowDesign('designer', branding), 11);
   assert.equal(resolveOrderFlowDesign('designer', branding, '6'), 11);
 });
+
+test('wide-format flow edits are isolated per shop design and retain the conventional layouts',()=>{
+ const original={themeSettings:{shopFamily:'wide-format',wideFormatDesign:'nordic-atelier',orderFlowDesigns:{payment:13,checkout:6},wideFormatOverrides:{'nordic-atelier':{heroTitle:'Keep me'}},other:'keep'}};
+ const changed=applyOrderFlowDesign(original,'payment',15);
+ assert.equal(resolveOrderFlowDesign('payment',changed),15);
+ assert.equal(resolveOrderFlowDesign('payment',{themeSettings:{...changed.themeSettings,wideFormatDesign:'fieldwork'}}),13);
+ assert.equal(resolveOrderFlowDesign('payment',{themeSettings:{...changed.themeSettings,shopFamily:'webprinter'}}),13);
+ const fieldwork=applyOrderFlowDesign({themeSettings:{...changed.themeSettings,wideFormatDesign:'fieldwork'}},'checkout',4);
+ const restored={themeSettings:{...JSON.parse(JSON.stringify(fieldwork.themeSettings)),wideFormatDesign:'nordic-atelier'}};
+ assert.equal(resolveOrderFlowDesign('payment',restored),15);
+ assert.equal(resolveOrderFlowDesign('checkout',restored),6);
+ assert.deepEqual(changed.themeSettings.wideFormatOverrides,original.themeSettings.wideFormatOverrides);
+ assert.equal(original.themeSettings.orderFlowDesigns.payment,13);
+});

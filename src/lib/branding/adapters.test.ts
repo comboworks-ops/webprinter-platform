@@ -82,6 +82,25 @@ function database(settings: Settings | null, id = 'shop-a') {
 
 const branding = (name: string) => ({ logo_url: name, themeId: 'print-precise', themeSettings: { explicitThemeSelection: true } }) as any;
 
+test('Printstudio backgrounds survive saved designs and publication without leaking drafts', async () => {
+    for (const mode of ['tenant', 'master'] as const) {
+        const live = { ...branding('Live'), forside: { productsSection: { presentation: 'print-studio', studioBackgroundImageUrl: '/original-surface.png' } } };
+        database(mode === 'master' ? { branding_template_published: live } : { branding: { published: live } }, mode === 'master' ? masterId : 'shop-a');
+        const adapter = mode === 'master' ? createMasterAdapter() : createTenantAdapter('shop-a', 'A');
+        const draft = await adapter.loadDraft();
+        draft.forside.productsSection.studioBackgroundImageUrl = '/custom-surface.png';
+        await adapter.saveDraft(draft);
+        assert.equal((await adapter.loadDraft()).forside.productsSection.studioBackgroundImageUrl, '/custom-surface.png');
+        assert.equal((await adapter.loadPublished()).forside.productsSection.studioBackgroundImageUrl, '/original-surface.png');
+        const saved = await adapter.saveDesign('Custom table', draft);
+        draft.forside.productsSection.studioBackgroundImageUrl = '';
+        await adapter.saveDraft(draft);
+        assert.equal((await adapter.loadSavedDesign(saved.id)).forside.productsSection.studioBackgroundImageUrl, '/custom-surface.png');
+        await adapter.publish(await adapter.loadDraft());
+        assert.equal((await adapter.loadPublished()).forside.productsSection.studioBackgroundImageUrl, '');
+    }
+});
+
 test('tenant save and publish reject an update that affects zero rows', async () => {
     for (const action of ['saveDraft', 'publish'] as const) {
         const { state } = database({ unrelated: { keep: true }, branding: { published: branding('Live') } });

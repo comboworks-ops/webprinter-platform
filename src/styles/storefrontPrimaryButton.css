@@ -5,7 +5,7 @@ body :is(.storefront-primary-action,[data-shop-primary="true"]):is(.storefront-p
   border-color:var(--shop-action-border) !important;
   border-radius:var(--shop-action-radius) !important;
   font-size:var(--shop-action-font) !important;
-  padding:var(--shop-action-padding) 24px !important;
+  padding:var(--shop-action-padding) var(--shop-action-padding-x,24px) !important;
   min-height:44px;
   height:auto;
   line-height:1.35;

@@ -1,3 +1,4 @@
+import { usePvcbannerPageSettings } from '@/components/sites/PvcbannerNativeFrame';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Award, Users, Leaf, Clock } from "lucide-react";
@@ -5,6 +6,7 @@ import { Link } from "react-router-dom";
 import { useShopSettings } from "@/hooks/useShopSettings";
 
 export const AboutContent = () => {
+    const signal = usePvcbannerPageSettings();
     const { data: settings } = useShopSettings();
     const shopName = String(
         settings?.branding?.shop_name
@@ -15,14 +17,14 @@ export const AboutContent = () => {
     const introText = `Vi er specialister i tryksager og visuel kommunikation. Hos ${shopName} kombinerer vi moderne produktion med personlig service, så du kan bestille professionelt print hurtigt og trygt.`;
 
     return (
-        <section className="py-16 bg-secondary/30" data-branding-id="colors.secondary">
+        <section className={signal ? "pvc-about" : "py-16 bg-secondary/30"} data-branding-id="colors.secondary">
             <div className="container mx-auto px-4">
-                <div className="max-w-3xl mx-auto text-center mb-12">
-                    <h1 data-branding-id="typography.heading" className="text-4xl md:text-5xl font-heading font-bold mb-6">
-                        {`Om ${shopName}`}
+                <div data-signal-section={signal ? "signal-pages" : undefined} className={signal ? "pvc-info-intro" : "max-w-3xl mx-auto text-center mb-12"}>
+                    <h1 data-site-design-target={signal ? "signal-pages" : undefined} data-branding-id="typography.heading" className="text-4xl md:text-5xl font-heading font-bold mb-6">
+                        {signal?.aboutTitle || `Om ${shopName}`}
                     </h1>
-                    <p data-branding-id="typography.body" className="text-lg text-muted-foreground leading-relaxed">
-                        {introText}
+                    <p data-site-design-target={signal ? "signal-pages" : undefined} data-branding-id="typography.body" className="text-lg text-muted-foreground leading-relaxed">
+                        {signal?.aboutIntro || introText}
                     </p>
                 </div>
 

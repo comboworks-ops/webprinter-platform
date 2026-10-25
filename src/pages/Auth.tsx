@@ -79,6 +79,9 @@ export default function Auth() {
   }, [navigate, isLoading, roleLoading, signedInUserId, checkedUserId, isAdmin, isRecoveryMode, searchParams, location.search]);
 
   const changeView = (nextView: AuthView) => {
+    // Requesting another reset link must stay on that form even if a recovery
+    // session exists. Explicitly returning to login releases the redirect guard.
+    if (nextView !== 'forgot') recoverySession.current = nextView === 'recovery';
     setView(nextView);
     setErrorMessage('');
     setNotice('');

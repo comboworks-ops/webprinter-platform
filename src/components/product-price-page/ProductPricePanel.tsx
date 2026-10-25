@@ -45,6 +45,7 @@ import {
 } from "@/components/product-price-page/ProductFormatGuide";
 
 type ProductPricePanelProps = {
+  stableArtworkLayout?: boolean;
   productArtworkUpload?: SiteCheckoutState["siteUpload"];
   presentation?: "order-flow";
   productId: string;
@@ -256,6 +257,7 @@ export function ProductPricePanel({
   designSafeAreaMm,
   brochurePageCount,
   designerTemplateLaunch,
+  stableArtworkLayout = false,
   priceIsProposal = false,
   productFlow,
   externalDeliveryEnabled,
@@ -1333,7 +1335,7 @@ export function ProductPricePanel({
       )}
 
     {hasStableSelection && <div className="order-compact-actions">            <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto">
-              {activeProductFlow.showDesignerButton && !professionalPdfUploadOnly && (
+              {(stableArtworkLayout || activeProductFlow.showDesignerButton) && !professionalPdfUploadOnly && (
                 <MotionButton
                   {...orderButtonMotionProps}
                   data-surface={orderButtonMotion.surfaceStyle}
@@ -1349,7 +1351,7 @@ export function ProductPricePanel({
                       : "order-secondary-button border-dashed border-2"
                   )}
                   style={{ ...(designReady ? selectedButtonCssVars : secondaryButtonCssVars), ...sharedSelection.style }}
-                  disabled={brochureSelectionIncomplete}
+                  disabled={brochureSelectionIncomplete || !activeProductFlow.showDesignerButton}
                   onClick={() => {
                     const checkoutState = persistCheckoutState({ crossTab: true });
                     const currentSearchParams = new URLSearchParams(
@@ -1446,7 +1448,7 @@ export function ProductPricePanel({
                   ) : (
                     <PenTool className="h-5 w-5" />
                   )}
-                  {designReady ? "Design klar" : activeProductFlow.designerCtaLabel}
+                  {!activeProductFlow.showDesignerButton ? "Design ikke tilgængeligt" : designReady ? "Design klar" : activeProductFlow.designerCtaLabel}
                 </MotionButton>
               )}
               {activeProductFlow.showDesignerButton && professionalPdfUploadOnly ? (
@@ -1483,6 +1485,11 @@ export function ProductPricePanel({
                     <Download className="h-5 w-5" />
                     Download skabelon
                   </a>
+                </Button>
+              )}
+              {stableArtworkLayout && !(designerTemplateLaunch?.pdfUrl && activeProductFlow.showTemplateDownload) && (
+                <Button disabled variant="outline" size="lg" className="min-h-12 w-full touch-manipulation gap-2 border-dashed py-5" style={secondaryButtonCssVars}>
+                  <Download className="h-5 w-5" /> Skabelon ikke tilgængelig
                 </Button>
               )}
               {canvaOffer?.enabled && canvaOffer.launchUrl ? (
@@ -1791,7 +1798,7 @@ export function ProductPricePanel({
           </div>
           {hasStableSelection && (
             <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto">
-              {activeProductFlow.showDesignerButton && !professionalPdfUploadOnly && (
+              {(stableArtworkLayout || activeProductFlow.showDesignerButton) && !professionalPdfUploadOnly && (
                 <MotionButton
                   {...orderButtonMotionProps}
                   data-surface={orderButtonMotion.surfaceStyle}
@@ -1807,7 +1814,7 @@ export function ProductPricePanel({
                       : "order-secondary-button border-dashed border-2"
                   )}
                   style={{ ...(designReady ? selectedButtonCssVars : secondaryButtonCssVars), ...sharedSelection.style }}
-                  disabled={brochureSelectionIncomplete}
+                  disabled={brochureSelectionIncomplete || !activeProductFlow.showDesignerButton}
                   onClick={() => {
                     const checkoutState = persistCheckoutState({ crossTab: true });
                     const currentSearchParams = new URLSearchParams(
@@ -1904,7 +1911,7 @@ export function ProductPricePanel({
                   ) : (
                     <PenTool className="h-5 w-5" />
                   )}
-                  {designReady ? "Design klar" : activeProductFlow.designerCtaLabel}
+                  {!activeProductFlow.showDesignerButton ? "Design ikke tilgængeligt" : designReady ? "Design klar" : activeProductFlow.designerCtaLabel}
                 </MotionButton>
               )}
               {activeProductFlow.showDesignerButton && professionalPdfUploadOnly ? (
@@ -1941,6 +1948,11 @@ export function ProductPricePanel({
                     <Download className="h-5 w-5" />
                     Download skabelon
                   </a>
+                </Button>
+              )}
+              {stableArtworkLayout && !(designerTemplateLaunch?.pdfUrl && activeProductFlow.showTemplateDownload) && (
+                <Button disabled variant="outline" size="lg" className="min-h-12 w-full touch-manipulation gap-2 border-dashed py-5" style={secondaryButtonCssVars}>
+                  <Download className="h-5 w-5" /> Skabelon ikke tilgængelig
                 </Button>
               )}
               {canvaOffer?.enabled && canvaOffer.launchUrl ? (

@@ -1,4 +1,6 @@
-import { supabase } from "@/integrations/supabase/client";
+import { getStudioCapabilities, invokeStudio } from './connection';
+import { finishStudioRaster, finishStudioGraphic, removeStudioChromaBackdrop } from "./raster";
+import { needsGraphicFinish } from './graphicRaster';
 
 import {
   applyBrandOverlayToRasterBlob,
@@ -65,10 +67,12 @@ function mapReferenceImages(input: IconStudioGenerateDraftsInput["referenceImage
 
 export async function generateIconStudioDraftsViaEdge(input: IconStudioGenerateDraftsInput & {
   providerPreference: IconStudioProviderPreference;
+  jobId?: string;
 }) {
-  const { data, error } = await supabase.functions.invoke("icon-studio-generate", {
-    body: {
+  if (input.payload.recipe?.libraryReferenceId && (await getStudioCapabilities(input.payload.tenantId)).productLibraryVersion !== 1) throw new Error("Billedmotoren skal opdateres til biblioteksreferencer før generering.");
+  const data = await invokeStudio<IconStudioEdgeSuccessResponse>({
       tenantId: input.payload.tenantId,
+      jobId: input.jobId,
       providerPreference: input.providerPreference,
       payload: input.payload,
       brandAsset: input.brandAsset
@@ -80,29 +84,36 @@ export async function generateIconStudioDraftsViaEdge(input: IconStudioGenerateD
         : null,
       referenceAssets: mapReferenceAssets(input.referenceAssets),
       referenceImages: mapReferenceImages(input.referenceImages),
-    },
   });
-
-  if (error) {
-    throw new Error(error.message || "Icon Studio provider request failed.");
-  }
 
   const response = data as IconStudioEdgeSuccessResponse | IconStudioEdgeErrorResponse | null;
   if (!response || response.success !== true) {
     throw new Error((response && "error" in response ? response.error : null) || "Icon Studio provider request failed.");
   }
 
+  if (!Array.isArray(response.drafts) || response.drafts.length !== (input.payload.sampleCount || 3)
+      || !['openai-image-v1','gemini-image-v1'].includes(response.providerKey)
+      || response.drafts.some(draft => draft.contentType !== 'image/png' || !draft.base64Data)) {
+    throw new Error('Billedmotoren returnerede ikke det forventede antal PNG-billeder. Opdater opgavens status.');
+  }
+
+  if (input.payload.recipe && response.drafts.some(d => d.metadata?.promptProfile !== "icon-studio-controlled-v2")) throw new Error("Billedmotoren skal opdateres til de nye stile.");
   const drafts = await Promise.all(
     response.drafts.map(async (draft): Promise<IconStudioProviderDraft> => {
       let blob = base64ToBlob(draft.base64Data, draft.contentType);
+      const native = await finishStudioRaster(blob, input.payload.output.size);
+      blob = native.blob;
 
-      if (response.providerKey === "gemini-image-v1") {
+      if (typeof draft.metadata.chromaBackdrop === 'string') {
+        blob = await removeStudioChromaBackdrop(blob,input.payload.output.size,draft.metadata.chromaBackdrop);
+      } else if (response.providerKey === "gemini-image-v1") {
         blob = await removeUniformBackgroundFromRasterBlob({
           blob,
           outputSize: input.payload.output.size,
         });
       }
 
+      blob = await finishStudioGraphic(blob,input.payload.output.size,input.payload.recipe);
       if (input.payload.brandOverlay.enabled && input.brandAssetDataUrl) {
         blob = await applyBrandOverlayToRasterBlob({
           blob,
@@ -111,6 +122,7 @@ export async function generateIconStudioDraftsViaEdge(input: IconStudioGenerateD
         });
       }
 
+      if (input.payload.recipe?.treatmentId === "breakout") blob = (await finishStudioRaster(blob,input.payload.output.size,input.payload.recipe.palette[1])).blob;
       return {
         label: draft.label,
         extension: "png",
@@ -120,11 +132,15 @@ export async function generateIconStudioDraftsViaEdge(input: IconStudioGenerateD
         height: input.payload.output.size,
         metadata: {
           ...draft.metadata,
+          nativeWidth: native.nativeWidth,
+          nativeHeight: native.nativeHeight,
           requestedOutputSize: input.payload.output.size,
           providerKey: response.providerKey,
-          transparencyMode: response.providerKey === "gemini-image-v1" ? "cutout" : "native",
+          transparencyMode: draft.metadata.chromaBackdrop ? 'chroma-cutout' : response.providerKey === "gemini-image-v1" ? "cutout" : "native",
           brandOverlayApplied: input.payload.brandOverlay.enabled && Boolean(input.brandAssetDataUrl),
-          referenceImageCount: input.referenceImages.length,
+          graphicFinishVersion: needsGraphicFinish(input.payload.recipe) ? 1 : null,
+          // The server count includes the approved collection anchor it adds.
+          libraryReferenceImageCount: input.referenceImages.length,
         },
       };
     }),
@@ -134,4 +150,14 @@ export async function generateIconStudioDraftsViaEdge(input: IconStudioGenerateD
     providerKey: response.providerKey,
     drafts,
   };
+}
+
+export async function resolveStudioProvider(tenantId: string, preference: IconStudioProviderPreference, requireReferencePack = false, requireFolderGuide = false) {
+  if (preference === 'mock') return {provider:'mock' as const,connection:undefined};
+  const data = await getStudioCapabilities(tenantId);
+  if (requireReferencePack && data.referencePackVersion !== 1) throw new Error("Billedmotoren skal opdateres, før referencepakken kan bruges.");
+  if (requireFolderGuide && data.folderGuideVersion !== 2) throw new Error('Billedmotoren skal opdateres, før de nye mappevisninger kan bruges.');
+  const resolved = preference === 'auto' ? data.providers[0] : preference;
+  if (!resolved || !data.providers.includes(resolved)) throw new Error('Den valgte billedmotor er ikke tilsluttet.');
+  return {provider:resolved,connection:resolved === 'openai' ? {source:data.connection.connected ? 'tenant' as const : 'platform' as const,version:data.connection.version} : undefined};
 }

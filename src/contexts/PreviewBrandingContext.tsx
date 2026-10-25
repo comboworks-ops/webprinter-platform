@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useState, useEffect, useRef, type ReactNode } from "react";
+import { resolveWideFormatEditorBranding } from '@/lib/branding/wideFormatEditor';
+import { createContext, useCallback, useContext, useMemo, useState, useEffect, useRef, type ReactNode } from "react";
 import type { BrandingData } from "@/hooks/useBrandingDraft";
 import { mergeBrandingWithDefaults } from "@/hooks/useBrandingDraft";
 import { getGoogleFontsUrl } from "@/components/admin/FontSelector";
@@ -396,7 +397,10 @@ export function PreviewBrandingProvider({
  * Hook to access preview branding in components.
  */
 export function usePreviewBranding() {
-    return useContext(PreviewBrandingContext);
+    const context = useContext(PreviewBrandingContext);
+    const tenantId = new URLSearchParams(window.location.search).get('tenantId') || new URLSearchParams(window.location.search).get('tenant_id');
+    const branding = useMemo(() => context.branding ? resolveWideFormatEditorBranding(context.branding, tenantId) : null, [context.branding, tenantId]);
+    return { ...context, branding };
 }
 
 /**

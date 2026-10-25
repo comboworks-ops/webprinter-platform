@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { galleryMatrixSelections, gallerySelectionKey, matchProductGallery, readProductGallery, type ProductGalleryImage } from './productGallery.ts';
+import { galleryImageSelectionKey, galleryMatrixSelections, gallerySelectionKey, matchProductGallery, readProductGallery, type ProductGalleryImage } from './productGallery.ts';
 import { prepareWorkspaceSave, readWorkspaceDraft } from './productWorkspace.ts';
 const images: ProductGalleryImage[] = [
   { id: 'paper', url: '/paper.png', alt: 'Materialeprøve', conditions: [] },
@@ -30,6 +30,12 @@ test('equal specificity uses configured order, empty rules and invalid URLs neve
   assert.equal(matchProductGallery([{ ...images[1], url: 'javascript:alert(1)' }], { format: 'a4' }), undefined);
   assert.equal(matchProductGallery([{ ...images[1], conditions: [{ sectionId: '', valueId: '' }] }], { '': '' }), undefined);
 });
+test('illustration-only fold images remain manual previews and never imply an orderable selection', () => {
+  const gate = { ...images[1], id: 'gate', previewOnly: true };
+  assert.equal(matchProductGallery([gate, ...images], { format: 'a4' })?.id, 'a4');
+  assert.equal(matchProductGallery([gate], { format: 'a4' }), undefined);
+  assert.equal(readProductGallery({ gallery: [gate] })[0].previewOnly, true);
+});
 test('legacy images remain compatible and explicit empty gallery removes them', () => {
   assert.deepEqual(readProductGallery({ images: ['/one.png'] }), [{ id: 'legacy-0', url: '/one.png', alt: '', conditions: [] }]);
   assert.deepEqual(readProductGallery({ images: ['/one.png'], gallery: [] }), []);
@@ -38,6 +44,14 @@ test('legacy images remain compatible and explicit empty gallery removes them', 
 test('thumbnail reset key follows actual choices, not allocation or ordering', () => {
   assert.equal(gallerySelectionKey({ format: 'a4', print: '4+4' }), gallerySelectionKey({ print: '4+4', format: 'a4', unused: null }));
   assert.notEqual(gallerySelectionKey({ format: 'a4' }), gallerySelectionKey({ format: 'a6' }));
+});
+test('image selection ignores paper/finish and resets only for conditions used by gallery images', () => {
+  const selected = { format: 'a6', fold: 'midtfalset', finish: 'mat', paper: '135g' };
+  const key = galleryImageSelectionKey(images, selected);
+  assert.equal(galleryImageSelectionKey(images, { ...selected, finish: 'gloss', paper: '250g' }), key);
+  assert.notEqual(galleryImageSelectionKey(images, { ...selected, fold: 'roll' }), key);
+  assert.notEqual(galleryImageSelectionKey(images, { ...selected, format: 'a4' }), key);
+  assert.equal(galleryImageSelectionKey([], selected), '[]');
 });
 test('gallery survives draft reload and apply without changing pricing, supplier fields or original content', () => {
   const initial = { mode: 'matrix_layout_v1', vertical_axis: { sectionId: 'format', valueIds: ['a4'] }, layout_rows: [], quantities: [100, 500], supplier: { id: 'fixed' }, workspaceContent: { description: 'Original' } };

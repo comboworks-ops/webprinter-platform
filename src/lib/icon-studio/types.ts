@@ -1,3 +1,6 @@
+import type { StudioConnectionBinding } from '../../../supabase/functions/_shared/iconStudioConnection.ts';
+import { parseStudioPayload } from "../../../supabase/functions/_shared/iconStudioValidation.ts";
+import { parseStudioRecipe, type StudioRecipe, type StudioCollection } from "../../../supabase/functions/_shared/iconStudioRecipe.ts";
 import { z } from "zod";
 
 import {
@@ -110,6 +113,9 @@ export interface IconStudioProductTarget {
 }
 
 export interface IconStudioPayloadBuilderInput {
+  recipe?: StudioRecipe;
+  collection?: StudioCollection;
+  sampleCount?: 1 | 3;
   tenantId: string;
   productKey: IconStudioProductKey;
   styleKey: IconStudioStyleKey;
@@ -125,6 +131,10 @@ export interface IconStudioPayloadBuilderInput {
 }
 
 export interface IconStudioGenerationPayload {
+  connection?: StudioConnectionBinding;
+  recipe?: StudioRecipe;
+  collection?: StudioCollection;
+  sampleCount?: 1 | 3;
   productKey: IconStudioProductKey;
   styleKey: IconStudioStyleKey;
   variantKey: IconStudioVariantKey;
@@ -149,6 +159,9 @@ export interface IconStudioGenerationPayload {
 const outputSizeValues = new Set<number>(ICON_STUDIO_OUTPUT_SIZES);
 
 export const IconStudioGenerationPayloadSchema = z.object({
+  recipe: z.unknown().optional(),
+  collection: z.unknown().optional(),
+  sampleCount: z.union([z.literal(1), z.literal(3)]).optional(),
   productKey: z.enum(ICON_STUDIO_PRODUCT_KEYS),
   styleKey: z.enum(ICON_STUDIO_STYLE_KEYS),
   variantKey: z.enum(ICON_STUDIO_VARIANT_KEYS),
@@ -188,7 +201,10 @@ export function buildIconStudioPayload(input: IconStudioPayloadBuilderInput): Ic
     }
   }
 
-  return IconStudioGenerationPayloadSchema.parse({
+  return parseStudioPayload(IconStudioGenerationPayloadSchema.parse({
+    ...(input.recipe ? { recipe: parseStudioRecipe(input.recipe, input.productKey) } : {}),
+    ...(input.collection ? { collection: input.collection } : {}),
+    ...(input.sampleCount ? { sampleCount: input.sampleCount } : {}),
     productKey: input.productKey,
     styleKey: input.styleKey,
     variantKey: input.variantKey,
@@ -208,5 +224,5 @@ export function buildIconStudioPayload(input: IconStudioPayloadBuilderInput): Ic
       format: input.format,
       size: input.size,
     },
-  }) as IconStudioGenerationPayload;
+  }), input.tenantId) as IconStudioGenerationPayload;
 }

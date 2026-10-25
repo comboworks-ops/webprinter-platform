@@ -419,13 +419,17 @@ export function SiteDesignPreviewFrame({
     const currentPathname = getSiteDesignPreviewPathname(currentPath);
     const currentProductSlug = getSiteDesignPreviewProductSlug(currentPath);
     const currentOrderPage = getOrderFlowPreviewPage(currentPath);
+    const contentPages = [
+        {path:'/grafisk-vejledning',label:'Grafisk vejledning'}, {path:'/kontakt',label:'Kontakt'}, {path:'/om-os',label:'Om os'},
+        {path:'/vilkaar',label:'Handelsbetingelser'}, {path:'/privatliv',label:'Privatliv'}, {path:'/cookies',label:'Cookies'},
+    ];
     const previewDestinationValue = currentProductSlug
         ? `product:${currentProductSlug}`
         : currentOrderPage && currentOrderPage !== "calculator"
             ? `page:${getOrderFlowPreviewPath(currentOrderPage)}`
             : currentPathname === "/produkter" || currentPathname === "/shop"
                 ? "page:/produkter"
-                : "page:/";
+                : contentPages.some(page => page.path === currentPathname) ? `page:${currentPathname}` : "page:/";
 
     const handlePreviewDestinationChange = (value: string) => {
         if (value.startsWith("product:")) {
@@ -524,6 +528,7 @@ export function SiteDesignPreviewFrame({
                                 <SelectLabel>Sider</SelectLabel>
                                 <SelectItem value="page:/">Forside</SelectItem>
                                 <SelectItem value="page:/produkter">Produktoversigt</SelectItem>
+                                {contentPages.map(page => <SelectItem key={page.path} value={`page:${page.path}`}>{page.label}</SelectItem>)}
                             </SelectGroup>
                             <SelectSeparator />
                             <SelectGroup>
