@@ -2,6 +2,8 @@
 
 The REA assessment and subsequent work are reconciled in [the status index](REA_WORK_STATUS_2026-10-25.md). The original assessment overstated the current backlog by retaining its initial “not implemented” wording; the index now links each completed fix to its dated receipt and separates local pilots from live acceptance.
 
+**Follow-up:** Thomas approved the live rollout. All ten shop aliases are now live; see [the final release record](REA_LIVE_RELEASE_2026-10-25.md). The staging history below remains retained.
+
 ## GitHub recording
 
 Published to GitHub branch `codex/rea-records-and-release-2026-10-25`, based on main `92f060b53cdfef0f98a9be7c7925f309eb3f105b`. Review: [draft PR #19](https://github.com/comboworks-ops/webprinter-platform/pull/19). Source/record checkpoint: `9669e23c1fbf371bba8310a97c4aa4420ab9ed86`; a subsequent documentation-only receipt commit records these publication links.
@@ -47,7 +49,7 @@ The clean cloud build is READY. All 1,873 uploaded source hashes match the candi
 
 The first staged build, `dpl_3Tgps5XTNFfqxkJrbZx29NZeiuNM`, included 198 generated `.vite` cache files after local QA. Every expected application source matched, but the strict source check correctly rejected the extra packaging. The owned QA listener was stopped and the cache moved to retained evidence outside the candidate; the identical application source was restaged. The first attempt remains preserved and was never assigned to a shop.
 
-Live target selection is pending: Webprinter only, all shops, or review only. The four shop source baselines and existing 36 aliases/redirects must remain distinct. Do not globally promote or merge to the auto-deploying main branch. An all-shop release requires applying the same small delta to each exact current live source and verifying each candidate; this Webprinter candidate must not replace the other cohorts.
+Live target selection was subsequently approved: Webprinter and all existing live shops. The four shop source baselines and existing 36 aliases/redirects must remain distinct. Do not globally promote or merge to the auto-deploying main branch. An all-shop release requires applying the same small delta to each exact current live source and verifying each candidate; this Webprinter candidate must not replace the other cohorts.
 
 No live rollback is needed for a staged-only release. If later activated, first capture the immediately preceding mappings and restore only the approved aliases after checking for concurrent releases. Preserve all uploads, original artwork, customer acknowledgements, local drafts and retained evidence. No database rollback or deletion is required.
 

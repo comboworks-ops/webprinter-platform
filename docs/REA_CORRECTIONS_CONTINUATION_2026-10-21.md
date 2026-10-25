@@ -1,5 +1,7 @@
 # REA correction pass resumed — 21 October 2026
 
+**25 October live update:** the prepared wording/product guidance is now released on the existing shop aliases. See [the live release record](REA_LIVE_RELEASE_2026-10-25.md). The original local implementation/verification account below is historical.
+
 ## Current checkpoint
 
 The system assessment is the roadmap. The PVCbanner checkout and Salgsmapper selection fixes were deployed earlier and freshly rechecked during this resumed session: 200 pieces / silk / 739 kr survives the homepage handoff and reload, reaching 985 kr including delivery and VAT; PVCbanner reaches 560 kr including VAT without the warning. No order, payment or upload was initiated. Receipt: `output/rea-corrections-2026-10-21/checkout-recheck.json`.

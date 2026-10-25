@@ -2,6 +2,8 @@
 
 Updated 25 October 2026. This is the current index for the Webprinter REA assessment and its follow-up work. The original dated reports remain historical evidence; their initial “not implemented” statements do not override later release receipts.
 
+**LIVE release update:** the approved wording and product guidance are now live across all ten shop aliases. See [the final live receipt](REA_LIVE_RELEASE_2026-10-25.md). Local pilots and the remaining acceptance work below stay separate.
+
 ## What is recorded
 
 The [system assessment](WEBPRINTER_SYSTEM_ASSESSMENT_2026-10-21.md) records the inspected public shops, competitor references, findings F01–F07, source observations and six-phase roadmap. Its scope is public browser scenarios plus source/vendor-document review. It is not a full authenticated acceptance test of every module. Public competitor material is not evidence of private implementation, API rights, conversion performance or commercial acceptance.
@@ -12,8 +14,8 @@ The [system assessment](WEBPRINTER_SYSTEM_ASSESSMENT_2026-10-21.md) records the 
 | F02 folder promotional selection handoff | Fixed and verified live, including 200/500 selections and reload | [fix](CHECKOUT_SELECTION_FIXES_2026-10-21.md), [release](CHECKOUT_SELECTION_RELEASE_2026-10-21.md) |
 | F03 unfinished catalogue text | Fourteen approved text fields published; product/price preservation recorded | [review](CATALOGUE_COPY_REVIEW_2026-10-21.md), [release](CATALOGUE_COPY_RELEASE_2026-10-21.md) |
 | F03 missing demo images | Seven reviewed images published; original bytes and existing records preserved | [review](CATALOGUE_IMAGE_REVIEW_2026-10-21.md), [release](CATALOGUE_IMAGE_RELEASE_2026-10-21.md) |
-| F04/F05 matrix explanations and artwork guidance | Implemented and tested locally; this release prepares the scoped existing change against the live source | [implementation](PRODUCT_CHOICE_GUIDANCE_2026-10-21.md) |
-| F06 white-label/signup claims | Two text-only page corrections prepared locally; this release prepares those corrections | [continuation](REA_CORRECTIONS_CONTINUATION_2026-10-21.md) |
+| F04/F05 matrix explanations and artwork guidance | Live on all ten shop aliases; exact source and representative browser checks pass | [implementation](PRODUCT_CHOICE_GUIDANCE_2026-10-21.md) |
+| F06 white-label/signup claims | Two text-only page corrections released; live Webprinter signup journey verified | [continuation](REA_CORRECTIONS_CONTINUATION_2026-10-21.md) |
 | Phase 2 non-A4 image approval | Deployed to all ten shop aliases with four separate source baselines; live upload approvals recorded | [fix](CHECKOUT_IMAGE_APPROVAL_FIX_2026-10-25.md), [release](CHECKOUT_IMAGE_APPROVAL_RELEASE_2026-10-25.md) |
 | Phase 2 product-specific DPI/cropping warnings | Deployed: 300 DPI small print, 150 DPI wide format, 100 DPI from 6 m²/item; explicit warning acceptance tied to current artwork | [policy and release](PRINT_WARNING_OVERRIDES_2026-10-25.md) |
 | Phase 2 CutContour overlap approval | Live round 30 cm Gulvfolie passed warning acceptance → approval; exported valid spot CutContour retained | [live verification](CUT_CONTOUR_LIVE_APPROVAL_2026-10-25.md) |

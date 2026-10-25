@@ -1,0 +1,13 @@
+{
+  "group": "pvc-sales",
+  "deployment": "dpl_3ZWANcUtqFzxy4raha4Eu7bV3KL9",
+  "updatedAliases": [
+    "pvcbanner.dk",
+    "www.pvcbanner.dk",
+    "salgsmapper.dk",
+    "www.salgsmapper.dk"
+  ],
+  "otherAliasesUnchanged": 33,
+  "allAssignmentsVerified": true,
+  "redirectsPreserved": true
+}

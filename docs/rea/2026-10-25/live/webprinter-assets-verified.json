@@ -1,0 +1,15 @@
+{
+  "group": "webprinter",
+  "deployment": "dpl_Edtv5bbmTabSpaJ6DYBjyz9n9oB5",
+  "url": "printmaker-web-craft-main-a4trlhawk-thomas-projects-d80b9ddd.vercel.app",
+  "readyState": "READY",
+  "verifiedSourceFiles": 1873,
+  "exactScopedChangeOnly": true,
+  "entry": "/assets/index-DeLtk_J1.js",
+  "entrySha256": "6ec1478d7cb4af3f1c7dc89985e3b51e0f289be2d3b4787c0b1e6a76832fb19d",
+  "verifiedChunks": [
+    "/assets/index-DeLtk_J1.js"
+  ],
+  "compiledGuidanceAndApprovalPolicyVerified": true,
+  "httpStatus": 200
+}

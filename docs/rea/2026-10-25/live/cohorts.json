@@ -1,0 +1,36 @@
+{
+  "webprinter": {
+    "before": "dpl_4mwJcwxLzGhnr7BwJK2h9wAS7tCf",
+    "candidate": "/private/tmp/webprinter-rea-release-20261025-webprinter",
+    "aliases": [
+      "webprinter.dk",
+      "www.webprinter.dk"
+    ]
+  },
+  "online": {
+    "before": "dpl_GR1aWoZzcUkNa9cNfRxYxE1v9CwY",
+    "candidate": "/private/tmp/webprinter-rea-live-20261025-online",
+    "aliases": [
+      "onlinetryksager.dk",
+      "www.onlinetryksager.dk",
+      "printmaker-web-craft-main.vercel.app"
+    ]
+  },
+  "pvc-sales": {
+    "before": "dpl_F8vPETPN98RU2tiz3ZMBMFUtCyXJ",
+    "candidate": "/private/tmp/webprinter-rea-live-20261025-pvc-sales",
+    "aliases": [
+      "pvcbanner.dk",
+      "www.pvcbanner.dk",
+      "salgsmapper.dk",
+      "www.salgsmapper.dk"
+    ]
+  },
+  "general": {
+    "before": "dpl_EpMu6gNQNwjYiQ8ZERcjuEydNa71",
+    "candidate": "/private/tmp/webprinter-rea-live-20261025-general",
+    "aliases": [
+      "printmaker-web-craft-main-thomas-projects-d80b9ddd.vercel.app"
+    ]
+  }
+}

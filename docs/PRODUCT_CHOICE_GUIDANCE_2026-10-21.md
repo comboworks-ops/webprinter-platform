@@ -1,5 +1,7 @@
 # Produktvalg og filvejledning — 21. oktober 2026
 
+**25 October live update:** the prepared wording/product guidance is now released on the existing shop aliases. See [the live release record](REA_LIVE_RELEASE_2026-10-25.md). The original local implementation/verification account below is historical.
+
 Lokale, additive forbedringer. Ingen udgivelse, databaseændringer, upload, ordre, betaling eller leverandørhandling.
 
 ## Resultat

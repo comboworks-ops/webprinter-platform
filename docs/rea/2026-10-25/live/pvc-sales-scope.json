@@ -1,0 +1,20 @@
+{
+  "source": "/private/tmp/webprinter-warning-overrides-20261025-pvc-sales",
+  "candidate": "/private/tmp/webprinter-rea-live-20261025-pvc-sales",
+  "baselineFiles": 1866,
+  "candidateFiles": 1870,
+  "modified": [
+    "src/components/product-price-page/MatrixLayoutV1Renderer.tsx",
+    "src/components/product-price-page/ProductPricePanel.tsx",
+    "src/pages/TenantSignup.tsx",
+    "src/pages/platform/PlatformWhiteLabel.tsx"
+  ],
+  "added": [
+    "src/components/product-price-page/ProductChoiceGuidance.tsx",
+    "src/hooks/useAutomaticSelectionNotice.ts",
+    "src/lib/products/automaticSelectionNotice.ts",
+    "src/lib/products/automaticSelectionNotice.test.ts"
+  ],
+  "allOtherSourcesPreserved": true,
+  "stableArtworkLayoutNotPresentInBaseline": true
+}
