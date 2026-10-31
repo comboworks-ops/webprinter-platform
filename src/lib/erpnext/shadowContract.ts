@@ -8,7 +8,7 @@ const boundedReference = z.string().trim().min(1).max(200);
 const money = z.number().finite().nonnegative();
 
 const selectedOptionsSchema = z
-  .record(z.string().trim().max(500))
+  .record(z.string(), z.string().trim().max(500))
   .default({});
 
 export const erpShadowMaterialRequirementSchema = z

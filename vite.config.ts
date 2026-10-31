@@ -33,7 +33,7 @@ export default defineConfig(({ mode }) => ({
   // when dependencies change during local tooling/import runs.
   cacheDir: process.env.WEBPRINTER_VITE_CACHE_DIR || ".vite",
   server: {
-    host: "::",
+    host: "127.0.0.1",
     port: 8080,
     watch: {
       // Avoid HMR storms from backup/docs churn (common in synced folders)
@@ -42,6 +42,7 @@ export default defineConfig(({ mode }) => ({
       interval: 1000,
     },
   },
+  preview: { host: "127.0.0.1" },
   plugins: [cleanDistBeforeBuild(), localColorProfileAssets(), react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
     alias: [
