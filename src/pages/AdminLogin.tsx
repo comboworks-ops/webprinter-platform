@@ -43,7 +43,7 @@ const AdminLogin = () => {
     });
     const validation = adminAuthSchema.safeParse({ email, password });
     if (!validation.success) {
-      setErrorMessage(validation.error.errors[0].message);
+      setErrorMessage(validation.error.issues[0].message);
       return;
     }
 
