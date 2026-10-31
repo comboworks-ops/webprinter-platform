@@ -8,7 +8,7 @@ apify-fingerprint-datapoints==0.15.0
     #   scrapling
 browserforge==1.2.4
     # via scrapling
-certifi==2026.7.22
+certifi==2026.10.18
     # via curl-cffi
 cffi==2.1.1
     # via curl-cffi
